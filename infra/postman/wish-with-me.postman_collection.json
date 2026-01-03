@@ -1,0 +1,399 @@
+{
+  "info": {
+    "name": "Wish With Me - Core API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {"key": "baseUrl", "value": "http://localhost:8000"},
+    {"key": "accessToken", "value": ""},
+    {"key": "refreshToken", "value": ""},
+    {"key": "wishlistId", "value": ""},
+    {"key": "itemId", "value": ""},
+    {"key": "shareToken", "value": ""},
+    {"key": "userId", "value": ""},
+    {"key": "cursor", "value": "0"}
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+            ],
+            "url": "{{baseUrl}}/api/v1/auth/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@example.com\",\n  \"full_name\": \"Test User\",\n  \"password\": \"password123\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.access_token) pm.collectionVariables.set('accessToken', json.access_token);",
+                  "if (json.refresh_token) pm.collectionVariables.set('refreshToken', json.refresh_token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+            ],
+            "url": "{{baseUrl}}/api/v1/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"password123\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.access_token) pm.collectionVariables.set('accessToken', json.access_token);",
+                  "if (json.refresh_token) pm.collectionVariables.set('refreshToken', json.refresh_token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Refresh",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+            ],
+            "url": "{{baseUrl}}/api/v1/auth/refresh",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refreshToken}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.access_token) pm.collectionVariables.set('accessToken', json.access_token);",
+                  "if (json.refresh_token) pm.collectionVariables.set('refreshToken', json.refresh_token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+            ],
+            "url": "{{baseUrl}}/api/v1/auth/logout",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refreshToken}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "url": "{{baseUrl}}/api/v1/users/me"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json._id) pm.collectionVariables.set('userId', json._id);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Wishlists",
+      "item": [
+        {
+          "name": "List Wishlists",
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "url": "{{baseUrl}}/api/v1/wishlists"
+          }
+        },
+        {
+          "name": "Create Wishlist",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+            ],
+            "url": "{{baseUrl}}/api/v1/wishlists",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Birthday\",\n  \"description\": \"Gifts\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.wishlist_id) pm.collectionVariables.set('wishlistId', json.wishlist_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Wishlist",
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "url": "{{baseUrl}}/api/v1/wishlists/{{wishlistId}}"
+          }
+        },
+        {
+          "name": "Update Wishlist",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+            ],
+            "url": "{{baseUrl}}/api/v1/wishlists/{{wishlistId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Birthday 2025\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete Wishlist",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+            ],
+            "url": "{{baseUrl}}/api/v1/wishlists/{{wishlistId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Items",
+      "item": [
+        {
+          "name": "Add Item",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+            ],
+            "url": "{{baseUrl}}/api/v1/wishlists/{{wishlistId}}/items",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"source_url\": \"https://example.com/product\",\n  \"quantity\": 1\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.item_id) pm.collectionVariables.set('itemId', json.item_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Item",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+            ],
+            "url": "{{baseUrl}}/api/v1/wishlists/{{wishlistId}}/items/{{itemId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Example Item\",\n  \"quantity\": 2\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete Item",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+            ],
+            "url": "{{baseUrl}}/api/v1/wishlists/{{wishlistId}}/items/{{itemId}}"
+          }
+        },
+        {
+          "name": "Mark Bought",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+            ],
+            "url": "{{baseUrl}}/api/v1/wishlists/{{wishlistId}}/items/{{itemId}}/mark-bought"
+          }
+        },
+        {
+          "name": "Unmark Bought",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+            ],
+            "url": "{{baseUrl}}/api/v1/wishlists/{{wishlistId}}/items/{{itemId}}/unmark-bought"
+          }
+        },
+        {
+          "name": "Resolve Item",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+            ],
+            "url": "{{baseUrl}}/api/v1/wishlists/{{wishlistId}}/items/{{itemId}}/resolve"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Sharing",
+      "item": [
+        {
+          "name": "Share Wishlist",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+            ],
+            "url": "{{baseUrl}}/api/v1/wishlists/{{wishlistId}}/share"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.share_token) pm.collectionVariables.set('shareToken', json.share_token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Revoke Share",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+            ],
+            "url": "{{baseUrl}}/api/v1/wishlists/{{wishlistId}}/share/revoke"
+          }
+        },
+        {
+          "name": "Redeem Share",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+            ],
+            "url": "{{baseUrl}}/api/v1/shares/redeem",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"share_token\": \"{{shareToken}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Revoke Access",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+            ],
+            "url": "{{baseUrl}}/api/v1/wishlists/{{wishlistId}}/access/revoke",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{userId}}\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Sync",
+      "item": [
+        {
+          "name": "Sync",
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "url": "{{baseUrl}}/api/v1/sync?cursor={{cursor}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.next_cursor !== undefined) pm.collectionVariables.set('cursor', String(json.next_cursor));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
