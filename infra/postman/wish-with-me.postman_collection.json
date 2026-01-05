@@ -4,14 +4,42 @@
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    {"key": "baseUrl", "value": "http://localhost:8000"},
-    {"key": "accessToken", "value": ""},
-    {"key": "refreshToken", "value": ""},
-    {"key": "wishlistId", "value": ""},
-    {"key": "itemId", "value": ""},
-    {"key": "shareToken", "value": ""},
-    {"key": "userId", "value": ""},
-    {"key": "cursor", "value": "0"}
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "refreshToken",
+      "value": ""
+    },
+    {
+      "key": "wishlistId",
+      "value": ""
+    },
+    {
+      "key": "itemId",
+      "value": ""
+    },
+    {
+      "key": "shareToken",
+      "value": ""
+    },
+    {
+      "key": "userId",
+      "value": ""
+    },
+    {
+      "key": "cursor",
+      "value": "0"
+    },
+    {
+      "key": "resolverBaseUrl",
+      "value": "http://localhost:8001"
+    }
   ],
   "item": [
     {
@@ -22,8 +50,14 @@
           "request": {
             "method": "POST",
             "header": [
-              {"key": "Content-Type", "value": "application/json"},
-              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
             ],
             "url": "{{baseUrl}}/api/v1/auth/register",
             "body": {
@@ -49,8 +83,14 @@
           "request": {
             "method": "POST",
             "header": [
-              {"key": "Content-Type", "value": "application/json"},
-              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
             ],
             "url": "{{baseUrl}}/api/v1/auth/login",
             "body": {
@@ -76,8 +116,14 @@
           "request": {
             "method": "POST",
             "header": [
-              {"key": "Content-Type", "value": "application/json"},
-              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
             ],
             "url": "{{baseUrl}}/api/v1/auth/refresh",
             "body": {
@@ -103,8 +149,14 @@
           "request": {
             "method": "POST",
             "header": [
-              {"key": "Content-Type", "value": "application/json"},
-              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
             ],
             "url": "{{baseUrl}}/api/v1/auth/logout",
             "body": {
@@ -117,7 +169,12 @@
           "name": "Me",
           "request": {
             "method": "GET",
-            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
             "url": "{{baseUrl}}/api/v1/users/me"
           },
           "event": [
@@ -141,7 +198,12 @@
           "name": "List Wishlists",
           "request": {
             "method": "GET",
-            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
             "url": "{{baseUrl}}/api/v1/wishlists"
           }
         },
@@ -150,9 +212,18 @@
           "request": {
             "method": "POST",
             "header": [
-              {"key": "Content-Type", "value": "application/json"},
-              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
-              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
             ],
             "url": "{{baseUrl}}/api/v1/wishlists",
             "body": {
@@ -176,7 +247,12 @@
           "name": "Get Wishlist",
           "request": {
             "method": "GET",
-            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
             "url": "{{baseUrl}}/api/v1/wishlists/{{wishlistId}}"
           }
         },
@@ -185,9 +261,18 @@
           "request": {
             "method": "PATCH",
             "header": [
-              {"key": "Content-Type", "value": "application/json"},
-              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
-              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
             ],
             "url": "{{baseUrl}}/api/v1/wishlists/{{wishlistId}}",
             "body": {
@@ -201,8 +286,14 @@
           "request": {
             "method": "DELETE",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
-              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
             ],
             "url": "{{baseUrl}}/api/v1/wishlists/{{wishlistId}}"
           }
@@ -217,9 +308,18 @@
           "request": {
             "method": "POST",
             "header": [
-              {"key": "Content-Type", "value": "application/json"},
-              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
-              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
             ],
             "url": "{{baseUrl}}/api/v1/wishlists/{{wishlistId}}/items",
             "body": {
@@ -244,9 +344,18 @@
           "request": {
             "method": "PATCH",
             "header": [
-              {"key": "Content-Type", "value": "application/json"},
-              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
-              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
             ],
             "url": "{{baseUrl}}/api/v1/wishlists/{{wishlistId}}/items/{{itemId}}",
             "body": {
@@ -260,8 +369,14 @@
           "request": {
             "method": "DELETE",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
-              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
             ],
             "url": "{{baseUrl}}/api/v1/wishlists/{{wishlistId}}/items/{{itemId}}"
           }
@@ -271,8 +386,14 @@
           "request": {
             "method": "POST",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
-              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
             ],
             "url": "{{baseUrl}}/api/v1/wishlists/{{wishlistId}}/items/{{itemId}}/mark-bought"
           }
@@ -282,8 +403,14 @@
           "request": {
             "method": "POST",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
-              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
             ],
             "url": "{{baseUrl}}/api/v1/wishlists/{{wishlistId}}/items/{{itemId}}/unmark-bought"
           }
@@ -293,8 +420,14 @@
           "request": {
             "method": "POST",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
-              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
             ],
             "url": "{{baseUrl}}/api/v1/wishlists/{{wishlistId}}/items/{{itemId}}/resolve"
           }
@@ -309,8 +442,14 @@
           "request": {
             "method": "POST",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
-              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
             ],
             "url": "{{baseUrl}}/api/v1/wishlists/{{wishlistId}}/share"
           },
@@ -331,8 +470,14 @@
           "request": {
             "method": "POST",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
-              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
             ],
             "url": "{{baseUrl}}/api/v1/wishlists/{{wishlistId}}/share/revoke"
           }
@@ -342,9 +487,18 @@
           "request": {
             "method": "POST",
             "header": [
-              {"key": "Content-Type", "value": "application/json"},
-              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
-              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
             ],
             "url": "{{baseUrl}}/api/v1/shares/redeem",
             "body": {
@@ -358,9 +512,18 @@
           "request": {
             "method": "POST",
             "header": [
-              {"key": "Content-Type", "value": "application/json"},
-              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
-              {"key": "Idempotency-Key", "value": "{{$guid}}"}
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
             ],
             "url": "{{baseUrl}}/api/v1/wishlists/{{wishlistId}}/access/revoke",
             "body": {
@@ -378,7 +541,12 @@
           "name": "Sync",
           "request": {
             "method": "GET",
-            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
             "url": "{{baseUrl}}/api/v1/sync?cursor={{cursor}}"
           },
           "event": [
@@ -392,6 +560,28 @@
               }
             }
           ]
+        }
+      ]
+    },
+    {
+      "name": "Item Resolver",
+      "item": [
+        {
+          "name": "Resolve URL",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{resolverBaseUrl}}/resolver/v1/resolve",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"source_url\": \"https://example.com/product\"\n}"
+            }
+          }
         }
       ]
     }

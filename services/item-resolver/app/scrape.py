@@ -1,0 +1,339 @@
+from __future__ import annotations
+
+import asyncio
+import json
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
+from urllib.parse import urlparse
+
+
+def safe_host(url: str) -> str:
+    host = urlparse(url).hostname or "unknown-host"
+    return "".join(ch if ch.isalnum() or ch in ("-", "_", ".") else "_" for ch in host)
+
+
+def registrable_domain(hostname: str) -> str:
+    """
+    Best-effort "site key" so that page fetches and image fetches share storage_state.
+    Avoids adding new dependencies; pragmatic eTLD+1 heuristic.
+    """
+    h = (hostname or "").strip().lower().rstrip(".")
+    if not h:
+        return "unknown-host"
+
+    # IPs should stay as-is.
+    parts = [p for p in h.split(".") if p]
+    if len(parts) == 4 and all(p.isdigit() for p in parts):
+        return h
+
+    if len(parts) <= 2:
+        return h
+
+    multipart_suffixes = {
+        "co.uk",
+        "com.au",
+        "co.jp",
+        "com.br",
+        "com.tr",
+        "com.cn",
+    }
+    suffix2 = ".".join(parts[-2:])
+    suffix3 = ".".join(parts[-3:])
+    if suffix2 in multipart_suffixes and len(parts) >= 3:
+        return ".".join(parts[-3:])
+    if suffix3 in multipart_suffixes and len(parts) >= 4:
+        return ".".join(parts[-4:])
+    return ".".join(parts[-2:])
+
+
+def _state_merge(a: dict, b: dict) -> dict:
+    """
+    Merge two Playwright storage_state dicts.
+    - cookies merged by (name, domain, path), b overrides a
+    - origins merged by origin; localStorage merged by name, b overrides a
+    """
+    out: dict = {"cookies": [], "origins": []}
+
+    cookies_map: dict[tuple[str, str, str], dict] = {}
+    for src in (a, b):
+        for ck in (src.get("cookies") or []):
+            if not isinstance(ck, dict):
+                continue
+            key = (str(ck.get("name", "")), str(ck.get("domain", "")), str(ck.get("path", "")))
+            cookies_map[key] = ck
+    out["cookies"] = list(cookies_map.values())
+
+    origins_map: dict[str, dict] = {}
+    for src in (a, b):
+        for origin_obj in (src.get("origins") or []):
+            if not isinstance(origin_obj, dict):
+                continue
+            origin = str(origin_obj.get("origin", "") or "")
+            if not origin:
+                continue
+            cur = origins_map.get(origin) or {"origin": origin, "localStorage": []}
+
+            ls_map: dict[str, dict] = {
+                str(x.get("name", "")): x
+                for x in (cur.get("localStorage") or [])
+                if isinstance(x, dict) and str(x.get("name", "") or "")
+            }
+            for entry in (origin_obj.get("localStorage") or []):
+                if not isinstance(entry, dict):
+                    continue
+                name = str(entry.get("name", "") or "")
+                if not name:
+                    continue
+                ls_map[name] = entry
+            cur["localStorage"] = list(ls_map.values())
+            origins_map[origin] = cur
+
+    out["origins"] = list(origins_map.values())
+    return out
+
+
+def _read_state(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {"cookies": [], "origins": []}
+
+
+def _write_state(path: Path, state: dict) -> None:
+    path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+
+
+def timestamp() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def storage_state_path(storage_state_dir: Path, url: str) -> Path:
+    storage_state_dir.mkdir(parents=True, exist_ok=True)
+    parsed = urlparse(url)
+    hostname = parsed.hostname or ""
+
+    # Shared storage by registrable domain so that page requests and image requests share state.
+    site_key = registrable_domain(hostname)
+    base_path = storage_state_dir / f"{safe_host('https://' + site_key)}.json"
+
+    # Migration: merge any legacy per-host file into the shared file.
+    legacy_path = storage_state_dir / f"{safe_host(url)}.json"
+    if legacy_path != base_path and legacy_path.exists():
+        base_state = _read_state(base_path) if base_path.exists() else {"cookies": [], "origins": []}
+        legacy_state = _read_state(legacy_path)
+        merged = _state_merge(base_state, legacy_state)
+        try:
+            _write_state(base_path, merged)
+            # Best-effort cleanup: prevent continuing to fork state by subdomain.
+            try:
+                legacy_path.unlink()
+            except Exception:
+                pass
+        except Exception:
+            # If merge/write fails, fall back to legacy file to avoid breaking requests.
+            return legacy_path
+
+    return base_path
+
+
+def looks_like_interstitial_or_challenge(title: str, html: str) -> bool:
+    s = (title + "\n" + html).lower()
+    needles = [
+        # generic
+        "captcha",
+        "verify you are human",
+        "verify that you are",
+        "access denied",
+        "forbidden",
+        "too many requests",
+        "rate limit",
+        "robot check",
+        "checking your browser",
+        "checking device",
+        "security check",
+        "bot detection",
+        "anti-bot",
+        "challenge",
+        # russian
+        "доступ ограничен",
+        "подтвердите, что вы не робот",
+        "проверка браузера",
+        "проверка устройства",
+        "почти готово",
+        "проверка",
+    ]
+    return any(n in s for n in needles)
+
+
+async def wait_for_network_quiet(page, *, quiet_ms: int, timeout_ms: int) -> None:
+    """
+    Wait until there are no in-flight requests and there has been no request activity for `quiet_ms`.
+    Copied/adapted from repo `run.py` for pages that long-poll (networkidle is unreliable).
+    """
+    loop = asyncio.get_running_loop()
+    inflight = 0
+    last_activity = loop.time()
+
+    def bump() -> None:
+        nonlocal last_activity
+        last_activity = loop.time()
+
+    def on_request(_req) -> None:
+        nonlocal inflight
+        inflight += 1
+        bump()
+
+    def on_done(_req) -> None:
+        nonlocal inflight
+        inflight = max(0, inflight - 1)
+        bump()
+
+    page.on("request", on_request)
+    page.on("requestfinished", on_done)
+    page.on("requestfailed", on_done)
+    try:
+        start = loop.time()
+        quiet_s = quiet_ms / 1000.0
+        timeout_s = timeout_ms / 1000.0
+        while True:
+            now = loop.time()
+            if now - start > timeout_s:
+                return
+            if inflight == 0 and (now - last_activity) >= quiet_s:
+                return
+            await asyncio.sleep(0.05)
+    finally:
+        try:
+            page.remove_listener("request", on_request)
+        except Exception:
+            pass
+        try:
+            page.remove_listener("requestfinished", on_done)
+        except Exception:
+            pass
+        try:
+            page.remove_listener("requestfailed", on_done)
+        except Exception:
+            pass
+
+
+async def wait_for_dom_stable(page, *, samples: int, interval_ms: int, timeout_ms: int) -> None:
+    """
+    Sample DOM size and wait until it stays stable for N samples.
+    Copied/adapted from repo `run.py`.
+    """
+    loop = asyncio.get_running_loop()
+    start = loop.time()
+    timeout_s = timeout_ms / 1000.0
+
+    last = None
+    stable = 0
+    while True:
+        if loop.time() - start > timeout_s:
+            return
+        try:
+            cur = await page.evaluate(
+                "() => ({ htmlLen: document.documentElement?.outerHTML?.length || 0, "
+                "textLen: document.body?.innerText?.length || 0 })"
+            )
+            cur = (int(cur.get("htmlLen", 0)), int(cur.get("textLen", 0)))
+        except Exception:
+            cur = None
+
+        if cur is not None and cur == last and cur != (0, 0):
+            stable += 1
+            if stable >= samples:
+                return
+        else:
+            stable = 0
+            last = cur
+
+        await asyncio.sleep(interval_ms / 1000.0)
+
+
+async def wait_for_challenge_to_clear(page, *, timeout_ms: int) -> bool:
+    """
+    Best-effort: wait for common interstitials to clear.
+    Copied/adapted from repo `run.py`.
+    """
+    try:
+        resp = await page.wait_for_response(
+            lambda r: (
+                "/web/api/v1/settings" in (getattr(r, "url", "") or "")
+                and int(getattr(r, "status", 0) or 0) == 200
+            ),
+            timeout=timeout_ms,
+        )
+        _ = resp
+        return True
+    except Exception:
+        pass
+
+    try:
+        await page.wait_for_function(
+            "() => document.title && !/checking\\s+device/i.test(document.title)",
+            timeout=timeout_ms,
+        )
+        return True
+    except Exception:
+        return False
+
+
+@dataclass(frozen=True)
+class PageCaptureConfig:
+    wait_until: str = "domcontentloaded"
+    timeout_ms: int = 60_000
+    settle_ms: int = 2_000
+    max_extra_wait_ms: int = 25_000
+    network_quiet_ms: int = 1_200
+    dom_sample_interval_ms: int = 500
+    dom_stable_samples: int = 3
+    challenge_extra_wait_ms: int = 120_000
+
+
+async def capture_page_source(page, url: str, *, cfg: PageCaptureConfig) -> tuple[str, str, str]:
+    """
+    Returns: (final_url, title, html)
+    """
+    await page.goto(url, wait_until=cfg.wait_until, timeout=cfg.timeout_ms)
+
+    extra_budget = min(cfg.max_extra_wait_ms, cfg.timeout_ms)
+    try:
+        await page.wait_for_function(
+            "() => document.body && (document.body.innerText || '').trim().length > 0",
+            timeout=min(10_000, extra_budget),
+        )
+    except Exception:
+        pass
+
+    await wait_for_network_quiet(page, quiet_ms=cfg.network_quiet_ms, timeout_ms=extra_budget)
+    await wait_for_dom_stable(
+        page,
+        samples=cfg.dom_stable_samples,
+        interval_ms=cfg.dom_sample_interval_ms,
+        timeout_ms=extra_budget,
+    )
+    if cfg.settle_ms > 0:
+        await asyncio.sleep(cfg.settle_ms / 1000.0)
+
+    final_url = page.url
+    html = await page.content()
+    try:
+        title = await page.title()
+    except Exception:
+        title = ""
+
+    if looks_like_interstitial_or_challenge(title, html):
+        await wait_for_challenge_to_clear(page, timeout_ms=cfg.challenge_extra_wait_ms)
+        final_url = page.url
+        html = await page.content()
+        try:
+            title = await page.title()
+        except Exception:
+            pass
+
+    return final_url, title, html
+
+
