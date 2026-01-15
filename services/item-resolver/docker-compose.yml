@@ -6,7 +6,7 @@ services:
     environment:
       - RU_BEARER_TOKEN=${RU_BEARER_TOKEN}
       - RU_FETCHER_MODE=playwright
-      - BROWSER_CHANNEL=${BROWSER_CHANNEL:-chromium}
+      - BROWSER_CHANNEL=${BROWSER_CHANNEL:-chrome}
       - HEADLESS=${HEADLESS:-true}
       - MAX_CONCURRENCY=${MAX_CONCURRENCY:-2}
       - STORAGE_STATE_DIR=/data/storage_state
@@ -18,6 +18,13 @@ services:
       - PROXY_PASSWORD=${PROXY_PASSWORD:-}
       - PROXY_BYPASS=${PROXY_BYPASS:-}
       - PROXY_IGNORE_CERT_ERRORS=${PROXY_IGNORE_CERT_ERRORS:-}
+      - RANDOM_UA=${RANDOM_UA:-}
+      - LLM_MODE=${LLM_MODE:-live}
+      - LLM_BASE_URL=${LLM_BASE_URL:-}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_MODEL=${LLM_MODEL:-}
+      - LLM_TIMEOUT_S=${LLM_TIMEOUT_S:-60}
+      - LLM_MAX_CHARS=${LLM_MAX_CHARS:-200000}
     volumes:
       - ./storage_state:/data/storage_state
     ports:

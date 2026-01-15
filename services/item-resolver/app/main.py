@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from .auth import require_bearer_token
 from .browser_manager import load_manager_from_env, open_browser
 from .fetcher import PlaywrightFetcher, StubFetcher, fetcher_mode_from_env
+from .llm import load_llm_client_from_env
 from .scrape import PageCaptureConfig
 from .ssrf import validate_public_http_url
 
@@ -26,6 +27,17 @@ class PageSourceOut(BaseModel):
 class ImageBase64Out(BaseModel):
     content_type: str
     image_base64: str
+
+
+class ResolveOut(BaseModel):
+    title: str | None
+    description: str | None
+    price_amount: float | None
+    price_currency: str | None
+    canonical_url: str | None
+    confidence: float
+    image_base64: str | None
+    image_mime: str | None
 
 
 def _storage_dir() -> Path:
@@ -60,6 +72,8 @@ def create_app(*, fetcher_mode: str | None = None) -> FastAPI:
             yield
 
     app = FastAPI(title="item-resolver", version="0.1.0", lifespan=lifespan)
+    if mode == "stub":
+        app.state.fetcher = StubFetcher()
 
     @app.get("/healthz", dependencies=[Depends(require_bearer_token)])
     async def healthz() -> dict:
@@ -86,6 +100,74 @@ def create_app(*, fetcher_mode: str | None = None) -> FastAPI:
         return ImageBase64Out(
             content_type=content_type,
             image_base64=b64,
+        )
+
+    @app.post("/resolver/v1/resolve", response_model=ResolveOut, dependencies=[Depends(require_bearer_token)])
+    async def resolve(payload: UrlIn) -> ResolveOut:
+        validate_public_http_url(payload.url)
+        fetcher = getattr(app.state, "fetcher", None)
+        if fetcher is None:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Resolver not initialized")
+
+        llm_client = getattr(app.state, "llm_client", None)
+        if llm_client is None:
+            try:
+                llm_client = load_llm_client_from_env()
+            except RuntimeError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail={"code": "UNKNOWN_ERROR", "message": str(exc)},
+                ) from exc
+            app.state.llm_client = llm_client
+
+        final_url, page_title, html, image_mime, screenshot_b64, _saved = await fetcher.fetch_page_snapshot(
+            url=payload.url
+        )
+        try:
+            llm_out = await llm_client.extract(
+                url=final_url or payload.url,
+                title=page_title,
+                html=html,
+                image_base64=screenshot_b64,
+                image_mime=image_mime,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={"code": "LLM_PARSE_FAILED", "message": str(exc)},
+            ) from exc
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={"code": "UNKNOWN_ERROR", "message": "LLM extraction failed"},
+            ) from exc
+
+        image_b64: str | None = None
+        image_mime: str | None = None
+        image_url = llm_out.image_url or None
+        if image_url:
+            # Allow relative image URLs to be resolved against the final page URL.
+            from urllib.parse import urljoin
+
+            resolved = urljoin(final_url or payload.url, image_url)
+            validate_public_http_url(resolved)
+            _img_final, content_type, b64 = await fetcher.fetch_image_base64(
+                url=resolved,
+                session_url=final_url or payload.url,
+            )
+            image_mime = content_type or None
+            image_b64 = b64 or None
+
+        confidence = llm_out.confidence if llm_out.confidence is not None else 0.0
+        return ResolveOut(
+            title=llm_out.title,
+            description=llm_out.description,
+            price_amount=llm_out.price_amount,
+            price_currency=llm_out.price_currency,
+            canonical_url=llm_out.canonical_url,
+            confidence=confidence,
+            image_base64=image_b64,
+            image_mime=image_mime,
         )
 
     return app

@@ -43,6 +43,37 @@ DEFAULT_PROFILE = BrowserProfile(
     geolocation={"latitude": 55.7558, "longitude": 37.6173, "accuracy": 100.0},
 )
 
+ROTATING_PROFILES: List[BrowserProfile] = [
+    DEFAULT_PROFILE,
+    BrowserProfile(
+        user_agent=(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/122.0.0.0 Safari/537.36"
+        ),
+        viewport={"width": 1366, "height": 768},
+        geolocation={"latitude": 55.7558, "longitude": 37.6173, "accuracy": 100.0},
+    ),
+    BrowserProfile(
+        user_agent=(
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_3) "
+            "AppleWebKit/605.1.15 (KHTML, like Gecko) "
+            "Version/16.4 Safari/605.1.15"
+        ),
+        viewport={"width": 1440, "height": 900},
+        geolocation={"latitude": 55.7558, "longitude": 37.6173, "accuracy": 100.0},
+    ),
+    BrowserProfile(
+        user_agent=(
+            "Mozilla/5.0 (X11; Linux x86_64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
+        viewport={"width": 1920, "height": 1080},
+        geolocation={"latitude": 55.7558, "longitude": 37.6173, "accuracy": 100.0},
+    ),
+]
+
 
 def default_headers() -> Dict[str, str]:
     return {
@@ -198,10 +229,13 @@ class BrowserManager:
         return bool(self._headless)
 
     async def make_context(self, browser: Browser, *, url: str, storage_state_path: Path) -> BrowserContext:
+        profile = DEFAULT_PROFILE
+        if (os.environ.get("RANDOM_UA") or "").strip().lower() in ("1", "true", "yes"):
+            profile = random.choice(ROTATING_PROFILES)
         return await new_context(
             browser,
             url,
-            profile=DEFAULT_PROFILE,
+            profile=profile,
             extra_headers=None,
             storage_state_path=storage_state_path,
         )

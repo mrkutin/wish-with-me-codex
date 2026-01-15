@@ -5,6 +5,7 @@ Stealth Playwright microservice used by an AI agent/orchestrator.
 ### Endpoints (all require Bearer token)
 
 - `GET /healthz`
+- `POST /resolver/v1/resolve` — resolve a page URL into item data (uses Playwright + LLM)
 - `POST /v1/page_source` — fetch a product/page URL and return HTML
 - `POST /v1/image_base64` — fetch an image URL and return base64 bytes
 
@@ -20,7 +21,7 @@ Send the token on every request:
 
 ### Recommended environment variables
 
-- `BROWSER_CHANNEL`: `chromium` (default) or `chrome`
+- `BROWSER_CHANNEL`: `chrome` (default) or `chromium`
 - `HEADLESS`: `true` (default) / `false`
 - `MAX_CONCURRENCY`: default `2`
 - `STORAGE_STATE_DIR`: where storage_state files are persisted (default `storage_state`)
@@ -30,6 +31,12 @@ Send the token on every request:
 - `PROXY_PASSWORD`: optional proxy password
 - `PROXY_BYPASS`: optional comma-separated proxy bypass list (Playwright format)
 - `PROXY_IGNORE_CERT_ERRORS`: optional `true`/`false`; allow invalid proxy TLS certs (default `false`)
+- `LLM_MODE`: `live` (default) or `stub`
+- `LLM_BASE_URL`: base URL for OpenAI-compatible chat API (required for `live`)
+- `LLM_API_KEY`: API key for the LLM (required for `live`)
+- `LLM_MODEL`: model name (required for `live`)
+- `LLM_TIMEOUT_S`: request timeout in seconds (default `60`)
+- `LLM_MAX_CHARS`: max page source characters sent to LLM for image_url (default `200000`)
 
 ### Run with Docker Compose
 
@@ -58,9 +65,13 @@ playwright install
 
 export RU_BEARER_TOKEN='ru_secret'
 export RU_FETCHER_MODE='playwright'   # use 'stub' to disable Playwright (tests/dev)
-export BROWSER_CHANNEL='chromium'     # or 'chrome' if available
+export BROWSER_CHANNEL='chrome'       # or 'chromium'
 export HEADLESS='true'
 export MAX_CONCURRENCY='2'
+export LLM_MODE='live'
+export LLM_BASE_URL='https://api.openai.com'
+export LLM_API_KEY='your_key'
+export LLM_MODEL='gpt-4o-mini'
 
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
@@ -93,6 +104,16 @@ curl -sS \
   -H "Content-Type: application/json" \
   -d '{"url":"https://ir.ozone.ru/s3/multimedia-1-p/wc1000/7234085113.jpg"}' \
   http://localhost:8000/v1/image_base64
+```
+
+Resolve item data:
+
+```bash
+curl -sS \
+  -H "Authorization: Bearer ru_secret" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://www.ozon.ru/product/kartholder-2817727699/"}' \
+  http://localhost:8000/resolver/v1/resolve
 ```
 
 ### Notes

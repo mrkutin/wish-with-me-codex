@@ -374,8 +374,8 @@ Reconciliation Scan
 Function
 	•	Resolver flow:
 	•	Accept website URL
-	•	Use fetch_page_source(url) to get HTML
-	•	LLM analyzes HTML and extracts properties (JSON spec below)
+	•	Use fetch_page_snapshot(url) to capture a full-page screenshot and page source
+	•	LLM uses page source to extract image_url and screenshot to extract all other fields (JSON spec below)
 	•	Use fetch_image_base64(image_url) to fetch and base64-encode the base image
 	•	Image fetching must reuse the same session as HTML fetch
 	•	Return final JSON to caller (response spec below)
@@ -383,13 +383,13 @@ Function
 	•	GET /healthz
 	•	POST /v1/page_source (input: { "url": "..." }, output: { "html": "..." })
 	•	POST /v1/image_base64 (input: { "url": "..." }, output: { "image_base64": "...", "image_mime": "..." })
-	•	Keep /v1/page_source and /v1/image_base64 for testing/future use; internal resolver flow calls fetch_page_source and fetch_image_base64 directly
+	•	Keep /v1/page_source and /v1/image_base64 for testing/future use; internal resolver flow calls fetch_page_snapshot and fetch_image_base64 directly
 	•	All item-resolver requests require Bearer auth (Authorization: Bearer <RU_BEARER_TOKEN>)
 	•	Proxy support via PROXY_SERVER/PROXY_USERNAME/PROXY_PASSWORD/PROXY_BYPASS/PROXY_IGNORE_CERT_ERRORS
 	•	Playwright settings via BROWSER_CHANNEL, HEADLESS, MAX_CONCURRENCY
 	•	Persist per-host storage state in STORAGE_STATE_DIR/<host>.json to improve bot-protected flows
 	•	On successful page load, update the saved session
-	•	No screenshots
+	•	Capture screenshots for LLM extraction only; do not return screenshots in API responses
 	•	bot-evasion or CAPTCHA bypass if needed
 	•	Item Resolver container must be run and tested on remote hosting (local network blocks proxy)
 
@@ -418,6 +418,7 @@ Final Output (API Response)
   "price_currency": "string|null",
   "canonical_url": "string|null",
   "confidence": "number",
+  "image_url": "string|null",
   "image_base64": "string|null",
   "image_mime": "string|null"
 }
