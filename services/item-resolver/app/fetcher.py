@@ -9,6 +9,7 @@ from typing import Literal, Protocol
 from playwright.async_api import Browser
 
 from .browser_manager import BrowserManager
+from .image_utils import crop_screenshot_to_content
 from .scrape import PageCaptureConfig, capture_page_source, storage_state_path
 
 
@@ -93,17 +94,22 @@ class PlaywrightFetcher:
             context = await self.manager.make_context(self.browser, url=url, storage_state_path=state_path)
             page = await context.new_page()
             try:
-                resp = await page.goto(url, wait_until="domcontentloaded", timeout=self.cfg.timeout_ms)
+                resp = await page.goto(url, wait_until="load", timeout=self.cfg.timeout_ms)
                 if resp is None:
                     return page.url, "", ""
-                content_type = (resp.headers or {}).get("content-type", "") or ""
-                body = await resp.body()
-                b64 = base64.b64encode(body).decode("ascii")
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=self.cfg.timeout_ms)
+                except Exception:
+                    pass
+
+                screenshot = await page.screenshot(full_page=True, type="png")
+                cropped = crop_screenshot_to_content(screenshot)
+                b64 = base64.b64encode(cropped).decode("ascii")
                 try:
                     await context.storage_state(path=str(state_path))
                 except Exception:
                     pass
-                return page.url, content_type, b64
+                return page.url, "image/jpeg", b64
             finally:
                 try:
                     await context.close()

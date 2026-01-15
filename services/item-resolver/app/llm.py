@@ -111,6 +111,10 @@ class OpenAILikeClient:
             "- confidence is 0.0 to 1.0.\n"
             "- Use page source to determine image_url only.\n"
             "- Use the screenshot to determine all other fields.\n"
+            "- image_url must be the main product image URL from the page source.\n"
+            "- Prefer the highest-resolution/original product image URL when multiple sizes exist.\n"
+            "- Ignore icons, badges, sprites, placeholders, tracking pixels, and UI assets.\n"
+            "- If multiple candidates exist, choose the one most directly matching the product name.\n"
         )
         user = (
             f"URL: {url}\n"

@@ -7,7 +7,7 @@ Stealth Playwright microservice used by an AI agent/orchestrator.
 - `GET /healthz`
 - `POST /resolver/v1/resolve` — resolve a page URL into item data (uses Playwright + LLM)
 - `POST /v1/page_source` — fetch a product/page URL and return HTML
-- `POST /v1/image_base64` — fetch an image URL and return base64 bytes
+- `POST /v1/image_base64` — fetch an image URL and return a data URL (base64)
 
 ### Auth
 
@@ -96,7 +96,7 @@ curl -sS \
   http://localhost:8000/v1/page_source
 ```
 
-Fetch image base64:
+Fetch image data URL:
 
 ```bash
 curl -sS \

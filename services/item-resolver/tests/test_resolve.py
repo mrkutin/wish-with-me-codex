@@ -26,6 +26,7 @@ def test_resolve_stub_mode_returns_shape() -> None:
         "price_currency",
         "canonical_url",
         "confidence",
+        "image_url",
         "image_base64",
         "image_mime",
     }
