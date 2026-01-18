@@ -21,6 +21,7 @@ jobs:
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          ssh-private-key-passphrase: ${{ secrets.SSH_PASSPHRASE }}
 
       - name: Add server to known_hosts
         run: |
@@ -63,8 +64,8 @@ jobs:
             git pull origin main
 
             echo "Building and restarting container..."
-            docker compose down
-            docker compose up -d --build
+            docker-compose down
+            docker-compose up -d --build
 
             echo "Waiting for service to start..."
             sleep 15
