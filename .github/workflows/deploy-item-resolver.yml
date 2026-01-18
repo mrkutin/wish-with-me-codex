@@ -49,6 +49,7 @@ jobs:
           LLM_TIMEOUT_S=${{ secrets.LLM_TIMEOUT_S }}
           LLM_MAX_CHARS=${{ secrets.LLM_MAX_CHARS }}
           EOF
+          sed -i 's/^[[:space:]]*//' /tmp/env_content
 
       - name: Copy env file to server
         run: |
@@ -71,12 +72,16 @@ jobs:
             sleep 15
 
             echo "Checking health endpoint..."
-            curl -sf http://localhost:8000/healthz || (echo "Health check failed!" && exit 1)
+            source .env
+            curl -sf -H "Authorization: Bearer $RU_BEARER_TOKEN" http://localhost:8000/healthz || (echo "Health check failed!" && exit 1)
 
             echo "Deployment complete!"
           ENDSSH
 
       - name: Verify deployment
         run: |
-          echo "Verifying service is accessible..."
-          ssh ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} "curl -sf http://localhost:8000/healthz && echo 'Service is healthy!'"
+          ssh ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} << 'ENDSSH'
+            cd /home/ubuntu/wish-with-me-codex/services/item-resolver
+            source .env
+            curl -sf -H "Authorization: Bearer $RU_BEARER_TOKEN" http://localhost:8000/healthz && echo 'Service is healthy!'
+          ENDSSH
