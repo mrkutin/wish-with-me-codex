@@ -29,6 +29,11 @@ jobs:
         run: |
           ssh-keyscan -H ${{ env.SERVER_HOST }} >> ~/.ssh/known_hosts
 
+      - name: Debug SSH setup
+        run: |
+          ls -la ~/.ssh/
+          ssh -vvv -o BatchMode=yes ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} "echo 'SSH works'" 2>&1 || true
+
       - name: Create env file content
         run: |
           cat > /tmp/env_content << EOF
