@@ -19,8 +19,6 @@ from playwright_stealth import Stealth
 STEALTH = Stealth(navigator_languages_override=("ru-RU", "ru", "en-US", "en"))
 LOGGER = logging.getLogger(__name__)
 
-WaitUntil = Literal["domcontentloaded", "load", "networkidle"]
-
 
 @dataclass(frozen=True)
 class BrowserProfile:

@@ -164,7 +164,7 @@ def create_app(*, fetcher_mode: str | None = None) -> FastAPI:
 
                     image_b64: str | None = None
                     image_mime: str | None = None
-                    image_url = llm_out.image_url or None
+                    image_url = llm_out.image_url
                     resolved_image_url: str | None = None
                     if image_url:
                         resolved = urljoin(final_url or payload.url, image_url)
@@ -227,7 +227,7 @@ def create_app(*, fetcher_mode: str | None = None) -> FastAPI:
 
             image_b64 = None
             image_mime = None
-            image_url = llm_out.image_url or None
+            image_url = llm_out.image_url
             resolved_image_url = None
             if image_url:
                 resolved = urljoin(final_url or payload.url, image_url)
