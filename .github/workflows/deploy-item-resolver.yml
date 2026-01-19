@@ -62,7 +62,8 @@ jobs:
             cd /home/ubuntu/wish-with-me-codex/services/item-resolver
 
             echo "Pulling latest code..."
-            git pull origin main
+            git fetch origin
+            git reset --hard origin/main
 
             echo "Building and restarting container..."
             docker-compose down
