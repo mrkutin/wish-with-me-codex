@@ -87,6 +87,40 @@ class TestExtractImagesFromHtml:
         # Should not crash, may or may not extract depending on parser
         assert isinstance(images, list)
 
+    def test_filters_data_uris(self) -> None:
+        html = '<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="><img src="product.jpg">'
+        images = extract_images_from_html(html, base_url="https://example.com")
+
+        # Data URI should be filtered out
+        assert len(images) == 1
+        assert "product.jpg" in images[0]["src"]
+
+    def test_filters_single_dimension_tiny_images(self) -> None:
+        html = '<img src="icon1.png" width="10"><img src="icon2.png" height="20"><img src="product.jpg" width="500">'
+        images = extract_images_from_html(html)
+
+        # Icons with only one tiny dimension should be filtered
+        assert len(images) == 1
+        assert "product.jpg" in images[0]["src"]
+
+    def test_pattern_matching_with_word_boundaries(self) -> None:
+        # "icon" substring in "silicone" should NOT be filtered
+        html = '<img src="silicone-product.jpg" alt="Silicone case"><img src="icon.png" alt="Icon">'
+        images = extract_images_from_html(html)
+
+        # Only the actual icon should be filtered, not silicone
+        assert len(images) == 1
+        assert "silicone" in images[0]["src"].lower()
+
+    def test_skips_malformed_urls(self) -> None:
+        # Test with a URL that will fail the netloc check after resolution
+        html = '<img src="file:///etc/passwd"><img src="valid.jpg">'
+        images = extract_images_from_html(html, base_url="https://example.com")
+
+        # file:// URL should be skipped (no netloc), only valid.jpg remains
+        assert len(images) == 1
+        assert "valid.jpg" in images[0]["src"]
+
 
 class TestFormatImagesForLlm:
     def test_formats_single_image(self) -> None:
@@ -146,3 +180,21 @@ class TestFormatImagesForLlm:
         assert "alt=" not in result
         assert "title=" not in result
         assert "class=" not in result
+
+    def test_escapes_html_entities(self) -> None:
+        images = [
+            {
+                "src": "https://example.com/test.jpg",
+                "alt": 'Test <script>alert("xss")</script>',
+                "title": "Title & special chars",
+                "class": 'product-img" onclick="evil()',
+            }
+        ]
+        result = format_images_for_llm(images)
+
+        # HTML entities should be escaped
+        assert "&lt;script&gt;" in result
+        assert "alert(&quot;xss&quot;)" in result
+        assert "&amp;" in result
+        assert "<script>" not in result
+        assert 'onclick="evil()' not in result

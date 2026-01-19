@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+import html
+import logging
 import re
 from html.parser import HTMLParser
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
+
+logger = logging.getLogger(__name__)
+
+# Minimum size in pixels for product images (filters icons/badges)
+MIN_PRODUCT_IMAGE_SIZE = 50
 
 
 class ImageCandidate:
@@ -63,37 +70,45 @@ class ImageExtractor(HTMLParser):
         try:
             width = int(attrs.get("width", "0") or "0")
             height = int(attrs.get("height", "0") or "0")
-            if width > 0 and height > 0 and (width < 50 or height < 50):
+
+            # If only width is set and it's tiny, exclude
+            if width > 0 and width < MIN_PRODUCT_IMAGE_SIZE and height == 0:
+                return True
+            # If only height is set and it's tiny, exclude
+            if height > 0 and height < MIN_PRODUCT_IMAGE_SIZE and width == 0:
+                return True
+            # If both are set, exclude only if BOTH are tiny
+            if width > 0 and height > 0 and width < MIN_PRODUCT_IMAGE_SIZE and height < MIN_PRODUCT_IMAGE_SIZE:
                 return True
         except (ValueError, TypeError):
             pass
 
-        # Exclude common non-product patterns
+        # Exclude common non-product patterns using word boundaries
         excluded_patterns = [
-            "icon",
-            "logo",
-            "badge",
-            "sprite",
-            "placeholder",
-            "pixel",
-            "tracking",
-            "analytics",
-            "counter",
-            ".gif",  # Tracking pixels often use gif
-            "1x1",
-            "blank",
-            "spacer",
-            "avatar",
-            "user",
-            "profile",
+            r'\bicon\b',
+            r'\blogo\b',
+            r'\bbadge\b',
+            r'\bsprite\b',
+            r'\bplaceholder\b',
+            r'\bpixel\b',
+            r'\btracking\b',
+            r'\banalytics\b',
+            r'\bcounter\b',
+            r'\.gif$',  # .gif at end of path only
+            r'\b1x1\b',
+            r'\bblank\b',
+            r'\bspacer\b',
+            r'\bavatar\b',
+            r'\buser\b',
+            r'\bprofile\b',
         ]
 
         for pattern in excluded_patterns:
-            if pattern in src_lower:
+            if re.search(pattern, src_lower):
                 return True
-            if pattern in attrs.get("class", "").lower():
+            if re.search(pattern, attrs.get("class", "").lower()):
                 return True
-            if pattern in attrs.get("alt", "").lower():
+            if re.search(pattern, attrs.get("alt", "").lower()):
                 return True
 
         return False
@@ -104,21 +119,35 @@ def extract_images_from_html(html: str, base_url: str | None = None) -> list[dic
     Extract product image candidates from HTML.
 
     Returns list of image dictionaries with src and relevant attributes.
-    Filters out icons, badges, tracking pixels, etc.
+    Filters out icons, badges, tracking pixels, data URIs, etc.
     """
     parser = ImageExtractor()
     try:
         parser.feed(html)
-    except Exception:
-        # HTML parsing errors - return what we got so far
-        pass
+    except Exception as e:
+        # Log parsing errors for observability
+        logger.warning("HTML parsing failed, returning partial results: %s", str(e), exc_info=True)
 
     images = []
     for img in parser.images:
-        # Resolve relative URLs if base_url provided
         src = img.src
-        if base_url and not src.startswith(("http://", "https://", "data:")):
-            src = urljoin(base_url, src)
+
+        # Skip data URIs - they're already embedded and can be huge
+        if src.startswith("data:"):
+            continue
+
+        # Resolve relative URLs if base_url provided
+        if base_url and not src.startswith(("http://", "https://")):
+            try:
+                src = urljoin(base_url, src)
+                # Validate the resolved URL is well-formed
+                parsed = urlparse(src)
+                if not parsed.scheme or not parsed.netloc:
+                    logger.debug("Skipping malformed URL after resolution: %s", src)
+                    continue
+            except Exception as e:
+                logger.debug("Failed to resolve URL %s: %s", src, str(e))
+                continue
 
         img_dict = img.to_dict()
         img_dict["src"] = src
@@ -132,6 +161,7 @@ def format_images_for_llm(images: list[dict[str, Any]], max_images: int = 20) ->
     Format image candidates as compact text for LLM.
 
     Limits to top N images and formats as simple list.
+    Escapes HTML entities to prevent injection attacks.
     """
     if not images:
         return "No images found."
@@ -143,11 +173,12 @@ def format_images_for_llm(images: list[dict[str, Any]], max_images: int = 20) ->
     for i, img in enumerate(limited, 1):
         parts = [f"{i}. {img['src']}"]
         if img.get("alt"):
-            parts.append(f"alt=\"{img['alt']}\"")
+            # Escape to prevent XSS/injection
+            parts.append(f"alt=\"{html.escape(img['alt'])}\"")
         if img.get("title"):
-            parts.append(f"title=\"{img['title']}\"")
+            parts.append(f"title=\"{html.escape(img['title'])}\"")
         if img.get("class"):
-            parts.append(f"class=\"{img['class']}\"")
+            parts.append(f"class=\"{html.escape(img['class'])}\"")
         lines.append(" ".join(parts))
 
     return "\n".join(lines)
