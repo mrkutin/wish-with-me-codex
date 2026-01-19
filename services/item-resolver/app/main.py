@@ -22,6 +22,7 @@ from .logging_config import configure_logging
 from .middleware import setup_middleware
 from .scrape import PageCaptureConfig, capture_page_source, looks_like_interstitial_or_challenge, storage_state_path
 from .ssrf import validate_public_http_url
+from .timing import TimingStats, measure_time
 
 
 class UrlIn(BaseModel):
@@ -119,7 +120,11 @@ def create_app(*, fetcher_mode: str | None = None) -> FastAPI:
 
     @app.post("/resolver/v1/resolve", response_model=ResolveOut, dependencies=[Depends(require_bearer_token)])
     async def resolve(payload: UrlIn) -> ResolveOut:
-        validate_public_http_url(payload.url)
+        stats = TimingStats()
+
+        async with measure_time(stats, "url_validation"):
+            validate_public_http_url(payload.url)
+
         fetcher = getattr(app.state, "fetcher", None)
         if fetcher is None:
             raise unknown_error("Resolver not initialized")
@@ -135,15 +140,17 @@ def create_app(*, fetcher_mode: str | None = None) -> FastAPI:
         if isinstance(fetcher, PlaywrightFetcher):
             state_path = storage_state_path(fetcher.storage_state_dir, payload.url)
             async with fetcher.manager.semaphore:
-                context = await fetcher.manager.make_context(
-                    fetcher.browser,
-                    url=payload.url,
-                    storage_state_path=state_path,
-                )
+                async with measure_time(stats, "browser_context_create"):
+                    context = await fetcher.manager.make_context(
+                        fetcher.browser,
+                        url=payload.url,
+                        storage_state_path=state_path,
+                    )
                 try:
                     page = await context.new_page()
                     try:
-                        final_url, page_title, html = await capture_page_source(page, payload.url, cfg=fetcher.cfg)
+                        async with measure_time(stats, "page_navigation"):
+                            final_url, page_title, html = await capture_page_source(page, payload.url, cfg=fetcher.cfg)
                     except PlaywrightTimeoutError as exc:
                         raise timeout(f"Page load timed out: {payload.url}") from exc
                     except asyncio.TimeoutError as exc:
@@ -153,21 +160,25 @@ def create_app(*, fetcher_mode: str | None = None) -> FastAPI:
                         logger.warning("Page appears blocked or shows challenge: %s", payload.url)
                         raise blocked_or_unavailable(f"Page blocked or requires verification: {payload.url}")
 
-                    page_shot = await page.screenshot(full_page=True, type="jpeg", quality=75)
-                    page_b64 = base64.b64encode(page_shot).decode("ascii")
-                    page_mime = "image/jpeg"
+                    async with measure_time(stats, "page_screenshot"):
+                        page_shot = await page.screenshot(full_page=True, type="jpeg", quality=75)
+                        page_b64 = base64.b64encode(page_shot).decode("ascii")
+                        page_mime = "image/jpeg"
+
                     try:
                         await context.storage_state(path=str(state_path))
                     except Exception:
                         pass
+
                     try:
-                        llm_out = await llm_client.extract(
-                            url=final_url or payload.url,
-                            title=page_title,
-                            html=html,
-                            image_base64=page_b64,
-                            image_mime=page_mime,
-                        )
+                        async with measure_time(stats, "llm_extraction"):
+                            llm_out = await llm_client.extract(
+                                url=final_url or payload.url,
+                                title=page_title,
+                                html=html,
+                                image_base64=page_b64,
+                                image_mime=page_mime,
+                            )
                     except ValueError as exc:
                         raise llm_parse_failed(str(exc)) from exc
                     except Exception as exc:
@@ -185,25 +196,27 @@ def create_app(*, fetcher_mode: str | None = None) -> FastAPI:
                         image_page = await context.new_page()
                         try:
                             try:
-                                await image_page.goto(
-                                    resolved,
-                                    wait_until="load",
-                                    timeout=fetcher.cfg.timeout_ms,
-                                )
-                            except PlaywrightTimeoutError:
-                                logger.warning("Image load timed out: %s", resolved)
-                            else:
-                                try:
+                                async with measure_time(stats, "image_navigation"):
+                                    await image_page.goto(
+                                        resolved,
+                                        wait_until="load",
+                                        timeout=fetcher.cfg.timeout_ms,
+                                    )
                                     await image_page.wait_for_load_state(
                                         "networkidle",
                                         timeout=fetcher.cfg.timeout_ms,
                                     )
-                                except Exception:
-                                    pass
-                                image_shot = await image_page.screenshot(full_page=True, type="png")
-                                cropped = crop_screenshot_to_content(image_shot)
-                                image_b64 = base64.b64encode(cropped).decode("ascii")
-                                image_mime = "image/jpeg"
+                            except PlaywrightTimeoutError:
+                                logger.warning("Image load timed out: %s", resolved)
+                            else:
+                                async with measure_time(stats, "image_screenshot"):
+                                    image_shot = await image_page.screenshot(full_page=True, type="png")
+
+                                async with measure_time(stats, "image_crop"):
+                                    cropped = crop_screenshot_to_content(image_shot)
+                                    image_b64 = base64.b64encode(cropped).decode("ascii")
+                                    image_mime = "image/jpeg"
+
                                 try:
                                     await context.storage_state(path=str(state_path))
                                 except Exception:
@@ -220,22 +233,24 @@ def create_app(*, fetcher_mode: str | None = None) -> FastAPI:
                         pass
         else:
             try:
-                final_url, page_title, html, image_mime, screenshot_b64, _saved = await fetcher.fetch_page_snapshot(
-                    url=payload.url
-                )
+                async with measure_time(stats, "page_snapshot"):
+                    final_url, page_title, html, image_mime, screenshot_b64, _saved = await fetcher.fetch_page_snapshot(
+                        url=payload.url
+                    )
             except PlaywrightTimeoutError as exc:
                 raise timeout(f"Page load timed out: {payload.url}") from exc
             except asyncio.TimeoutError as exc:
                 raise timeout(f"Page load timed out: {payload.url}") from exc
 
             try:
-                llm_out = await llm_client.extract(
-                    url=final_url or payload.url,
-                    title=page_title,
-                    html=html,
-                    image_base64=screenshot_b64,
-                    image_mime=image_mime,
-                )
+                async with measure_time(stats, "llm_extraction"):
+                    llm_out = await llm_client.extract(
+                        url=final_url or payload.url,
+                        title=page_title,
+                        html=html,
+                        image_base64=screenshot_b64,
+                        image_mime=image_mime,
+                    )
             except ValueError as exc:
                 raise llm_parse_failed(str(exc)) from exc
             except Exception as exc:
@@ -251,17 +266,22 @@ def create_app(*, fetcher_mode: str | None = None) -> FastAPI:
                 validate_public_http_url(resolved)
                 resolved_image_url = resolved
                 try:
-                    _img_final, content_type, b64 = await fetcher.fetch_image_base64(
-                        url=resolved,
-                        session_url=final_url or payload.url,
-                    )
-                    image_mime = content_type or None
-                    image_b64 = b64 or None
+                    async with measure_time(stats, "image_fetch"):
+                        _img_final, content_type, b64 = await fetcher.fetch_image_base64(
+                            url=resolved,
+                            session_url=final_url or payload.url,
+                        )
+                        image_mime = content_type or None
+                        image_b64 = b64 or None
                 except Exception:
                     logger.warning("Failed to fetch image: %s", resolved, exc_info=True)
 
-        confidence = llm_out.confidence if llm_out.confidence is not None else 0.0
-        image_data = image_data_url(image_b64, image_mime)
+        stats.log_summary(payload.url)
+
+        async with measure_time(stats, "response_preparation"):
+            confidence = llm_out.confidence if llm_out.confidence is not None else 0.0
+            image_data = image_data_url(image_b64, image_mime)
+
         return ResolveOut(
             title=llm_out.title,
             description=llm_out.description,
