@@ -283,11 +283,11 @@ async def wait_for_challenge_to_clear(page, *, timeout_ms: int) -> bool:
 
 @dataclass(frozen=True)
 class PageCaptureConfig:
-    wait_until: str = "load"
+    wait_until: str = "commit"
     timeout_ms: int = 30_000
     settle_ms: int = 500
-    max_extra_wait_ms: int = 10_000
-    network_quiet_ms: int = 500
+    max_extra_wait_ms: int = 8_000
+    network_quiet_ms: int = 400
     dom_sample_interval_ms: int = 300
     dom_stable_samples: int = 2
     challenge_extra_wait_ms: int = 120_000
