@@ -16,6 +16,7 @@ from .auth import require_bearer_token
 from .browser_manager import load_manager_from_env, open_browser
 from .errors import blocked_or_unavailable, llm_parse_failed, timeout, unknown_error
 from .fetcher import PlaywrightFetcher, StubFetcher, fetcher_mode_from_env
+from .html_parser import extract_images_from_html, format_images_for_llm
 from .image_utils import crop_screenshot_to_content, image_data_url
 from .llm import load_llm_client_from_env
 from .logging_config import configure_logging
@@ -161,7 +162,7 @@ def create_app(*, fetcher_mode: str | None = None) -> FastAPI:
                         raise blocked_or_unavailable(f"Page blocked or requires verification: {payload.url}")
 
                     async with measure_time(stats, "page_screenshot"):
-                        page_shot = await page.screenshot(full_page=True, type="jpeg", quality=75)
+                        page_shot = await page.screenshot(full_page=False, type="jpeg", quality=75)
                         page_b64 = base64.b64encode(page_shot).decode("ascii")
                         page_mime = "image/jpeg"
 
@@ -170,12 +171,16 @@ def create_app(*, fetcher_mode: str | None = None) -> FastAPI:
                     except Exception:
                         pass
 
+                    async with measure_time(stats, "image_extraction"):
+                        images = extract_images_from_html(html, base_url=final_url or payload.url)
+                        image_candidates = format_images_for_llm(images, max_images=20)
+
                     try:
                         async with measure_time(stats, "llm_extraction"):
                             llm_out = await llm_client.extract(
                                 url=final_url or payload.url,
                                 title=page_title,
-                                html=html,
+                                image_candidates=image_candidates,
                                 image_base64=page_b64,
                                 image_mime=page_mime,
                             )
@@ -242,12 +247,16 @@ def create_app(*, fetcher_mode: str | None = None) -> FastAPI:
             except asyncio.TimeoutError as exc:
                 raise timeout(f"Page load timed out: {payload.url}") from exc
 
+            async with measure_time(stats, "image_extraction"):
+                images = extract_images_from_html(html, base_url=final_url or payload.url)
+                image_candidates = format_images_for_llm(images, max_images=20)
+
             try:
                 async with measure_time(stats, "llm_extraction"):
                     llm_out = await llm_client.extract(
                         url=final_url or payload.url,
                         title=page_title,
-                        html=html,
+                        image_candidates=image_candidates,
                         image_base64=screenshot_b64,
                         image_mime=image_mime,
                     )

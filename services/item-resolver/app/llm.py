@@ -26,7 +26,7 @@ class LLMClient(Protocol):
         *,
         url: str,
         title: str,
-        html: str,
+        image_candidates: str,
         image_base64: str,
         image_mime: str,
     ) -> LLMOutput:
@@ -37,12 +37,12 @@ def _image_data_url(image_base64: str, image_mime: str) -> str:
     return f"data:{image_mime};base64,{image_base64}"
 
 
-def _truncate_html(html: str, max_chars: int) -> str:
+def _truncate_text(text: str, max_chars: int) -> str:
     if max_chars <= 0:
-        return html
-    if len(html) <= max_chars:
-        return html
-    return html[:max_chars]
+        return text
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars]
 
 
 def _extract_json(text: str) -> dict:
@@ -69,8 +69,8 @@ def _default_canonical_url(url: str) -> str:
 
 @dataclass
 class StubLLMClient:
-    async def extract(self, *, url: str, title: str, html: str, image_base64: str, image_mime: str) -> LLMOutput:
-        _ = (html, image_base64, image_mime)
+    async def extract(self, *, url: str, title: str, image_candidates: str, image_base64: str, image_mime: str) -> LLMOutput:
+        _ = (image_candidates, image_base64, image_mime)
         return LLMOutput(
             title=title or None,
             description=None,
@@ -90,8 +90,8 @@ class OpenAILikeClient:
     timeout_s: float
     max_chars: int
 
-    async def extract(self, *, url: str, title: str, html: str, image_base64: str, image_mime: str) -> LLMOutput:
-        truncated_html = _truncate_html(html, self.max_chars)
+    async def extract(self, *, url: str, title: str, image_candidates: str, image_base64: str, image_mime: str) -> LLMOutput:
+        truncated_candidates = _truncate_text(image_candidates, self.max_chars)
         system = (
             "Return ONLY a single JSON object and nothing else. "
             "Use the exact schema and keys:\n"
@@ -109,18 +109,18 @@ class OpenAILikeClient:
             "- Do not wrap in markdown.\n"
             "- If a field is missing, use null.\n"
             "- confidence is 0.0 to 1.0.\n"
-            "- Use page source to determine image_url only.\n"
+            "- Use the image candidates list to determine image_url only.\n"
             "- Use the screenshot to determine all other fields.\n"
-            "- image_url must be the main product image URL from the page source.\n"
+            "- image_url must be the main product image URL selected from the candidates.\n"
             "- Prefer the highest-resolution/original product image URL when multiple sizes exist.\n"
-            "- Ignore icons, badges, sprites, placeholders, tracking pixels, and UI assets.\n"
-            "- If multiple candidates exist, choose the one most directly matching the product name.\n"
+            "- Choose the image that most directly matches the product shown in the screenshot.\n"
+            "- If no suitable candidate exists, return null for image_url.\n"
         )
         user = (
             f"URL: {url}\n"
             f"Page title: {title}\n"
-            "Page source (for image_url only):\n"
-            f"{truncated_html}\n"
+            "Image candidates (choose the main product image):\n"
+            f"{truncated_candidates}\n"
             "Screenshot of the page is attached.\n"
         )
         payload = {
