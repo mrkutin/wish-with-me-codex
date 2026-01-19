@@ -374,16 +374,16 @@ Reconciliation Scan
 Function
 	•	Resolver flow:
 	•	Accept website URL
-	•	Use fetch_page_snapshot(url) to capture a full-page screenshot and page source
+	•	Open browser context with stored session state for the domain
+	•	Navigate to URL and capture page source + full-page screenshot
 	•	LLM uses page source to extract image_url and screenshot to extract all other fields (JSON spec below)
-	•	Use fetch_image_base64(image_url) to fetch and base64-encode the base image
-	•	Image fetching must reuse the same session as HTML fetch
+	•	If image_url found: navigate to image URL in same context, take screenshot, crop to content
+	•	Image fetching reuses the same browser context (session/cookies) as the page fetch
 	•	Return final JSON to caller (response spec below)
 	•	item-resolver also exposes:
 	•	GET /healthz
 	•	POST /v1/page_source (input: { "url": "..." }, output: { "html": "..." })
-	•	POST /v1/image_base64 (input: { "url": "..." }, output: { "image_base64": "...", "image_mime": "..." })
-	•	Keep /v1/page_source and /v1/image_base64 for testing/future use; internal resolver flow calls fetch_page_snapshot and fetch_image_base64 directly
+	•	POST /v1/image_base64 (input: { "url": "..." }, output: { "image_base64": "data:image/...;base64,..." })
 	•	All item-resolver requests require Bearer auth (Authorization: Bearer <RU_BEARER_TOKEN>)
 	•	Proxy support via PROXY_SERVER/PROXY_USERNAME/PROXY_PASSWORD/PROXY_BYPASS/PROXY_IGNORE_CERT_ERRORS
 	•	Playwright settings via BROWSER_CHANNEL, HEADLESS, MAX_CONCURRENCY
@@ -419,8 +419,7 @@ Final Output (API Response)
   "canonical_url": "string|null",
   "confidence": "number",
   "image_url": "string|null",
-  "image_base64": "string|null",
-  "image_mime": "string|null"
+  "image_base64": "string|null (data URL: data:image/...;base64,...)"
 }
 
 Error Codes

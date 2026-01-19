@@ -28,5 +28,4 @@ def test_resolve_stub_mode_returns_shape() -> None:
         "confidence",
         "image_url",
         "image_base64",
-        "image_mime",
     }

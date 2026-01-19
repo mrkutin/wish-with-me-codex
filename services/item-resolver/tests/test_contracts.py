@@ -40,5 +40,5 @@ def test_response_shape_image_base64() -> None:
     )
     assert r.status_code == 200
     body = r.json()
-    assert set(body.keys()) == {"content_type", "image_base64"}
+    assert set(body.keys()) == {"image_base64"}
     assert body["image_base64"].startswith("data:") or body["image_base64"] == ""

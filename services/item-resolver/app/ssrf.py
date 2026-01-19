@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Iterable
 from urllib.parse import urlparse
 
-from fastapi import HTTPException, status
+from .errors import invalid_url, ssrf_blocked
 
 
 @dataclass(frozen=True)
@@ -57,22 +57,22 @@ def _resolve_all_ips(hostname: str) -> Iterable[ipaddress._BaseAddress]:
 def validate_public_http_url(url: str) -> ValidatedURL:
     u = (url or "").strip()
     if not u:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="url is required")
+        raise invalid_url("url is required")
 
     parsed = urlparse(u)
     scheme = (parsed.scheme or "").lower()
     if scheme not in ("http", "https"):
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="url must be http(s)")
+        raise invalid_url("url must be http or https")
 
     hostname = (parsed.hostname or "").strip().lower()
     if not hostname:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="url must include hostname")
+        raise invalid_url("url must include hostname")
 
     # Fast path blocks
     if hostname in ("localhost",):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="SSRF blocked")
+        raise ssrf_blocked("Access to localhost is not allowed")
     if hostname.endswith(".local"):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="SSRF blocked")
+        raise ssrf_blocked("Access to .local domains is not allowed")
 
     allowlist = _env_allowlist_hosts()
     if hostname in allowlist:
@@ -80,9 +80,9 @@ def validate_public_http_url(url: str) -> ValidatedURL:
 
     ips = list(_resolve_all_ips(hostname))
     if not ips:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Host could not be resolved")
+        raise ssrf_blocked("Host could not be resolved")
     if any(_is_forbidden_ip(ip) for ip in ips):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="SSRF blocked")
+        raise ssrf_blocked("Access to internal networks is not allowed")
 
     return ValidatedURL(url=u, hostname=hostname, scheme=scheme)
 

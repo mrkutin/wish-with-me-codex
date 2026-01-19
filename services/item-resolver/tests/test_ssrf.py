@@ -16,6 +16,10 @@ def test_rejects_localhost() -> None:
     c = _client()
     r = c.post("/v1/page_source", json={"url": "http://localhost/"}, headers={"Authorization": "Bearer ru_secret"})
     assert r.status_code == 403
+    body = r.json()
+    assert body["code"] == "SSRF_BLOCKED"
+    assert "message" in body
+    assert "trace_id" in body
 
 
 def test_rejects_loopback_ipv4() -> None:
@@ -42,4 +46,22 @@ def test_accepts_public_host_example_dot_com() -> None:
     c = _client()
     r = c.post("/v1/page_source", json={"url": "https://example.com/"}, headers={"Authorization": "Bearer ru_secret"})
     assert r.status_code == 200
+
+
+def test_rejects_invalid_url_scheme() -> None:
+    c = _client()
+    r = c.post("/v1/page_source", json={"url": "ftp://example.com/"}, headers={"Authorization": "Bearer ru_secret"})
+    assert r.status_code == 422
+    body = r.json()
+    assert body["code"] == "INVALID_URL"
+    assert "message" in body
+    assert "trace_id" in body
+
+
+def test_rejects_empty_url() -> None:
+    c = _client()
+    r = c.post("/v1/page_source", json={"url": ""}, headers={"Authorization": "Bearer ru_secret"})
+    assert r.status_code == 422
+    body = r.json()
+    assert body["code"] == "INVALID_URL"
 
