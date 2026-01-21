@@ -826,9 +826,124 @@ docker inspect --format='{{json .State.Health}}' wishwithme-core-api-1
 
 ---
 
-## 14. Quick Reference
+## 14. GitHub Actions CI/CD
 
-### 14.1 Server Access
+### 14.1 Initial Server Setup for CI/CD
+
+Before GitHub Actions can deploy to the server, you must perform this one-time setup:
+
+```bash
+# 1. SSH into the server
+ssh ubuntu@158.69.203.3
+
+# 2. Clone the repository (use HTTPS, not SSH)
+cd /home/ubuntu
+git clone https://github.com/mrkutin/wish-with-me-codex.git
+
+# 3. Ensure git remote uses HTTPS (required for CI/CD)
+cd wish-with-me-codex
+git remote set-url origin https://github.com/mrkutin/wish-with-me-codex.git
+
+# 4. Verify remote URL
+git remote -v
+# Should show: https://github.com/mrkutin/wish-with-me-codex.git
+```
+
+**Why HTTPS?** GitHub Actions uses a deployment SSH key to connect to the server, but that key doesn't have access to GitHub. Using HTTPS allows `git fetch` to work without authentication for public repos.
+
+### 14.2 GitHub Secrets Required
+
+Configure these secrets in GitHub repo → Settings → Secrets and variables → Actions:
+
+**Common (Required for all):**
+
+| Secret | Description |
+|--------|-------------|
+| `SSH_PRIVATE_KEY` | Ed25519 private key for server access |
+
+**Item Resolver:**
+
+| Secret | Description |
+|--------|-------------|
+| `RU_BEARER_TOKEN` | Item resolver API token |
+| `BROWSER_CHANNEL` | Playwright browser channel |
+| `HEADLESS` | Run browser headless (true/false) |
+| `MAX_CONCURRENCY` | Max concurrent browser instances |
+| `SSRF_ALLOWLIST_HOSTS` | Allowed hosts for SSRF protection |
+| `PROXY_SERVER` | Proxy server URL (optional) |
+| `PROXY_USERNAME` | Proxy username (optional) |
+| `PROXY_PASSWORD` | Proxy password (optional) |
+| `PROXY_BYPASS` | Proxy bypass list (optional) |
+| `PROXY_IGNORE_CERT_ERRORS` | Ignore proxy cert errors (optional) |
+| `RANDOM_UA` | Randomize user agent (optional) |
+| `LLM_MODE` | LLM mode (live/mock) |
+| `LLM_BASE_URL` | LLM API base URL |
+| `LLM_API_KEY` | LLM API key |
+| `LLM_MODEL` | LLM model name |
+| `LLM_TIMEOUT_S` | LLM timeout in seconds |
+| `LLM_MAX_CHARS` | Max chars for LLM context |
+
+**Core API:**
+
+| Secret | Description |
+|--------|-------------|
+| `DATABASE_URL` | PostgreSQL connection string |
+| `REDIS_URL` | Redis connection string |
+| `JWT_SECRET_KEY` | JWT signing secret |
+| `ITEM_RESOLVER_URL` | Item resolver service URL |
+| `ITEM_RESOLVER_TOKEN` | Token for item resolver API |
+| `GOOGLE_CLIENT_ID` | Google OAuth client ID |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret |
+| `APPLE_CLIENT_ID` | Apple OAuth client ID |
+| `APPLE_CLIENT_SECRET` | Apple OAuth client secret |
+| `YANDEX_CLIENT_ID` | Yandex OAuth client ID |
+| `YANDEX_CLIENT_SECRET` | Yandex OAuth client secret |
+| `SBER_CLIENT_ID` | Sber OAuth client ID |
+| `SBER_CLIENT_SECRET` | Sber OAuth client secret |
+
+### 14.3 Deployment Workflows
+
+Workflows are located in `.github/workflows/`:
+
+| Workflow | File | Triggers |
+|----------|------|----------|
+| Item Resolver | `deploy-item-resolver.yml` | Push to `services/item-resolver/**` or manual |
+| Frontend | `deploy-frontend.yml` | Push to `services/frontend/**` or manual |
+| Core API | `deploy-core-api.yml` | Push to `services/core-api/**` or manual |
+
+Each workflow:
+1. Copies environment file to server
+2. Pulls latest code via `git fetch && git reset --hard origin/main`
+3. Rebuilds and restarts the Docker container
+4. Runs health check to verify deployment
+
+### 14.4 Manual Deployment
+
+To manually trigger a deployment:
+
+```bash
+# Using GitHub CLI
+gh workflow run deploy-item-resolver.yml
+gh workflow run deploy-frontend.yml
+gh workflow run deploy-core-api.yml
+
+# Watch deployment progress
+gh run watch
+```
+
+### 14.5 Troubleshooting CI/CD
+
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| `Permission denied (publickey)` on git fetch | Remote uses SSH | Run `git remote set-url origin https://...` on server |
+| `No such file or directory` on scp | Repo not cloned | Clone repo on server first |
+| Health check failed | Service didn't start | Check Docker logs on server |
+
+---
+
+## 15. Quick Reference
+
+### 15.1 Server Access
 
 ```bash
 # Load SSH key (required once per session)
@@ -841,7 +956,7 @@ ssh montreal
 ssh montreal "docker-compose -f /opt/wishwithme/docker-compose.yml ps"
 ```
 
-### 14.2 Deploy Commands
+### 15.2 Deploy Commands
 
 ```bash
 # Full deployment

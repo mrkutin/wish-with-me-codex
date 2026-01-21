@@ -1,0 +1,82 @@
+name: Deploy core-api
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'services/core-api/**'
+  workflow_dispatch:
+
+env:
+  SERVER_HOST: 158.69.203.3
+  SERVER_USER: ubuntu
+  DEPLOY_PATH: /home/ubuntu/wish-with-me-codex/services/core-api
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH key
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          name: id_ed25519
+          known_hosts: unnecessary
+
+      - name: Add server to known_hosts
+        run: |
+          ssh-keyscan -H ${{ env.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Create env file content
+        run: |
+          cat > /tmp/env_content << EOF
+          DATABASE_URL=${{ secrets.DATABASE_URL }}
+          REDIS_URL=${{ secrets.REDIS_URL }}
+          JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}
+          ITEM_RESOLVER_URL=${{ secrets.ITEM_RESOLVER_URL }}
+          ITEM_RESOLVER_TOKEN=${{ secrets.ITEM_RESOLVER_TOKEN }}
+          GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
+          APPLE_CLIENT_ID=${{ secrets.APPLE_CLIENT_ID }}
+          APPLE_CLIENT_SECRET=${{ secrets.APPLE_CLIENT_SECRET }}
+          YANDEX_CLIENT_ID=${{ secrets.YANDEX_CLIENT_ID }}
+          YANDEX_CLIENT_SECRET=${{ secrets.YANDEX_CLIENT_SECRET }}
+          SBER_CLIENT_ID=${{ secrets.SBER_CLIENT_ID }}
+          SBER_CLIENT_SECRET=${{ secrets.SBER_CLIENT_SECRET }}
+          EOF
+          sed -i 's/^[[:space:]]*//' /tmp/env_content
+
+      - name: Copy env file to server
+        run: |
+          scp /tmp/env_content ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }}:${{ env.DEPLOY_PATH }}/.env
+
+      - name: Deploy to server
+        run: |
+          ssh ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} << 'ENDSSH'
+            set -e
+            cd /home/ubuntu/wish-with-me-codex/services/core-api
+
+            echo "Pulling latest code..."
+            git fetch origin
+            git reset --hard origin/main
+
+            echo "Building and restarting container..."
+            docker-compose down || true
+            docker-compose up -d --build
+
+            echo "Waiting for service to start..."
+            sleep 15
+
+            echo "Checking health endpoint..."
+            curl -sf http://localhost:8000/healthz || (echo "Health check failed!" && exit 1)
+
+            echo "Deployment complete!"
+          ENDSSH
+
+      - name: Verify deployment
+        run: |
+          ssh ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} << 'ENDSSH'
+            cd /home/ubuntu/wish-with-me-codex/services/core-api
+            curl -sf http://localhost:8000/healthz && echo 'Core API is healthy!'
+          ENDSSH
