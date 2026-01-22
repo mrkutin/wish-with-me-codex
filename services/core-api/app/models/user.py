@@ -5,12 +5,14 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.types import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
 if TYPE_CHECKING:
+    from app.models.wishlist import Wishlist
     from sqlalchemy.orm import Session
 
 
@@ -30,7 +32,7 @@ class User(Base):
     public_url_slug: Mapped[str | None] = mapped_column(
         String(50), unique=True, nullable=True
     )
-    social_links: Mapped[dict | None] = mapped_column(JSONB, default=dict)
+    social_links: Mapped[dict | None] = mapped_column(JSON, default=dict)
     locale: Mapped[str] = mapped_column(String(10), nullable=False, default="ru")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -51,6 +53,9 @@ class User(Base):
     )
     refresh_tokens: Mapped[list["RefreshToken"]] = relationship(
         "RefreshToken", back_populates="user", cascade="all, delete-orphan"
+    )
+    wishlists: Mapped[list["Wishlist"]] = relationship(
+        "Wishlist", back_populates="user", cascade="all, delete-orphan"
     )
 
     @property
@@ -76,7 +81,7 @@ class SocialAccount(Base):
     provider: Mapped[str] = mapped_column(String(20), nullable=False)
     provider_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    profile_data: Mapped[dict | None] = mapped_column(JSONB, default=dict)
+    profile_data: Mapped[dict | None] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

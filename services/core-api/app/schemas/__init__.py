@@ -14,6 +14,18 @@ from app.schemas.auth import (
     RefreshTokenRequest,
     AuthResponse,
 )
+from app.schemas.wishlist import (
+    WishlistCreate,
+    WishlistUpdate,
+    WishlistResponse,
+    WishlistListResponse,
+)
+from app.schemas.item import (
+    ItemCreate,
+    ItemUpdate,
+    ItemResponse,
+    ItemListResponse,
+)
 
 __all__ = [
     "UserCreate",
@@ -26,4 +38,12 @@ __all__ = [
     "TokenResponse",
     "RefreshTokenRequest",
     "AuthResponse",
+    "WishlistCreate",
+    "WishlistUpdate",
+    "WishlistResponse",
+    "WishlistListResponse",
+    "ItemCreate",
+    "ItemUpdate",
+    "ItemResponse",
+    "ItemListResponse",
 ]

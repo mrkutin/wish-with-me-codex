@@ -31,7 +31,7 @@ def upgrade() -> None:
         sa.Column("public_url_slug", sa.String(50), nullable=True),
         sa.Column(
             "social_links",
-            postgresql.JSONB(astext_type=sa.Text()),
+            sa.JSON(),
             nullable=True,
             server_default="{}",
         ),
@@ -90,7 +90,7 @@ def upgrade() -> None:
         sa.Column("email", sa.String(255), nullable=True),
         sa.Column(
             "profile_data",
-            postgresql.JSONB(astext_type=sa.Text()),
+            sa.JSON(),
             nullable=True,
             server_default="{}",
         ),

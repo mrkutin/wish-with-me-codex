@@ -64,6 +64,11 @@ class Settings(BaseSettings):
     # Rate limiting
     rate_limit_enabled: bool = True
 
+    # Item Resolver Service
+    item_resolver_url: str = "http://localhost:8080"
+    item_resolver_token: str = "dev-token"
+    item_resolver_timeout: int = 60  # seconds (as per spec)
+
     # OAuth (optional - configured in Phase 3)
     google_client_id: str | None = None
     google_client_secret: str | None = None

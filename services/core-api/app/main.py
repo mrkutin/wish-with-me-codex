@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.redis import close_redis
-from app.routers import auth_router, health_router, users_router
+from app.routers import auth_router, health_router, users_router, wishlists_router, items_router
 
 
 @asynccontextmanager
@@ -76,6 +76,8 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(users_router)
+app.include_router(wishlists_router)
+app.include_router(items_router)
 
 
 @app.get("/")

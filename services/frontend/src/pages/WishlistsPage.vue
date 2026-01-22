@@ -10,9 +10,14 @@
       />
     </div>
 
+    <!-- Loading state -->
+    <div v-if="wishlistStore.isLoading && wishlistStore.wishlists.length === 0" class="flex flex-center q-pa-xl">
+      <q-spinner color="primary" size="50px" />
+    </div>
+
     <!-- Empty state -->
     <div
-      v-if="wishlists.length === 0"
+      v-else-if="wishlistStore.wishlists.length === 0"
       class="flex flex-center column q-pa-xl"
     >
       <q-icon name="list" size="64px" color="grey-5" />
@@ -23,20 +28,40 @@
     <!-- Wishlist grid -->
     <div v-else class="row q-col-gutter-md">
       <div
-        v-for="wishlist in wishlists"
+        v-for="wishlist in wishlistStore.wishlists"
         :key="wishlist.id"
         class="col-12 col-sm-6 col-md-4"
       >
         <q-card class="wishlist-card cursor-pointer" @click="openWishlist(wishlist.id)">
           <q-card-section>
-            <div class="text-h6">{{ wishlist.title }}</div>
-            <div v-if="wishlist.description" class="text-body2 text-grey-7">
+            <div class="row items-start justify-between">
+              <div class="text-h6">{{ wishlist.name }}</div>
+              <q-btn
+                flat
+                dense
+                round
+                icon="more_vert"
+                @click.stop="showMenu(wishlist)"
+              >
+                <q-menu>
+                  <q-list style="min-width: 100px">
+                    <q-item clickable v-close-popup @click="editWishlist(wishlist)">
+                      <q-item-section>{{ $t('common.edit') }}</q-item-section>
+                    </q-item>
+                    <q-item clickable v-close-popup @click="confirmDelete(wishlist)">
+                      <q-item-section class="text-negative">{{ $t('common.delete') }}</q-item-section>
+                    </q-item>
+                  </q-list>
+                </q-menu>
+              </q-btn>
+            </div>
+            <div v-if="wishlist.description" class="text-body2 text-grey-7 q-mt-sm">
               {{ wishlist.description }}
             </div>
           </q-card-section>
           <q-card-section>
             <div class="text-caption text-grey">
-              {{ $t('wishlists.items', { count: wishlist.item_count }) }}
+              {{ formatDate(wishlist.created_at) }}
             </div>
           </q-card-section>
         </q-card>
@@ -52,17 +77,24 @@
 
         <q-card-section class="q-pt-none">
           <q-input
-            v-model="newWishlist.title"
+            v-model="newWishlist.name"
             :label="$t('wishlists.name')"
             outlined
             autofocus
+            :rules="[(val) => !!val || $t('validation.required')]"
           />
           <q-input
             v-model="newWishlist.description"
             :label="$t('wishlists.description')"
             outlined
             type="textarea"
+            rows="3"
             class="q-mt-md"
+          />
+          <q-checkbox
+            v-model="newWishlist.is_public"
+            :label="$t('wishlists.isPublic')"
+            class="q-mt-sm"
           />
         </q-card-section>
 
@@ -72,7 +104,50 @@
             color="primary"
             :label="$t('common.create')"
             @click="createWishlist"
-            :disable="!newWishlist.title"
+            :disable="!newWishlist.name"
+            :loading="wishlistStore.isLoading"
+          />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <!-- Edit wishlist dialog -->
+    <q-dialog v-model="showEditDialog">
+      <q-card style="min-width: 350px">
+        <q-card-section>
+          <div class="text-h6">{{ $t('wishlists.edit') }}</div>
+        </q-card-section>
+
+        <q-card-section class="q-pt-none">
+          <q-input
+            v-model="editingWishlist.name"
+            :label="$t('wishlists.name')"
+            outlined
+            :rules="[(val) => !!val || $t('validation.required')]"
+          />
+          <q-input
+            v-model="editingWishlist.description"
+            :label="$t('wishlists.description')"
+            outlined
+            type="textarea"
+            rows="3"
+            class="q-mt-md"
+          />
+          <q-checkbox
+            v-model="editingWishlist.is_public"
+            :label="$t('wishlists.isPublic')"
+            class="q-mt-sm"
+          />
+        </q-card-section>
+
+        <q-card-actions align="right">
+          <q-btn flat :label="$t('common.cancel')" v-close-popup />
+          <q-btn
+            color="primary"
+            :label="$t('common.save')"
+            @click="updateWishlist"
+            :disable="!editingWishlist.name"
+            :loading="wishlistStore.isLoading"
           />
         </q-card-actions>
       </q-card>
@@ -83,50 +158,131 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { api } from '@/boot/axios';
-
-interface Wishlist {
-  id: string;
-  title: string;
-  description?: string;
-  item_count: number;
-}
+import { useQuasar } from 'quasar';
+import { useI18n } from 'vue-i18n';
+import { useWishlistStore } from '@/stores/wishlist';
+import type { Wishlist } from '@/types/wishlist';
 
 const router = useRouter();
-const wishlists = ref<Wishlist[]>([]);
-const showCreateDialog = ref(false);
-const newWishlist = reactive({
-  title: '',
-  description: '',
-});
+const $q = useQuasar();
+const { t } = useI18n();
+const wishlistStore = useWishlistStore();
 
-async function fetchWishlists() {
-  try {
-    const response = await api.get<{ items: Wishlist[] }>('/api/v1/wishlists');
-    wishlists.value = response.data.items;
-  } catch {
-    // Handle error
-  }
-}
+const showCreateDialog = ref(false);
+const showEditDialog = ref(false);
+const newWishlist = reactive({
+  name: '',
+  description: '',
+  is_public: false,
+});
+const editingWishlist = reactive({
+  id: '',
+  name: '',
+  description: '',
+  is_public: false,
+});
 
 async function createWishlist() {
   try {
-    const response = await api.post<Wishlist>('/api/v1/wishlists', {
-      title: newWishlist.title,
-      description: newWishlist.description || undefined,
+    await wishlistStore.createWishlist({
+      name: newWishlist.name,
+      description: newWishlist.description || null,
+      is_public: newWishlist.is_public,
     });
-    wishlists.value.unshift(response.data);
     showCreateDialog.value = false;
-    newWishlist.title = '';
+    newWishlist.name = '';
     newWishlist.description = '';
-  } catch {
-    // Handle error
+    newWishlist.is_public = false;
+    $q.notify({
+      type: 'positive',
+      message: t('wishlists.created'),
+    });
+  } catch (error) {
+    $q.notify({
+      type: 'negative',
+      message: t('errors.createFailed'),
+    });
   }
+}
+
+function editWishlist(wishlist: Wishlist) {
+  editingWishlist.id = wishlist.id;
+  editingWishlist.name = wishlist.name;
+  editingWishlist.description = wishlist.description || '';
+  editingWishlist.is_public = wishlist.is_public;
+  showEditDialog.value = true;
+}
+
+async function updateWishlist() {
+  try {
+    await wishlistStore.updateWishlist(editingWishlist.id, {
+      name: editingWishlist.name,
+      description: editingWishlist.description || null,
+      is_public: editingWishlist.is_public,
+    });
+    showEditDialog.value = false;
+    $q.notify({
+      type: 'positive',
+      message: t('wishlists.updated'),
+    });
+  } catch (error) {
+    $q.notify({
+      type: 'negative',
+      message: t('errors.updateFailed'),
+    });
+  }
+}
+
+function confirmDelete(wishlist: Wishlist) {
+  $q.dialog({
+    title: t('wishlists.deleteConfirm'),
+    message: t('wishlists.deleteMessage', { name: wishlist.name }),
+    cancel: true,
+    persistent: true,
+  }).onOk(async () => {
+    try {
+      await wishlistStore.deleteWishlist(wishlist.id);
+      $q.notify({
+        type: 'positive',
+        message: t('wishlists.deleted'),
+      });
+    } catch (error) {
+      $q.notify({
+        type: 'negative',
+        message: t('errors.deleteFailed'),
+      });
+    }
+  });
+}
+
+function showMenu(wishlist: Wishlist) {
+  // Menu handled by q-menu in template
 }
 
 function openWishlist(id: string) {
   router.push({ name: 'wishlist-detail', params: { id } });
 }
 
-onMounted(fetchWishlists);
+function formatDate(dateString: string): string {
+  const date = new Date(dateString);
+  return new Intl.DateTimeFormat(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  }).format(date);
+}
+
+onMounted(() => {
+  wishlistStore.fetchWishlists();
+});
 </script>
+
+<style scoped>
+.wishlist-card {
+  transition: transform 0.2s;
+}
+
+.wishlist-card:hover {
+  transform: translateY(-4px);
+}
+</style>

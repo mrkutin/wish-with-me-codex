@@ -14,6 +14,9 @@ from app.database import Base, get_db
 from app.main import app
 from app.config import settings
 
+# Disable rate limiting for tests
+settings.rate_limit_enabled = False
+
 
 # Test database URL (in-memory SQLite for tests)
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
