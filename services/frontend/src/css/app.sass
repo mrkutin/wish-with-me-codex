@@ -1,0 +1,81 @@
+// Main application styles
+
+// Custom fonts
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap')
+
+// CSS Variables
+:root
+  --font-family: 'Inter', sans-serif
+  --transition-fast: 150ms ease
+  --transition-normal: 250ms ease
+  --border-radius-sm: 8px
+  --border-radius-md: 12px
+  --border-radius-lg: 16px
+
+// Global styles
+body
+  font-family: var(--font-family)
+  -webkit-font-smoothing: antialiased
+  -moz-osx-font-smoothing: grayscale
+
+// Smooth transitions for theme changes
+.q-dark-transition
+  transition: background-color var(--transition-normal), color var(--transition-normal)
+
+// Custom scrollbar
+::-webkit-scrollbar
+  width: 8px
+  height: 8px
+
+::-webkit-scrollbar-track
+  background: transparent
+
+::-webkit-scrollbar-thumb
+  background: rgba(0, 0, 0, 0.2)
+  border-radius: 4px
+
+  &:hover
+    background: rgba(0, 0, 0, 0.3)
+
+.body--dark
+  ::-webkit-scrollbar-thumb
+    background: rgba(255, 255, 255, 0.2)
+
+    &:hover
+      background: rgba(255, 255, 255, 0.3)
+
+// Page transitions
+.page-enter-active,
+.page-leave-active
+  transition: opacity var(--transition-normal), transform var(--transition-normal)
+
+.page-enter-from,
+.page-leave-to
+  opacity: 0
+  transform: translateY(10px)
+
+// Card hover effects
+.wishlist-card,
+.item-card
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast)
+
+  &:hover
+    transform: translateY(-2px)
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1)
+
+// Form styles
+.auth-form
+  max-width: 400px
+  margin: 0 auto
+  padding: 24px
+
+// Button styles
+.q-btn
+  border-radius: var(--border-radius-sm)
+  text-transform: none
+  font-weight: 500
+
+// Input styles
+.q-field
+  .q-field__control
+    border-radius: var(--border-radius-sm)

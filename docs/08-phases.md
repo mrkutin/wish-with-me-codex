@@ -24,14 +24,14 @@
 
 ### Deliverables
 
-- [ ] Quasar project setup with TypeScript
-- [ ] FastAPI project setup with async SQLAlchemy
-- [ ] PostgreSQL schema + Alembic migrations
-- [ ] Redis connection for sessions
-- [ ] Basic auth (email/password)
-- [ ] User CRUD endpoints
-- [ ] JWT token flow (access + refresh)
-- [ ] Docker Compose for local dev
+- [x] Quasar project setup with TypeScript
+- [x] FastAPI project setup with async SQLAlchemy
+- [x] PostgreSQL schema + Alembic migrations
+- [x] Redis connection for sessions
+- [x] Basic auth (email/password)
+- [x] User CRUD endpoints
+- [x] JWT token flow (access + refresh)
+- [x] Docker Compose for local dev
 
 ### Success Criteria
 
