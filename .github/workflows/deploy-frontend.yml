@@ -32,21 +32,25 @@ jobs:
         run: |
           ssh ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} << 'ENDSSH'
             set -e
-            cd /home/ubuntu/wish-with-me-codex/services/frontend
+            cd /home/ubuntu/wish-with-me-codex
 
             echo "Pulling latest code..."
             git fetch origin
             git reset --hard origin/main
 
-            echo "Building and restarting container..."
-            docker-compose down || true
+            echo "Stopping and removing old frontend container..."
+            docker stop wishwithme-frontend || true
+            docker rm wishwithme-frontend || true
+
+            echo "Building and starting frontend..."
+            cd services/frontend
             docker-compose up -d --build
 
             echo "Waiting for service to start..."
             sleep 10
 
             echo "Checking if container is running..."
-            docker-compose ps | grep -q "Up" || (echo "Container not running!" && exit 1)
+            docker ps | grep wishwithme-frontend | grep -q "Up" || (echo "Container not running!" && exit 1)
 
             echo "Deployment complete!"
           ENDSSH

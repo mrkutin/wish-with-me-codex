@@ -55,15 +55,22 @@ jobs:
         run: |
           ssh ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} << 'ENDSSH'
             set -e
-            cd /home/ubuntu/wish-with-me-codex/services/core-api
+            cd /home/ubuntu/wish-with-me-codex
 
             echo "Pulling latest code..."
             git fetch origin
             git reset --hard origin/main
 
-            echo "Building and restarting container..."
-            docker-compose down || true
+            echo "Stopping and removing old core-api container..."
+            docker stop wishwithme-core-api || true
+            docker rm wishwithme-core-api || true
+
+            echo "Building and starting core-api..."
+            cd services/core-api
             docker-compose up -d --build
+
+            echo "Running database migrations..."
+            docker exec wishwithme-core-api alembic upgrade head || true
 
             echo "Waiting for service to start..."
             sleep 15
