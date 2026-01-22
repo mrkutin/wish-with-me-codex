@@ -6,6 +6,31 @@
 
 ## 1. Overview
 
+### 1.1 Primary Deployment Method
+
+**GitHub Actions (Automated)**
+
+Deployment happens automatically when you push to the `main` branch:
+
+1. Push changes to GitHub `main` branch
+2. GitHub Actions detects changes in `services/*/` directories
+3. Workflows automatically deploy to Montreal server
+4. Health checks verify successful deployment
+
+```bash
+# Deploy by pushing to GitHub
+git push origin main
+
+# Or trigger manually
+gh workflow run deploy-core-api.yml
+gh workflow run deploy-frontend.yml
+gh workflow run deploy-item-resolver.yml
+```
+
+**IMPORTANT**: Always test and check logs on the Montreal server before and after deployment.
+
+### 1.2 Components
+
 | Component | Container | Port |
 |-----------|-----------|------|
 | Frontend (Quasar PWA) | `frontend` | 80 (internal) → 443 (external) |
@@ -15,7 +40,7 @@
 | Redis | `redis` | 6379 |
 | Nginx (reverse proxy) | `nginx` | 80, 443 |
 
-### 1.1 Server
+### 1.3 Server
 
 ```
 Host: montreal
@@ -24,9 +49,82 @@ User: ubuntu
 SSH Key: ~/.ssh/id_ed25519 (passphrase protected)
 ```
 
+**Server Access**:
+```bash
+# SSH to Montreal server
+ssh montreal
+
+# Check logs
+docker logs wishwithme-core-api --tail=100
+docker logs wishwithme-frontend --tail=100
+docker logs wishwithme-item-resolver --tail=100
+
+# Check service status
+docker ps
+```
+
 ---
 
-## 2. SSH Setup
+## 2. Deployment Workflow
+
+### 2.1 Standard Deployment Process
+
+**Step 1: Develop & Test Locally**
+```bash
+# Make changes in your local environment
+# Run local tests
+```
+
+**Step 2: Test on Montreal Server**
+```bash
+# SSH to server
+ssh montreal
+
+# Check current logs for issues
+docker logs wishwithme-core-api --tail=100
+
+# Verify services are running
+docker ps
+```
+
+**Step 3: Deploy via GitHub**
+```bash
+# Commit and push to main branch
+git add .
+git commit -m "Your changes"
+git push origin main
+
+# GitHub Actions will automatically deploy
+# Watch deployment progress:
+gh run watch
+```
+
+**Step 4: Verify Deployment**
+```bash
+# SSH to server and check logs again
+ssh montreal
+docker logs wishwithme-core-api --tail=100
+
+# Test functionality in production
+# Verify no errors in logs
+```
+
+### 2.2 Quick Reference
+
+```bash
+# Check what's deployed
+ssh montreal "cd /home/ubuntu/wish-with-me-codex && git log -1 --oneline"
+
+# View deployment logs
+gh run list --limit 5
+
+# Manual deployment trigger
+gh workflow run deploy-core-api.yml
+```
+
+---
+
+## 3. SSH Setup
 
 ### 2.1 Load SSH Key (Before Deployment)
 

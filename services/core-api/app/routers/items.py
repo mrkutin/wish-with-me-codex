@@ -78,6 +78,10 @@ async def create_item(
     item_service = ItemService(db)
     item = await item_service.create(wishlist.id, data)
 
+    # Explicitly commit the transaction before scheduling background task
+    # This ensures the item is visible to the background task's new session
+    await db.commit()
+
     # Automatically trigger resolution if source_url is provided
     if item.source_url:
         background_tasks.add_task(
@@ -213,7 +217,7 @@ async def resolve_item_background(
     resolver = ItemResolverClient()
 
     async with session_maker() as session:
-        async with session.begin():
+        try:
             item_service = ItemService(session)
             item = await item_service.get_by_id(item_id)
 
@@ -221,31 +225,30 @@ async def resolve_item_background(
                 logger.error(f"Item {item_id} not found for resolution")
                 return
 
-            try:
-                # Mark as resolving
-                await item_service.mark_resolving(item)
-                await session.commit()
+            # Mark as resolving
+            await item_service.mark_resolving(item)
+            await session.commit()
 
-                # Call resolver service
-                logger.info(f"Resolving item {item_id} from URL: {source_url}")
-                resolver_data = await resolver.resolve_item(source_url)
+            # Call resolver service
+            logger.info(f"Resolving item {item_id} from URL: {source_url}")
+            resolver_data = await resolver.resolve_item(source_url)
 
-                # Update item with resolved data
-                await item_service.update_from_resolver(item, resolver_data)
-                await session.commit()
-                logger.info(f"Successfully resolved item {item_id}")
+            # Update item with resolved data
+            await item_service.update_from_resolver(item, resolver_data)
+            await session.commit()
+            logger.info(f"Successfully resolved item {item_id}")
 
-            except ItemResolverError as e:
-                logger.error(f"Failed to resolve item {item_id}: {str(e)}")
-                await item_service.mark_resolver_failed(item, str(e))
-                await session.commit()
+        except ItemResolverError as e:
+            logger.error(f"Failed to resolve item {item_id}: {str(e)}")
+            await item_service.mark_resolver_failed(item, str(e))
+            await session.commit()
 
-            except Exception as e:
-                logger.exception(f"Unexpected error resolving item {item_id}: {str(e)}")
-                await item_service.mark_resolver_failed(
-                    item, f"Unexpected error: {str(e)}"
-                )
-                await session.commit()
+        except Exception as e:
+            logger.exception(f"Unexpected error resolving item {item_id}: {str(e)}")
+            await item_service.mark_resolver_failed(
+                item, f"Unexpected error: {str(e)}"
+            )
+            await session.commit()
 
 
 @router.post(

@@ -98,7 +98,11 @@ Once review is approved:
 2. Run linting/type checks:
    - Frontend: `npm run lint`
    - Backend: `ruff check .`
-3. If tests fail, return to Step 4 (FIX)
+3. **CRITICAL**: Test on Montreal production server:
+   - SSH to Montreal: `ssh montreal`
+   - Check logs: `docker logs wishwithme-core-api --tail=100`
+   - Verify functionality works as expected
+4. If tests fail, return to Step 4 (FIX)
 
 #### Step 6: COMPLETE
 When all checks pass:
@@ -106,6 +110,7 @@ When all checks pass:
 2. List files changed
 3. Note any follow-up items or technical debt
 4. Update `docs/08-phases.md` checklist if a phase item was completed
+5. **Deploy**: Push to GitHub `main` branch to trigger automated deployment via GitHub Actions
 
 ---
 
@@ -183,6 +188,26 @@ When writing tests:
 
 ---
 
+## Testing & Deployment
+
+### Testing Location
+**ALWAYS test on the Montreal production server:**
+- Server: `ssh montreal` (158.69.203.3)
+- Check logs: `docker logs wishwithme-core-api --tail=100`
+- Verify functionality in production environment
+- Do NOT rely solely on local testing
+
+### Deployment Method
+**GitHub Actions is the primary deployment method:**
+1. Push changes to GitHub `main` branch
+2. GitHub Actions automatically deploys to Montreal server
+3. Workflows monitor changes in `services/*/` directories
+4. Manual trigger via: `gh workflow run deploy-<service>.yml`
+
+See `docs/13-deployment.md` for full deployment documentation.
+
+---
+
 ## Quick Commands
 
 When the user requests:
@@ -194,6 +219,8 @@ When the user requests:
 | "fix review issues" | Address feedback, then re-review |
 | "run tests" | Execute appropriate test suite |
 | "check phase progress" | Read `docs/08-phases.md` and report status |
+| "deploy" | Push to GitHub main (triggers GitHub Actions) |
+| "check logs" | SSH to Montreal and check Docker logs |
 
 ---
 
