@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  core-api:
+    container_name: wishwithme-core-api
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    networks:
+      - wishwithme
+
+networks:
+  wishwithme:
+    external: true
