@@ -70,7 +70,8 @@ services:
       dockerfile: Dockerfile
       args:
         # Production API URL - served through nginx reverse proxy
-        API_URL: https://wishwith.me/api
+        # Note: API endpoints in stores already include /api/v1/ prefix
+        API_URL: https://wishwith.me
 
 volumes:
   postgres_data:

@@ -11,24 +11,33 @@ declare module '@vue/runtime-core' {
 
 /**
  * Get the API base URL.
- * In production, use the configured API_URL.
- * In development, use the same hostname as the current page but port 8000.
+ * - If accessing via IP address or localhost, construct URL dynamically (same IP, port 8000)
+ * - If accessing via domain (like wishwith.me), use the configured API_URL
+ * - This allows both direct IP access and production domain access to work correctly
  */
 function getApiBaseUrl(): string {
-  // If API_URL is explicitly set (production), use it
-  if (process.env.API_URL && process.env.API_URL !== 'http://localhost:8000') {
+  if (typeof window !== 'undefined') {
+    const { protocol, hostname } = window.location;
+
+    // Check if hostname is an IP address (v4 or v6) or localhost
+    const isIpAddress =
+      /^(\d{1,3}\.){3}\d{1,3}$/.test(hostname) ||
+      hostname.includes(':') || // IPv6
+      hostname === 'localhost';
+
+    // If accessing via IP or localhost, construct URL dynamically
+    if (isIpAddress) {
+      return `${protocol}//${hostname}:8000`;
+    }
+  }
+
+  // For domain access (production), use configured API_URL
+  if (process.env.API_URL) {
     return process.env.API_URL;
   }
 
-  // In development, construct URL based on current hostname
-  // This allows accessing from localhost, 127.0.0.1, or LAN IP
-  if (typeof window !== 'undefined') {
-    const { protocol, hostname } = window.location;
-    return `${protocol}//${hostname}:8000`;
-  }
-
   // Fallback
-  return process.env.API_URL || 'http://localhost:8000';
+  return 'http://localhost:8000';
 }
 
 const api = axios.create({
