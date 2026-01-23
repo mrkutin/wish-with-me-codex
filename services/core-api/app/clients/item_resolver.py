@@ -52,10 +52,10 @@ class ItemResolverClient:
                 return {
                     "title": data.get("title", ""),
                     "description": data.get("description"),
-                    "price": data.get("price"),
-                    "currency": data.get("currency"),
+                    "price": data.get("price_amount"),  # Resolver returns price_amount
+                    "currency": data.get("price_currency"),  # Resolver returns price_currency
                     "image_base64": data.get("image_base64"),
-                    "source_url": data.get("source_url", url),
+                    "source_url": data.get("canonical_url", url),  # Use canonical_url if available
                     "metadata": data,  # Store full response
                 }
 
