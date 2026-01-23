@@ -1,5 +1,12 @@
 name: Deploy to Production
 
+# This workflow deploys to Montreal server (158.69.203.3) AUTOMATICALLY
+# when changes are pushed to the main branch.
+#
+# Production Server: montreal (158.69.203.3)
+# Location: /home/ubuntu/wish-with-me-codex
+# Trigger: Automatic on push to main, or manual via workflow_dispatch
+
 on:
   push:
     branches:
@@ -12,7 +19,7 @@ on:
   workflow_dispatch:
 
 env:
-  SERVER_HOST: 158.69.203.3
+  SERVER_HOST: 158.69.203.3  # Montreal production server
   SERVER_USER: ubuntu
   DEPLOY_PATH: /home/ubuntu/wish-with-me-codex
 

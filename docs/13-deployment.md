@@ -4,6 +4,28 @@
 
 ---
 
+## ⚠️ IMPORTANT: Production Server Configuration
+
+**PRODUCTION SERVER IS ALWAYS:**
+- **Server**: Montreal (ssh alias)
+- **Hostname**: 158.69.203.3
+- **User**: ubuntu
+- **Location**: /home/ubuntu/wish-with-me-codex
+
+**DEPLOYMENT IS ALWAYS:**
+- **Automatic**: Triggered on every push to `main` branch
+- **Via GitHub Actions**: `.github/workflows/deploy.yml`
+- **Smart**: Only rebuilds changed services
+- **Verified**: Health checks run on Montreal server
+- **Safe**: Automatic rollback on failure
+
+**TESTING IS ALWAYS:**
+- **On Production**: Test directly on Montreal server after deployment
+- **Never Local Only**: Local tests are supplementary, not sufficient
+- **Command**: `ssh montreal "cd /home/ubuntu/wish-with-me-codex && docker-compose logs -f"`
+
+---
+
 ## 1. Overview
 
 ### 1.1 Unified Docker Compose Architecture

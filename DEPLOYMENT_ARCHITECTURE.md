@@ -1,8 +1,18 @@
 # Unified Docker Compose CI/CD Architecture
 
+## Production Server
+
+**PRODUCTION SERVER IS ALWAYS MONTREAL:**
+- **Hostname**: 158.69.203.3
+- **SSH Alias**: montreal
+- **User**: ubuntu
+- **Path**: /home/ubuntu/wish-with-me-codex
+- **Deployment**: Automatic on push to `main` branch
+- **Testing**: Always test on this server after deployment
+
 ## Overview
 
-This document describes the unified docker-compose based CI/CD architecture implemented for Wish With Me.
+This document describes the unified docker-compose based CI/CD architecture implemented for Wish With Me, which deploys automatically to the Montreal production server.
 
 ## Problems Solved
 

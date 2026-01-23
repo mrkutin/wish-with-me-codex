@@ -190,19 +190,39 @@ When writing tests:
 
 ## Testing & Deployment
 
-### Testing Location
-**ALWAYS test on the Montreal production server:**
-- Server: `ssh montreal` (158.69.203.3)
-- Check logs: `docker logs wishwithme-core-api --tail=100`
-- Verify functionality in production environment
-- Do NOT rely solely on local testing
+### Production Server (ALWAYS)
+**Production server is ALWAYS Montreal:**
+- **Server**: `ssh montreal`
+- **Hostname**: 158.69.203.3
+- **User**: ubuntu
+- **Path**: /home/ubuntu/wish-with-me-codex
 
-### Deployment Method
-**GitHub Actions is the primary deployment method:**
-1. Push changes to GitHub `main` branch
-2. GitHub Actions automatically deploys to Montreal server
-3. Workflows monitor changes in `services/*/` directories
-4. Manual trigger via: `gh workflow run deploy-<service>.yml`
+### Testing Location (ALWAYS)
+**ALWAYS test on the Montreal production server:**
+- **Never rely solely on local testing** - production environment is the source of truth
+- Server: `ssh montreal` (158.69.203.3)
+- Navigate: `cd /home/ubuntu/wish-with-me-codex`
+- Check logs: `docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs -f`
+- Check specific service: `docker logs wishwithme-core-api --tail=100`
+- Verify status: `docker-compose -f docker-compose.yml -f docker-compose.prod.yml ps`
+- Test health: `curl -sf http://localhost:8000/healthz`
+
+### Deployment Method (ALWAYS AUTOMATIC)
+**Deployment to Montreal happens AUTOMATICALLY on push to main:**
+1. Push changes to GitHub `main` branch → **Automatic deployment to Montreal starts**
+2. GitHub Actions connects to Montreal server (158.69.203.3)
+3. Detects which services changed (frontend, core-api, item-resolver)
+4. Rebuilds only changed services on Montreal
+5. Runs health checks on Montreal
+6. Automatic rollback on Montreal if deployment fails
+7. Manual trigger (all services): `gh workflow run deploy.yml`
+
+**Unified Architecture:**
+- Single `docker-compose.yml` at project root for all services
+- Production overrides in `docker-compose.prod.yml`
+- All services on shared network: `wishwithme-network`
+- Services reference each other by container name
+- Deployed to: **Montreal server (158.69.203.3)**
 
 See `docs/13-deployment.md` for full deployment documentation.
 
@@ -219,8 +239,9 @@ When the user requests:
 | "fix review issues" | Address feedback, then re-review |
 | "run tests" | Execute appropriate test suite |
 | "check phase progress" | Read `docs/08-phases.md` and report status |
-| "deploy" | Push to GitHub main (triggers GitHub Actions) |
-| "check logs" | SSH to Montreal and check Docker logs |
+| "deploy" | Push to GitHub main (triggers unified deployment workflow) |
+| "check logs" | SSH to Montreal: `docker-compose logs -f` or `docker logs wishwithme-<service>` |
+| "check status" | SSH to Montreal: `docker-compose ps` to see all services |
 
 ---
 

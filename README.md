@@ -29,17 +29,25 @@ Access services at:
 
 ### Production Deployment
 
-Deployment happens automatically when you push to `main`:
+**Production Server: Montreal (158.69.203.3)**
+
+Deployment happens **automatically** when you push to `main`:
 
 ```bash
 git push origin main
 ```
 
 GitHub Actions will:
-1. Detect which services changed
-2. Deploy only changed services
-3. Run health checks
-4. Automatically rollback on failure
+1. Deploy to Montreal server (**158.69.203.3**)
+2. Detect which services changed
+3. Rebuild only changed services on Montreal
+4. Run health checks on Montreal
+5. Automatically rollback on failure
+
+**Always test on Montreal after deployment:**
+```bash
+ssh montreal "cd /home/ubuntu/wish-with-me-codex && docker-compose logs -f"
+```
 
 See [docs/13-deployment.md](./docs/13-deployment.md) for details.
 
