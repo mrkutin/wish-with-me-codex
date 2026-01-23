@@ -149,11 +149,17 @@ jobs:
               echo "=== Checking Docker network compatibility ==="
               NETWORK_LABEL=$(docker network inspect wishwithme-network --format '{{index .Labels "com.docker.compose.network"}}' 2>/dev/null || echo "")
               if [ "$NETWORK_LABEL" != "wishwithme" ] && [ -n "$NETWORK_LABEL" ]; then
-                echo "Network label mismatch detected, recreating network..."
-                # Stop all containers using this network
-                docker-compose -f docker-compose.yml -f docker-compose.prod.yml down --remove-orphans || true
+                echo "Network label mismatch detected (label: '$NETWORK_LABEL'), recreating network..."
+                # Stop and remove all containers connected to this network using docker directly
+                # (docker-compose won't work due to the network label issue)
+                for container in $(docker network inspect wishwithme-network -f '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null); do
+                  echo "Stopping container: $container"
+                  docker stop "$container" 2>/dev/null || true
+                  docker rm "$container" 2>/dev/null || true
+                done
+                # Now remove the network
                 docker network rm wishwithme-network || true
-                echo "Network will be recreated on next up"
+                echo "Network removed, will be recreated on next up"
               fi
             fi
 
@@ -306,8 +312,12 @@ jobs:
             if docker network inspect wishwithme-network >/dev/null 2>&1; then
               NETWORK_LABEL=$(docker network inspect wishwithme-network --format '{{index .Labels "com.docker.compose.network"}}' 2>/dev/null || echo "")
               if [ "$NETWORK_LABEL" != "wishwithme" ] && [ -n "$NETWORK_LABEL" ]; then
-                echo "Network label mismatch detected, recreating network..."
-                docker-compose -f docker-compose.yml -f docker-compose.prod.yml down --remove-orphans || true
+                echo "Network label mismatch detected (label: '$NETWORK_LABEL'), recreating network..."
+                for container in $(docker network inspect wishwithme-network -f '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null); do
+                  echo "Stopping container: $container"
+                  docker stop "$container" 2>/dev/null || true
+                  docker rm "$container" 2>/dev/null || true
+                done
                 docker network rm wishwithme-network || true
               fi
             fi
