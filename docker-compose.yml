@@ -121,7 +121,7 @@ services:
       item-resolver:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "--timeout=5", "http://localhost:8000/live"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O-", "--timeout=5", "http://localhost:8000/live"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -144,7 +144,7 @@ services:
       core-api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O-", "http://localhost/"]
       interval: 30s
       timeout: 5s
       retries: 3
