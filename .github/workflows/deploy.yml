@@ -247,10 +247,10 @@ jobs:
               docker exec wishwithme-item-resolver python -c "import httpx; httpx.get('http://localhost:8000/healthz', headers={'Authorization': 'Bearer ${RU_BEARER_TOKEN}'}, timeout=5)" && echo "✓ Item Resolver is healthy" || (echo "✗ Item Resolver health check failed" && exit 1)
             fi
 
-            # Test frontend (internal)
+            # Test frontend (internal) - use IPv4 explicitly
             if [ "${{ needs.detect-changes.outputs.frontend }}" == "true" ]; then
               echo "Checking frontend..."
-              docker exec wishwithme-frontend wget --no-verbose --tries=1 --spider http://localhost/ && echo "✓ Frontend is healthy" || (echo "✗ Frontend health check failed" && exit 1)
+              docker exec wishwithme-frontend wget --no-verbose --tries=1 --spider http://127.0.0.1/ && echo "✓ Frontend is healthy" || (echo "✗ Frontend health check failed" && exit 1)
             fi
 
             echo "=== All health checks passed ==="
