@@ -94,3 +94,6 @@ cython_debug/
 
 # Local storage state (browser sessions)
 storage_state/
+
+# Deployment rollback tracking (server-side only)
+.last-known-good-commit

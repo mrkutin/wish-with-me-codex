@@ -1,0 +1,88 @@
+version: '3.8'
+
+# Production overrides for docker-compose.yml
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+services:
+  # Nginx reverse proxy (production only)
+  nginx:
+    image: nginx:alpine
+    container_name: wishwithme-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      frontend:
+        condition: service_healthy
+      core-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - wishwithme
+
+  postgres:
+    # Use persistent volume mapping in production (defined in volumes section)
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # Don't expose port - internal only
+    ports: []
+
+  redis:
+    # Use persistent volume mapping in production (defined in volumes section)
+    volumes:
+      - redis_data:/data
+    # Don't expose port - internal only
+    ports: []
+
+  item-resolver:
+    # Don't expose port - accessed only via internal network
+    ports: []
+    # Resource limits for Playwright
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+
+  core-api:
+    # Don't expose port - nginx handles routing
+    ports: []
+    environment:
+      - DEBUG=false
+      - CORS_ALLOW_ALL=false
+
+  frontend:
+    # Don't expose port - nginx handles routing
+    ports: []
+    build:
+      context: ./services/frontend
+      dockerfile: Dockerfile
+      args:
+        # Production API URL - served through nginx reverse proxy
+        API_URL: https://wishwith.me/api
+
+volumes:
+  postgres_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/wishwithme/data/postgres
+
+  redis_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/wishwithme/data/redis
