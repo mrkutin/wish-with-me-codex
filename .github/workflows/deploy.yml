@@ -144,6 +144,19 @@ jobs:
               exit 1
             fi
 
+            # Fix network label mismatch (from docker-compose v1 to v2 migration)
+            if docker network inspect wishwithme-network >/dev/null 2>&1; then
+              echo "=== Checking Docker network compatibility ==="
+              NETWORK_LABEL=$(docker network inspect wishwithme-network --format '{{index .Labels "com.docker.compose.network"}}' 2>/dev/null || echo "")
+              if [ "$NETWORK_LABEL" != "wishwithme" ] && [ -n "$NETWORK_LABEL" ]; then
+                echo "Network label mismatch detected, recreating network..."
+                # Stop all containers using this network
+                docker-compose -f docker-compose.yml -f docker-compose.prod.yml down --remove-orphans || true
+                docker network rm wishwithme-network || true
+                echo "Network will be recreated on next up"
+              fi
+            fi
+
             # Build only changed services
             REBUILD_SERVICES=""
 
@@ -288,6 +301,16 @@ jobs:
             cd ${{ env.DEPLOY_PATH }}
 
             echo "=== DEPLOYMENT FAILED - ROLLING BACK ==="
+
+            # Fix network label mismatch if present
+            if docker network inspect wishwithme-network >/dev/null 2>&1; then
+              NETWORK_LABEL=$(docker network inspect wishwithme-network --format '{{index .Labels "com.docker.compose.network"}}' 2>/dev/null || echo "")
+              if [ "$NETWORK_LABEL" != "wishwithme" ] && [ -n "$NETWORK_LABEL" ]; then
+                echo "Network label mismatch detected, recreating network..."
+                docker-compose -f docker-compose.yml -f docker-compose.prod.yml down --remove-orphans || true
+                docker network rm wishwithme-network || true
+              fi
+            fi
 
             # Check if we have a saved rollback point
             if [ -f .last-known-good-commit ]; then
