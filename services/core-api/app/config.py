@@ -49,12 +49,13 @@ class Settings(BaseSettings):
             raise ValueError("JWT secret key must be at least 32 characters")
         return v
 
-    # CORS - In development, allow common local addresses
+    # CORS - Allow common local addresses and production server
     cors_origins: list[str] = [
         "http://localhost:9000",
         "http://localhost:8080",
         "http://127.0.0.1:9000",
         "http://127.0.0.1:8080",
+        "http://158.69.203.3:9000",  # Montreal production server
         "https://wishwith.me",
         "https://www.wishwith.me",
     ]
