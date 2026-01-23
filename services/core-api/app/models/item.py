@@ -57,7 +57,9 @@ class Item(Base):
     image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     image_base64: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[ItemStatus] = mapped_column(
-        Enum(ItemStatus), nullable=False, default=ItemStatus.PENDING
+        Enum(ItemStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=ItemStatus.PENDING,
     )
     resolver_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
