@@ -55,9 +55,10 @@ class Settings(BaseSettings):
         "http://localhost:8080",
         "http://127.0.0.1:9000",
         "http://127.0.0.1:8080",
-        "http://158.69.203.3:9000",  # Montreal production server
+        "http://158.69.203.3:9000",  # Montreal production server (direct IP access)
         "https://wishwith.me",
         "https://www.wishwith.me",
+        "https://api.wishwith.me",  # API subdomain (for CORS preflight)
     ]
     # Allow all origins in development (set via env var CORS_ALLOW_ALL=true)
     cors_allow_all: bool = False
