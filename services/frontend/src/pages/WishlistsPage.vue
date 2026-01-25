@@ -439,8 +439,13 @@ function formatDate(dateString: string): string {
   }).format(date);
 }
 
-// Fetch bookmarks when switching to shared tab
+// Sync URL and fetch bookmarks when tab changes
 watch(activeTab, (newTab) => {
+  // Update URL to reflect current tab
+  const newQuery = newTab === 'shared' ? { tab: 'shared' } : {};
+  router.replace({ query: newQuery });
+
+  // Fetch bookmarks when switching to shared tab
   if (newTab === 'shared' && sharedBookmarks.value.length === 0) {
     fetchBookmarks();
   }
