@@ -23,7 +23,8 @@ const shareLinks = ref<ShareLink[]>([]);
 const isLoading = ref(false);
 const isCreating = ref(false);
 const newLinkExpiry = ref<number | null>(30);
-const showQrCode = ref<string | null>(null);
+const showQrDialog = ref(false);
+const currentQrCode = ref<string | null>(null);
 
 const isOpen = computed({
   get: () => props.modelValue,
@@ -116,11 +117,21 @@ function formatDate(dateStr: string | null): string {
   return date.toLocaleDateString();
 }
 
+function openQrDialog(qrCode: string) {
+  currentQrCode.value = qrCode;
+  showQrDialog.value = true;
+}
+
+function closeQrDialog() {
+  showQrDialog.value = false;
+  currentQrCode.value = null;
+}
+
 watch(isOpen, (open) => {
   if (open) {
     fetchShareLinks();
   } else {
-    showQrCode.value = null;
+    closeQrDialog();
   }
 });
 </script>
@@ -204,7 +215,7 @@ watch(isOpen, (open) => {
                     round
                     dense
                     icon="qr_code"
-                    @click="showQrCode = link.qr_code_base64"
+                    @click="openQrDialog(link.qr_code_base64)"
                   >
                     <q-tooltip>{{ $t('sharing.showQr') }}</q-tooltip>
                   </q-btn>
@@ -233,11 +244,11 @@ watch(isOpen, (open) => {
       </q-card-section>
 
       <!-- QR Code dialog -->
-      <q-dialog v-model="showQrCode" v-if="showQrCode">
+      <q-dialog v-model="showQrDialog">
         <q-card class="q-pa-md text-center">
-          <q-img :src="showQrCode" style="width: 250px; height: 250px;" />
+          <q-img v-if="currentQrCode" :src="currentQrCode" style="width: 250px; height: 250px;" />
           <q-card-actions align="center">
-            <q-btn flat :label="$t('common.close')" @click="showQrCode = null" />
+            <q-btn flat :label="$t('common.close')" @click="closeQrDialog" />
           </q-card-actions>
         </q-card>
       </q-dialog>

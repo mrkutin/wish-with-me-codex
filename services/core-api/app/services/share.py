@@ -72,8 +72,11 @@ class ShareService:
         )
         links = result.scalars().all()
 
-        return [
-            ShareLinkResponse(
+        responses = []
+        for link in links:
+            share_url = self._get_share_url(link.token)
+            qr_code = self._generate_qr_code(share_url)
+            responses.append(ShareLinkResponse(
                 id=link.id,
                 wishlist_id=link.wishlist_id,
                 token=link.token,
@@ -81,10 +84,10 @@ class ShareService:
                 expires_at=link.expires_at,
                 access_count=link.access_count,
                 created_at=link.created_at,
-                share_url=self._get_share_url(link.token),
-            )
-            for link in links
-        ]
+                share_url=share_url,
+                qr_code_base64=qr_code,
+            ))
+        return responses
 
     async def create_share_link(
         self,
