@@ -236,12 +236,9 @@ class OAuthService:
 
         # Get user info (some providers include it in token, others need separate call)
         userinfo = None
-        if provider in (OAuthProvider.GOOGLE, OAuthProvider.YANDEX, OAuthProvider.SBER):
+        if provider in (OAuthProvider.GOOGLE, OAuthProvider.YANDEX):
             # These providers support userinfo endpoint
             userinfo = await client.userinfo(token=token)
-        elif provider == OAuthProvider.APPLE:
-            # Apple: check if user info came in form post (stored in request)
-            userinfo = getattr(request, "_apple_user", None)
 
         user_info = await parse_user_info(provider, token, userinfo)
         return user_info, state_data
