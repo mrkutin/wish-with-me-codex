@@ -44,6 +44,7 @@ const loginRedirect = computed(() => ({
 }));
 
 const REFRESH_TOKEN_KEY = 'refresh_token';
+const PENDING_SHARE_TOKEN_KEY = 'pending_share_token';
 
 function getErrorMessage(error: string, email?: string, provider?: string): string {
   switch (error) {
@@ -108,10 +109,19 @@ async function processCallback(): Promise<void> {
       }
       isProcessing.value = false;
 
-      // Redirect to wishlists
-      setTimeout(() => {
-        router.push({ name: 'wishlists' });
-      }, 1000);
+      // Check for pending share token and redirect accordingly
+      const pendingShareToken = LocalStorage.getItem<string>(PENDING_SHARE_TOKEN_KEY);
+      if (pendingShareToken) {
+        LocalStorage.remove(PENDING_SHARE_TOKEN_KEY);
+        setTimeout(() => {
+          router.push({ name: 'shared-wishlist', params: { token: pendingShareToken } });
+        }, 1000);
+      } else {
+        // Redirect to wishlists
+        setTimeout(() => {
+          router.push({ name: 'wishlists' });
+        }, 1000);
+      }
     } catch (err) {
       errorMessage.value = t('oauth.authFailed');
       isProcessing.value = false;

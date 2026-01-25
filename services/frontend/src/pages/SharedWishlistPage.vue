@@ -77,12 +77,14 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { useQuasar } from 'quasar';
+import { useQuasar, LocalStorage } from 'quasar';
 import { useI18n } from 'vue-i18n';
 import { api } from '@/boot/axios';
 import { useAuthStore } from '@/stores/auth';
 import SharedItemCard from '@/components/items/SharedItemCard.vue';
 import type { SharedWishlistResponse, SharedItem, MarkResponse } from '@/types/share';
+
+const PENDING_SHARE_TOKEN_KEY = 'pending_share_token';
 
 const route = useRoute();
 const router = useRouter();
@@ -202,6 +204,8 @@ async function unmarkItem(item: SharedItem) {
 
 onMounted(() => {
   if (!authStore.isAuthenticated) {
+    // Store share token so we can redirect back after login
+    LocalStorage.set(PENDING_SHARE_TOKEN_KEY, token.value);
     router.push({ name: 'login', query: { share_token: token.value } });
     return;
   }

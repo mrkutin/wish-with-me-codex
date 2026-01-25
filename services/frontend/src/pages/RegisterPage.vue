@@ -61,7 +61,10 @@ import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { useI18n } from 'vue-i18n';
+import { LocalStorage } from 'quasar';
 import SocialLoginButtons from '@/components/SocialLoginButtons.vue';
+
+const PENDING_SHARE_TOKEN_KEY = 'pending_share_token';
 
 const authStore = useAuthStore();
 const router = useRouter();
@@ -82,7 +85,15 @@ async function handleRegister() {
       password: password.value,
       locale: locale.value,
     });
-    router.push({ name: 'wishlists' });
+
+    // Check for pending share token and redirect accordingly
+    const pendingShareToken = LocalStorage.getItem<string>(PENDING_SHARE_TOKEN_KEY);
+    if (pendingShareToken) {
+      LocalStorage.remove(PENDING_SHARE_TOKEN_KEY);
+      router.push({ name: 'shared-wishlist', params: { token: pendingShareToken } });
+    } else {
+      router.push({ name: 'wishlists' });
+    }
   } catch (err: unknown) {
     const axiosError = err as { response?: { status: number } };
     if (axiosError.response?.status === 409) {

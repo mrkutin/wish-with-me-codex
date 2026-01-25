@@ -50,11 +50,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { useI18n } from 'vue-i18n';
+import { LocalStorage } from 'quasar';
 import SocialLoginButtons from '@/components/SocialLoginButtons.vue';
+
+const PENDING_SHARE_TOKEN_KEY = 'pending_share_token';
 
 const authStore = useAuthStore();
 const router = useRouter();
@@ -65,6 +68,14 @@ const email = ref('');
 const password = ref('');
 const showPassword = ref(false);
 const error = ref('');
+
+// Store share token from query param if present
+onMounted(() => {
+  const shareToken = route.query.share_token as string;
+  if (shareToken) {
+    LocalStorage.set(PENDING_SHARE_TOKEN_KEY, shareToken);
+  }
+});
 
 function isValidRedirect(url: string): boolean {
   // Only allow relative paths starting with /
@@ -82,6 +93,15 @@ async function handleLogin() {
   error.value = '';
   try {
     await authStore.login(email.value, password.value);
+
+    // Check for pending share token first
+    const pendingShareToken = LocalStorage.getItem<string>(PENDING_SHARE_TOKEN_KEY);
+    if (pendingShareToken) {
+      LocalStorage.remove(PENDING_SHARE_TOKEN_KEY);
+      router.push({ name: 'shared-wishlist', params: { token: pendingShareToken } });
+      return;
+    }
+
     const redirect = route.query.redirect as string;
     // Validate redirect to prevent open redirect vulnerability
     router.push(isValidRedirect(redirect) ? redirect : { name: 'wishlists' });
