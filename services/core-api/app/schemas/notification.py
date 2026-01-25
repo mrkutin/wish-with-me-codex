@@ -32,4 +32,4 @@ class NotificationListResponse(BaseModel):
 class NotificationMarkReadRequest(BaseModel):
     """Schema for marking notifications as read."""
 
-    notification_ids: Annotated[list[UUID], Field(min_length=1)]
+    notification_ids: Annotated[list[UUID], Field(min_length=1, max_length=100)]

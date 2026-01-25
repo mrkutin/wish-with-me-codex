@@ -141,7 +141,13 @@ class MarkService:
         )
         locked_item = result.scalar_one()
 
-        mark = await self.get_mark(item.id, user_id)
+        # Lock the mark row to prevent concurrent updates
+        mark_result = await self.db.execute(
+            select(Mark)
+            .where(Mark.item_id == item.id, Mark.user_id == user_id)
+            .with_for_update()
+        )
+        mark = mark_result.scalar_one_or_none()
         if not mark:
             # Nothing to unmark
             return 0, locked_item.marked_quantity, locked_item.quantity - locked_item.marked_quantity

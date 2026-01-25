@@ -8,7 +8,7 @@ from uuid import UUID
 
 import qrcode
 from qrcode.image.styledpil import StyledPilImage
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -152,8 +152,12 @@ class ShareService:
         await self.db.flush()
 
     async def increment_access_count(self, share_link: ShareLink) -> None:
-        """Increment the access count for a share link."""
-        share_link.access_count += 1
+        """Increment the access count for a share link atomically."""
+        await self.db.execute(
+            update(ShareLink)
+            .where(ShareLink.id == share_link.id)
+            .values(access_count=ShareLink.access_count + 1)
+        )
         await self.db.flush()
 
     def is_link_valid(self, share_link: ShareLink) -> bool:

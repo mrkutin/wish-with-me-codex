@@ -43,7 +43,7 @@ class OwnerPublicProfile(BaseModel):
 
     id: UUID
     name: str
-    avatar_base64: str
+    avatar_base64: str | None = None
 
 
 class SharedItemResponse(BaseModel):
