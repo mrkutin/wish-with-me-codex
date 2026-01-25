@@ -47,14 +47,14 @@
 
 ### Deliverables
 
-- [ ] Wishlist CRUD endpoints
-- [ ] Wishlist UI (list, create, edit, delete)
-- [ ] Item CRUD endpoints (manual entry)
-- [ ] Item UI (list, add, edit, delete)
-- [ ] Item resolver integration
-- [ ] URL paste → resolve flow
-- [ ] Item status states (pending, resolving, resolved, failed)
-- [ ] Basic error handling
+- [x] Wishlist CRUD endpoints
+- [x] Wishlist UI (list, create, edit, delete)
+- [x] Item CRUD endpoints (manual entry)
+- [x] Item UI (list, add, edit, delete)
+- [x] Item resolver integration
+- [x] URL paste → resolve flow
+- [x] Item status states (pending, resolving, resolved, failed)
+- [x] Basic error handling
 
 ### Success Criteria
 
@@ -172,11 +172,11 @@
 
 ### Deliverables
 
-- [ ] Frontend Dockerfile (Quasar PWA)
-- [ ] Backend Dockerfile (FastAPI)
+- [x] Frontend Dockerfile (Quasar PWA)
+- [x] Backend Dockerfile (FastAPI)
 - [ ] Kubernetes manifests
-- [ ] CI/CD pipeline (GitHub Actions)
-- [ ] Domain + SSL setup
+- [x] CI/CD pipeline (GitHub Actions)
+- [x] Domain + SSL setup (wishwith.me, api.wishwith.me)
 - [ ] CDN configuration
 - [ ] Monitoring (Prometheus + Grafana)
 - [ ] Logging (structured JSON)
