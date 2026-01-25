@@ -1,12 +1,9 @@
 """OAuth provider configuration and registry."""
 
 import logging
-import time
 from datetime import date, datetime
-from typing import Any
 
 import httpx
-import jwt
 from authlib.integrations.starlette_client import OAuth
 
 from app.config import settings
@@ -22,42 +19,6 @@ oauth_registry = OAuth()
 
 # Track which providers are registered
 _registered_providers: set[str] = set()
-
-
-def _generate_apple_client_secret() -> str | None:
-    """Generate Apple client secret JWT.
-
-    Apple requires a JWT signed with your private key as the client secret.
-    The JWT is valid for up to 6 months.
-    """
-    if not all([
-        settings.apple_team_id,
-        settings.apple_key_id,
-        settings.apple_private_key,
-        settings.apple_client_id,
-    ]):
-        return None
-
-    now = int(time.time())
-    payload = {
-        "iss": settings.apple_team_id,
-        "iat": now,
-        "exp": now + 86400 * 180,  # 180 days
-        "aud": "https://appleid.apple.com",
-        "sub": settings.apple_client_id,
-    }
-
-    headers = {
-        "alg": "ES256",
-        "kid": settings.apple_key_id,
-    }
-
-    return jwt.encode(
-        payload,
-        settings.apple_private_key,
-        algorithm="ES256",
-        headers=headers,
-    )
 
 
 def _register_providers() -> None:
@@ -76,23 +37,6 @@ def _register_providers() -> None:
         )
         _registered_providers.add("google")
 
-    # Apple - Manual configuration
-    if settings.apple_client_id and settings.apple_team_id:
-        apple_secret = _generate_apple_client_secret()
-        if apple_secret:
-            oauth_registry.register(
-                name="apple",
-                client_id=settings.apple_client_id,
-                client_secret=apple_secret,
-                authorize_url="https://appleid.apple.com/auth/authorize",
-                access_token_url="https://appleid.apple.com/auth/token",
-                client_kwargs={
-                    "scope": "name email",
-                    "response_mode": "form_post",
-                },
-            )
-            _registered_providers.add("apple")
-
     # Yandex - Manual configuration
     if settings.yandex_client_id and settings.yandex_client_secret:
         oauth_registry.register(
@@ -107,21 +51,6 @@ def _register_providers() -> None:
             },
         )
         _registered_providers.add("yandex")
-
-    # Sber ID - Manual configuration
-    if settings.sber_client_id and settings.sber_client_secret:
-        oauth_registry.register(
-            name="sber",
-            client_id=settings.sber_client_id,
-            client_secret=settings.sber_client_secret,
-            authorize_url="https://online.sberbank.ru/CSAFront/oidc/authorize",
-            access_token_url="https://online.sberbank.ru/CSAFront/oidc/token",
-            userinfo_endpoint="https://online.sberbank.ru/CSAFront/oidc/userinfo",
-            client_kwargs={
-                "scope": "openid name email",
-            },
-        )
-        _registered_providers.add("sber")
 
 
 # Register providers on module load
@@ -172,12 +101,8 @@ async def parse_user_info(provider: OAuthProvider, token: dict, userinfo: dict |
     """
     if provider == OAuthProvider.GOOGLE:
         return await _parse_google_user(token, userinfo)
-    elif provider == OAuthProvider.APPLE:
-        return _parse_apple_user(token, userinfo)
     elif provider == OAuthProvider.YANDEX:
         return _parse_yandex_user(token, userinfo)
-    elif provider == OAuthProvider.SBER:
-        return _parse_sber_user(token, userinfo)
     else:
         raise ValueError(f"Unknown provider: {provider}")
 
@@ -198,33 +123,29 @@ async def _fetch_google_birthday(access_token: str) -> date | None:
                 params={"personFields": "birthdays"},
                 headers={"Authorization": f"Bearer {access_token}"},
             )
-            print(f"[DEBUG] People API response status: {response.status_code}", flush=True)
-            print(f"[DEBUG] People API response body: {response.text[:500]}", flush=True)
             if response.status_code == 200:
                 data = response.json()
                 birthdays = data.get("birthdays", [])
-                print(f"[DEBUG] Birthdays from API: {birthdays}", flush=True)
                 for bday in birthdays:
                     bday_date = bday.get("date", {})
                     year = bday_date.get("year")
                     month = bday_date.get("month")
                     day = bday_date.get("day")
-                    print(f"[DEBUG] Birthday date parts: year={year}, month={month}, day={day}", flush=True)
                     # Only return birthday if we have complete date including year
                     # Google may omit year for privacy - we skip those
                     if year and month and day:
                         return date(year, month, day)
-                print("[DEBUG] Google birthday found but missing year, skipping", flush=True)
+                logger.debug("Google birthday found but missing year, skipping")
             elif response.status_code == 403:
-                print("[DEBUG] User did not grant birthday permission to Google", flush=True)
+                logger.debug("User did not grant birthday permission to Google")
             elif response.status_code == 401:
-                print("[DEBUG] Google access token invalid for People API", flush=True)
+                logger.warning("Google access token invalid for People API")
             else:
-                print(f"[DEBUG] Unexpected status from Google People API: {response.status_code}", flush=True)
+                logger.warning(f"Unexpected status from Google People API: {response.status_code}")
     except httpx.RequestError as e:
-        print(f"[DEBUG] Network error fetching Google birthday: {e}", flush=True)
+        logger.warning(f"Network error fetching Google birthday: {e}")
     except (KeyError, ValueError, TypeError) as e:
-        print(f"[DEBUG] Error parsing Google birthday response: {e}", flush=True)
+        logger.warning(f"Error parsing Google birthday response: {e}")
     return None
 
 
@@ -233,23 +154,13 @@ async def _parse_google_user(token: dict, userinfo: dict | None) -> OAuthUserInf
     # Google returns userinfo in the token response via OIDC
     info = userinfo or token.get("userinfo", {})
 
-    # Debug: print token structure to understand where access_token is
-    print(f"[DEBUG] Google token type: {type(token)}", flush=True)
-    print(f"[DEBUG] Google token keys: {list(token.keys()) if hasattr(token, 'keys') else 'no keys method'}", flush=True)
-    print(f"[DEBUG] Google token content: {dict(token) if hasattr(token, 'keys') else token}", flush=True)
-
     # Fetch birthday from People API if we have an access token
-    # Authlib may return token as OAuth2Token object with dict-like access
     birthday = None
     access_token = token.get("access_token")
     if not access_token and hasattr(token, "access_token"):
         access_token = token.access_token
     if access_token:
-        print(f"[DEBUG] Found access_token, fetching birthday from People API", flush=True)
         birthday = await _fetch_google_birthday(access_token)
-        print(f"[DEBUG] Birthday result: {birthday}", flush=True)
-    else:
-        print(f"[DEBUG] No access_token found in token", flush=True)
 
     return OAuthUserInfo(
         provider=OAuthProvider.GOOGLE,
@@ -259,43 +170,6 @@ async def _parse_google_user(token: dict, userinfo: dict | None) -> OAuthUserInf
         avatar_url=info.get("picture"),
         birthday=birthday,
         raw_data=info,
-    )
-
-
-def _parse_apple_user(token: dict, userinfo: dict | None) -> OAuthUserInfo:
-    """Parse Apple user info.
-
-    Note: Apple only returns name on the first authorization.
-    The name is passed in the form_post user parameter.
-    """
-    # Decode ID token to get user info
-    id_token = token.get("id_token", "")
-    if id_token:
-        try:
-            # Decode without verification (we already verified during token exchange)
-            payload = jwt.decode(id_token, options={"verify_signature": False})
-        except Exception as e:
-            logger.warning(f"Failed to decode Apple ID token: {e}")
-            payload = {}
-    else:
-        payload = {}
-
-    # User info might come from form post (only on first auth)
-    user_data = userinfo or {}
-    name_data = user_data.get("name", {})
-    name = None
-    if name_data:
-        first = name_data.get("firstName", "")
-        last = name_data.get("lastName", "")
-        name = f"{first} {last}".strip() or None
-
-    return OAuthUserInfo(
-        provider=OAuthProvider.APPLE,
-        provider_user_id=payload.get("sub", ""),
-        email=payload.get("email"),
-        name=name,
-        avatar_url=None,  # Apple doesn't provide avatar
-        raw_data={"id_token_payload": payload, "user": user_data},
     )
 
 
@@ -323,24 +197,5 @@ def _parse_yandex_user(token: dict, userinfo: dict | None) -> OAuthUserInfo:
         name=info.get("real_name") or info.get("display_name"),
         avatar_url=avatar_url,
         birthday=birthday,
-        raw_data=info,
-    )
-
-
-def _parse_sber_user(token: dict, userinfo: dict | None) -> OAuthUserInfo:
-    """Parse Sber ID user info."""
-    info = userinfo or {}
-
-    # Sber returns name in separate fields
-    name = None
-    if info.get("given_name") or info.get("family_name"):
-        name = f"{info.get('given_name', '')} {info.get('family_name', '')}".strip()
-
-    return OAuthUserInfo(
-        provider=OAuthProvider.SBER,
-        provider_user_id=info.get("sub", ""),
-        email=info.get("email"),
-        name=name,
-        avatar_url=None,  # Sber doesn't provide avatar in standard flow
         raw_data=info,
     )

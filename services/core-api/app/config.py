@@ -71,17 +71,11 @@ class Settings(BaseSettings):
     item_resolver_token: str = "dev-token"
     item_resolver_timeout: int = 60  # seconds (as per spec)
 
-    # OAuth (optional - configured in Phase 3)
+    # OAuth
     google_client_id: str | None = None
     google_client_secret: str | None = None
-    apple_client_id: str | None = None
-    apple_team_id: str | None = None
-    apple_key_id: str | None = None
-    apple_private_key: str | None = None
     yandex_client_id: str | None = None
     yandex_client_secret: str | None = None
-    sber_client_id: str | None = None
-    sber_client_secret: str | None = None
 
     # OAuth URLs
     api_base_url: str = "https://api.wishwith.me"  # Public API base URL for OAuth redirects

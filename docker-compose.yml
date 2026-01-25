@@ -102,15 +102,9 @@ services:
       # OAuth - Google
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
-      # OAuth - Apple
-      - APPLE_CLIENT_ID=${APPLE_CLIENT_ID:-}
-      - APPLE_CLIENT_SECRET=${APPLE_CLIENT_SECRET:-}
       # OAuth - Yandex
       - YANDEX_CLIENT_ID=${YANDEX_CLIENT_ID:-}
       - YANDEX_CLIENT_SECRET=${YANDEX_CLIENT_SECRET:-}
-      # OAuth - Sber
-      - SBER_CLIENT_ID=${SBER_CLIENT_ID:-}
-      - SBER_CLIENT_SECRET=${SBER_CLIENT_SECRET:-}
     ports:
       - "${CORE_API_PORT:-8000}:8000"
     depends_on:

@@ -9,9 +9,7 @@ class OAuthProvider(str, Enum):
     """Supported OAuth providers."""
 
     GOOGLE = "google"
-    APPLE = "apple"
     YANDEX = "yandex"
-    SBER = "sber"
 
 
 class OAuthUserInfo(BaseModel):
