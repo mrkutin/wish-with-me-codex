@@ -1,6 +1,5 @@
 """Shared wishlist access endpoints."""
 
-from datetime import datetime, timezone
 from typing import Annotated
 from uuid import UUID
 
@@ -8,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import CurrentUser, OptionalCurrentUser
+from app.dependencies import CurrentUser
 from app.models.share import ShareLinkType
 from app.schemas.share import (
     MarkCreate,
@@ -23,6 +22,7 @@ from app.schemas.share import (
 )
 from app.services.bookmark import BookmarkService
 from app.services.mark import MarkService
+from app.services.notification import notify_wishlist_accessed
 from app.services.share import ShareService
 
 router = APIRouter(prefix="/api/v1/shared", tags=["shared"])
@@ -176,11 +176,21 @@ async def get_shared_wishlist(
 
     # Save/update bookmark (only for non-owners)
     if wishlist.user_id != current_user.id:
-        await bookmark_service.save_bookmark(
+        _, is_first_access = await bookmark_service.save_bookmark(
             user_id=current_user.id,
             wishlist_id=wishlist.id,
             share_token=token,
         )
+
+        # Notify owner on first access by this user
+        if is_first_access:
+            await notify_wishlist_accessed(
+                db=db,
+                owner_id=wishlist.user_id,
+                viewer_name=current_user.name,
+                wishlist_id=wishlist.id,
+                wishlist_title=wishlist.name,
+            )
 
     # Get owner info
     owner = wishlist.user

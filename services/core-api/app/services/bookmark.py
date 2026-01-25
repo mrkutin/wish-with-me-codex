@@ -1,6 +1,6 @@
 """Bookmark service for managing shared wishlist bookmarks."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select
@@ -22,10 +22,13 @@ class BookmarkService:
         user_id: UUID,
         wishlist_id: UUID,
         share_token: str,
-    ) -> SharedWishlistBookmark:
+    ) -> tuple[SharedWishlistBookmark, bool]:
         """Save or update a bookmark when user accesses shared wishlist.
 
         Creates a new bookmark if not exists, otherwise updates last_accessed_at.
+
+        Returns:
+            Tuple of (bookmark, is_new) where is_new indicates first access.
         """
         # Check if bookmark exists
         result = await self.db.execute(
@@ -36,12 +39,14 @@ class BookmarkService:
         )
         bookmark = result.scalar_one_or_none()
 
+        is_new = False
         if bookmark:
             # Update last accessed time and token (in case it changed)
-            bookmark.last_accessed_at = datetime.now(timezone.utc)
+            bookmark.last_accessed_at = datetime.now(UTC)
             bookmark.share_token = share_token
         else:
             # Create new bookmark
+            is_new = True
             bookmark = SharedWishlistBookmark(
                 user_id=user_id,
                 wishlist_id=wishlist_id,
@@ -50,7 +55,7 @@ class BookmarkService:
             self.db.add(bookmark)
 
         await self.db.flush()
-        return bookmark
+        return bookmark, is_new
 
     async def get_user_bookmarks(self, user_id: UUID) -> list[SharedWishlistBookmark]:
         """Get all bookmarks for a user, ordered by last accessed."""

@@ -3,7 +3,7 @@
 import logging
 from uuid import UUID
 
-from sqlalchemy import select, func, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.notification import Notification, NotificationType
@@ -160,5 +160,25 @@ async def notify_item_resolution_failed(
             "item_id": str(item_id),
             "item_title": item_title,
             "error": error,
+        },
+    )
+
+
+async def notify_wishlist_accessed(
+    db: AsyncSession,
+    owner_id: UUID,
+    viewer_name: str,
+    wishlist_id: UUID,
+    wishlist_title: str,
+) -> Notification:
+    """Send notification when someone first accesses a shared wishlist."""
+    service = NotificationService(db)
+    return await service.create_notification(
+        user_id=owner_id,
+        notification_type=NotificationType.WISHLIST_ACCESSED,
+        payload={
+            "wishlist_id": str(wishlist_id),
+            "wishlist_title": wishlist_title,
+            "viewer_name": viewer_name,
         },
     )

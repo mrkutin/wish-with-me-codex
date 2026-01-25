@@ -7,8 +7,8 @@ from uuid import uuid4
 
 from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.types import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.types import JSON
 
 from app.database import Base
 
@@ -20,6 +20,7 @@ class NotificationType(str, enum.Enum):
     """Type of notification."""
 
     WISHLIST_SHARED = "wishlist_shared"
+    WISHLIST_ACCESSED = "wishlist_accessed"
     ITEM_MARKED = "item_marked"
     ITEM_UNMARKED = "item_unmarked"
     ITEM_RESOLVED = "item_resolved"

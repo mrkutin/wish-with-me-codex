@@ -183,6 +183,7 @@ export default {
     itemMarked: 'Кто-то отметил "{title}" как покупаемое',
     itemUnmarked: 'Кто-то снял отметку с "{title}"',
     wishlistShared: 'Вам открыли доступ к "{title}"',
+    wishlistAccessed: '{viewer} просмотрел(а) ваш вишлист "{title}"',
     generic: 'У вас новое уведомление',
   },
 };

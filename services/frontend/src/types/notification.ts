@@ -4,6 +4,7 @@
 
 export type NotificationType =
   | 'wishlist_shared'
+  | 'wishlist_accessed'
   | 'item_marked'
   | 'item_unmarked'
   | 'item_resolved'

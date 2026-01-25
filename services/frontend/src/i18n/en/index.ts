@@ -181,6 +181,7 @@ export default {
     itemMarked: 'Someone marked "{title}" as purchased',
     itemUnmarked: 'Someone unmarked "{title}"',
     wishlistShared: 'You were given access to "{title}"',
+    wishlistAccessed: '{viewer} viewed your wishlist "{title}"',
     generic: 'You have a new notification',
   },
 };

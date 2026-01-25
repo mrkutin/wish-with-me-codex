@@ -76,6 +76,8 @@ function getNotificationIcon(type: string): string {
   switch (type) {
     case 'wishlist_shared':
       return 'share';
+    case 'wishlist_accessed':
+      return 'visibility';
     case 'item_marked':
       return 'check_circle';
     case 'item_unmarked':
@@ -93,6 +95,8 @@ function getNotificationColor(type: string): string {
   switch (type) {
     case 'wishlist_shared':
       return 'primary';
+    case 'wishlist_accessed':
+      return 'info';
     case 'item_marked':
       return 'positive';
     case 'item_unmarked':
@@ -119,6 +123,11 @@ function getNotificationText(notification: Notification): string {
       return t('notifications.itemUnmarked', { title: payload.item_title || 'Item' });
     case 'wishlist_shared':
       return t('notifications.wishlistShared', { title: payload.wishlist_title || 'Wishlist' });
+    case 'wishlist_accessed':
+      return t('notifications.wishlistAccessed', {
+        viewer: payload.viewer_name || 'Someone',
+        title: payload.wishlist_title || 'Wishlist',
+      });
     default:
       return t('notifications.generic');
   }
