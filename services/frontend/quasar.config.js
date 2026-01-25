@@ -90,6 +90,8 @@ module.exports = configure((/* ctx */) => {
       extendGenerateSWOptions(cfg) {
         cfg.skipWaiting = true;
         cfg.clientsClaim = true;
+        // Exclude /api/ paths from navigation fallback - let them pass through to server
+        cfg.navigateFallbackDenylist = [/^\/api\//];
       },
       manifest: {
         name: 'Wish With Me',
