@@ -45,10 +45,23 @@
               >
                 <q-menu>
                   <q-list style="min-width: 100px">
+                    <q-item clickable v-close-popup @click="shareWishlist(wishlist)">
+                      <q-item-section avatar>
+                        <q-icon name="share" />
+                      </q-item-section>
+                      <q-item-section>{{ $t('sharing.share') }}</q-item-section>
+                    </q-item>
                     <q-item clickable v-close-popup @click="editWishlist(wishlist)">
+                      <q-item-section avatar>
+                        <q-icon name="edit" />
+                      </q-item-section>
                       <q-item-section>{{ $t('common.edit') }}</q-item-section>
                     </q-item>
+                    <q-separator />
                     <q-item clickable v-close-popup @click="confirmDelete(wishlist)">
+                      <q-item-section avatar>
+                        <q-icon name="delete" color="negative" />
+                      </q-item-section>
                       <q-item-section class="text-negative">{{ $t('common.delete') }}</q-item-section>
                     </q-item>
                   </q-list>
@@ -111,6 +124,13 @@
       </q-card>
     </q-dialog>
 
+    <!-- Share dialog -->
+    <ShareDialog
+      v-model="showShareDialog"
+      :wishlist-id="sharingWishlist?.id || ''"
+      :wishlist-name="sharingWishlist?.name || ''"
+    />
+
     <!-- Edit wishlist dialog -->
     <q-dialog v-model="showEditDialog">
       <q-card style="min-width: 350px">
@@ -161,6 +181,7 @@ import { useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
 import { useI18n } from 'vue-i18n';
 import { useWishlistStore } from '@/stores/wishlist';
+import ShareDialog from '@/components/ShareDialog.vue';
 import type { Wishlist } from '@/types/wishlist';
 
 const router = useRouter();
@@ -170,6 +191,8 @@ const wishlistStore = useWishlistStore();
 
 const showCreateDialog = ref(false);
 const showEditDialog = ref(false);
+const showShareDialog = ref(false);
+const sharingWishlist = ref<Wishlist | null>(null);
 const newWishlist = reactive({
   name: '',
   description: '',
@@ -257,6 +280,11 @@ function confirmDelete(wishlist: Wishlist) {
 
 function showMenu(wishlist: Wishlist) {
   // Menu handled by q-menu in template
+}
+
+function shareWishlist(wishlist: Wishlist) {
+  sharingWishlist.value = wishlist;
+  showShareDialog.value = true;
 }
 
 function openWishlist(id: string) {
