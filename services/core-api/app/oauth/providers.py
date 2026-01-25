@@ -2,9 +2,10 @@
 
 import logging
 import time
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
+import httpx
 import jwt
 from authlib.integrations.starlette_client import OAuth
 
@@ -12,6 +13,9 @@ from app.config import settings
 from app.oauth.schemas import OAuthProvider, OAuthUserInfo
 
 logger = logging.getLogger(__name__)
+
+# Google People API endpoint for birthday
+GOOGLE_PEOPLE_API_URL = "https://people.googleapis.com/v1/people/me"
 
 # Create OAuth registry
 oauth_registry = OAuth()
@@ -66,7 +70,8 @@ def _register_providers() -> None:
             client_secret=settings.google_client_secret,
             server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
             client_kwargs={
-                "scope": "openid email profile",
+                # Request birthday scope from People API
+                "scope": "openid email profile https://www.googleapis.com/auth/user.birthday.read",
             },
         )
         _registered_providers.add("google")
@@ -166,7 +171,7 @@ async def parse_user_info(provider: OAuthProvider, token: dict, userinfo: dict |
         Normalized user info.
     """
     if provider == OAuthProvider.GOOGLE:
-        return _parse_google_user(token, userinfo)
+        return await _parse_google_user(token, userinfo)
     elif provider == OAuthProvider.APPLE:
         return _parse_apple_user(token, userinfo)
     elif provider == OAuthProvider.YANDEX:
@@ -177,16 +182,68 @@ async def parse_user_info(provider: OAuthProvider, token: dict, userinfo: dict |
         raise ValueError(f"Unknown provider: {provider}")
 
 
-def _parse_google_user(token: dict, userinfo: dict | None) -> OAuthUserInfo:
+async def _fetch_google_birthday(access_token: str) -> date | None:
+    """Fetch birthday from Google People API.
+
+    Args:
+        access_token: The OAuth access token.
+
+    Returns:
+        Birthday date or None if not available or year not provided.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                GOOGLE_PEOPLE_API_URL,
+                params={"personFields": "birthdays"},
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            if response.status_code == 200:
+                data = response.json()
+                birthdays = data.get("birthdays", [])
+                for bday in birthdays:
+                    bday_date = bday.get("date", {})
+                    year = bday_date.get("year")
+                    month = bday_date.get("month")
+                    day = bday_date.get("day")
+                    # Only return birthday if we have complete date including year
+                    # Google may omit year for privacy - we skip those
+                    if year and month and day:
+                        return date(year, month, day)
+                logger.debug("Google birthday found but missing year, skipping")
+            elif response.status_code == 403:
+                logger.debug("User did not grant birthday permission to Google")
+            elif response.status_code == 401:
+                logger.warning("Google access token invalid for People API")
+            else:
+                logger.warning(f"Unexpected status from Google People API: {response.status_code}")
+    except httpx.RequestError as e:
+        logger.warning(f"Network error fetching Google birthday: {e}")
+    except (KeyError, ValueError, TypeError) as e:
+        logger.warning(f"Error parsing Google birthday response: {e}")
+    return None
+
+
+async def _parse_google_user(token: dict, userinfo: dict | None) -> OAuthUserInfo:
     """Parse Google user info."""
     # Google returns userinfo in the token response via OIDC
     info = userinfo or token.get("userinfo", {})
+
+    # Fetch birthday from People API if we have an access token
+    birthday = None
+    access_token = token.get("access_token")
+    if access_token:
+        birthday = await _fetch_google_birthday(access_token)
+    else:
+        logger.debug("No access_token in Google token response, skipping birthday fetch")
+
     return OAuthUserInfo(
         provider=OAuthProvider.GOOGLE,
         provider_user_id=info.get("sub", ""),
         email=info.get("email"),
         name=info.get("name"),
         avatar_url=info.get("picture"),
+        birthday=birthday,
         raw_data=info,
     )
 
