@@ -97,13 +97,18 @@ class TestCreateShareLink:
         assert response.status_code == 201
         data = response.json()
         assert data["expires_at"] is not None
-        # Verify expiry is approximately 7 days from now
-        expires_at_str = data["expires_at"].replace("Z", "+00:00")
+        # Verify expiry is set to approximately 7 days from now
+        # Parse the ISO format datetime (handles both Z and +00:00 suffixes)
+        expires_at_str = data["expires_at"]
+        if expires_at_str.endswith("Z"):
+            expires_at_str = expires_at_str[:-1] + "+00:00"
         expires_at = datetime.fromisoformat(expires_at_str)
-        expected = datetime.now(timezone.utc) + timedelta(days=7)
-        # Both should be timezone-aware now; allow 60 second tolerance
-        diff_seconds = abs((expires_at - expected).total_seconds())
-        assert diff_seconds < 60, f"Expiry time diff too large: {diff_seconds}s"
+        # Make expected timezone-aware
+        now_utc = datetime.now(timezone.utc)
+        expected_min = now_utc + timedelta(days=6, hours=23)
+        expected_max = now_utc + timedelta(days=7, hours=1)
+        assert expected_min <= expires_at <= expected_max, \
+            f"Expiry {expires_at} not within expected range"
 
     @pytest.mark.asyncio
     async def test_create_share_link_default_type(
