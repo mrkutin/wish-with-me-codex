@@ -113,7 +113,8 @@ async function fetchSharedWishlist() {
     sharedWishlist.value = response.data;
   } catch (error: any) {
     if (error.response?.status === 401) {
-      // Redirect to login with share token
+      // Store share token and redirect to login
+      LocalStorage.set(PENDING_SHARE_TOKEN_KEY, token.value);
       router.push({ name: 'login', query: { share_token: token.value } });
       return;
     }
