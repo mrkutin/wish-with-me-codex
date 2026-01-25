@@ -11,6 +11,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 if TYPE_CHECKING:
+    from app.models.bookmark import SharedWishlistBookmark
     from app.models.item import Item
     from app.models.share import ShareLink
     from app.models.user import User
@@ -52,6 +53,9 @@ class Wishlist(Base):
     )
     share_links: Mapped[list["ShareLink"]] = relationship(
         "ShareLink", back_populates="wishlist", cascade="all, delete-orphan"
+    )
+    bookmarks: Mapped[list["SharedWishlistBookmark"]] = relationship(
+        "SharedWishlistBookmark", back_populates="wishlist", cascade="all, delete-orphan"
     )
 
     @property

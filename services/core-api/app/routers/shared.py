@@ -15,14 +15,72 @@ from app.schemas.share import (
     MarkResponse,
     OwnerPublicProfile,
     SharedItemResponse,
+    SharedWishlistBookmarkListResponse,
+    SharedWishlistBookmarkResponse,
     SharedWishlistInfo,
     SharedWishlistPreview,
     SharedWishlistResponse,
 )
+from app.services.bookmark import BookmarkService
 from app.services.mark import MarkService
 from app.services.share import ShareService
 
 router = APIRouter(prefix="/api/v1/shared", tags=["shared"])
+
+
+@router.get(
+    "/bookmarks",
+    response_model=SharedWishlistBookmarkListResponse,
+)
+async def list_bookmarks(
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> SharedWishlistBookmarkListResponse:
+    """List wishlists shared with the current user."""
+    bookmark_service = BookmarkService(db)
+    bookmarks = await bookmark_service.get_user_bookmarks(current_user.id)
+
+    items = []
+    for bookmark in bookmarks:
+        wishlist = bookmark.wishlist
+        owner = wishlist.user
+
+        # Count active items
+        item_count = sum(1 for item in wishlist.items if item.deleted_at is None)
+
+        items.append(SharedWishlistBookmarkResponse(
+            id=bookmark.id,
+            wishlist_id=bookmark.wishlist_id,
+            share_token=bookmark.share_token,
+            last_accessed_at=bookmark.last_accessed_at,
+            wishlist=SharedWishlistInfo(
+                id=wishlist.id,
+                title=wishlist.name,
+                description=wishlist.description,
+                owner=OwnerPublicProfile(
+                    id=owner.id,
+                    name=owner.name,
+                    avatar_base64=owner.avatar_base64,
+                ),
+                item_count=item_count,
+            ),
+        ))
+
+    return SharedWishlistBookmarkListResponse(items=items)
+
+
+@router.delete(
+    "/bookmarks/{wishlist_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def remove_bookmark(
+    wishlist_id: UUID,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> None:
+    """Remove a shared wishlist bookmark."""
+    bookmark_service = BookmarkService(db)
+    await bookmark_service.remove_bookmark(current_user.id, wishlist_id)
 
 
 @router.get(
@@ -91,6 +149,7 @@ async def get_shared_wishlist(
     """Access a shared wishlist (authenticated)."""
     share_service = ShareService(db)
     mark_service = MarkService(db)
+    bookmark_service = BookmarkService(db)
 
     share_link = await share_service.get_share_link_by_token(token)
     if share_link is None:
@@ -114,6 +173,14 @@ async def get_shared_wishlist(
 
     # Increment access count
     await share_service.increment_access_count(share_link)
+
+    # Save/update bookmark (only for non-owners)
+    if wishlist.user_id != current_user.id:
+        await bookmark_service.save_bookmark(
+            user_id=current_user.id,
+            wishlist_id=wishlist.id,
+            share_token=token,
+        )
 
     # Get owner info
     owner = wishlist.user

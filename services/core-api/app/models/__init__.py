@@ -1,5 +1,6 @@
 """SQLAlchemy models."""
 
+from app.models.bookmark import SharedWishlistBookmark
 from app.models.item import Item, ItemStatus
 from app.models.mark import Mark
 from app.models.notification import Notification, NotificationType
@@ -19,4 +20,5 @@ __all__ = [
     "Mark",
     "Notification",
     "NotificationType",
+    "SharedWishlistBookmark",
 ]

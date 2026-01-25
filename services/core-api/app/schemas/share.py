@@ -102,3 +102,21 @@ class MarkResponse(BaseModel):
     my_mark_quantity: int
     total_marked_quantity: int
     available_quantity: int
+
+
+class SharedWishlistBookmarkResponse(BaseModel):
+    """Response for a shared wishlist bookmark."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    wishlist_id: UUID
+    share_token: str
+    last_accessed_at: datetime
+    wishlist: SharedWishlistInfo
+
+
+class SharedWishlistBookmarkListResponse(BaseModel):
+    """Response for list of shared wishlist bookmarks."""
+
+    items: list[SharedWishlistBookmarkResponse]

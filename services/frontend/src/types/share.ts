@@ -74,3 +74,15 @@ export interface MarkResponse {
   total_marked_quantity: number;
   available_quantity: number;
 }
+
+export interface SharedWishlistBookmark {
+  id: string;
+  wishlist_id: string;
+  share_token: string;
+  last_accessed_at: string;
+  wishlist: SharedWishlistInfo;
+}
+
+export interface SharedWishlistBookmarkListResponse {
+  items: SharedWishlistBookmark[];
+}
