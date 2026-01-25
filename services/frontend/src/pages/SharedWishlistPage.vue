@@ -101,7 +101,7 @@ const canMark = computed(() => {
 });
 
 function goBack() {
-  router.push({ name: 'wishlists' });
+  router.push({ name: 'wishlists', query: { tab: 'shared' } });
 }
 
 async function fetchSharedWishlist() {

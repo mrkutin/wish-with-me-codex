@@ -270,7 +270,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
 import { useI18n } from 'vue-i18n';
 import { useWishlistStore } from '@/stores/wishlist';
@@ -279,6 +279,7 @@ import ShareDialog from '@/components/ShareDialog.vue';
 import type { Wishlist } from '@/types/wishlist';
 import type { SharedWishlistBookmark, SharedWishlistBookmarkListResponse } from '@/types/share';
 
+const route = useRoute();
 const router = useRouter();
 const $q = useQuasar();
 const { t } = useI18n();
@@ -446,6 +447,12 @@ watch(activeTab, (newTab) => {
 });
 
 onMounted(() => {
+  // Check for tab query parameter
+  const tabParam = route.query.tab as string;
+  if (tabParam === 'shared') {
+    activeTab.value = 'shared';
+    fetchBookmarks();
+  }
   wishlistStore.fetchWishlists();
 });
 </script>
