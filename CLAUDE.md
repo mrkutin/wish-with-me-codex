@@ -102,6 +102,7 @@ Once review is approved:
    - SSH to Montreal: `ssh montreal`
    - Check logs: `docker logs wishwithme-core-api --tail=100`
    - Verify functionality works as expected
+   - **IMPORTANT**: Test everything yourself before saying it's done. Use curl, API calls, and log checks to verify functionality actually works end-to-end.
 4. If tests fail, return to Step 4 (FIX)
 
 #### Step 6: COMPLETE
