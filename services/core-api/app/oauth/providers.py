@@ -198,29 +198,33 @@ async def _fetch_google_birthday(access_token: str) -> date | None:
                 params={"personFields": "birthdays"},
                 headers={"Authorization": f"Bearer {access_token}"},
             )
+            print(f"[DEBUG] People API response status: {response.status_code}", flush=True)
+            print(f"[DEBUG] People API response body: {response.text[:500]}", flush=True)
             if response.status_code == 200:
                 data = response.json()
                 birthdays = data.get("birthdays", [])
+                print(f"[DEBUG] Birthdays from API: {birthdays}", flush=True)
                 for bday in birthdays:
                     bday_date = bday.get("date", {})
                     year = bday_date.get("year")
                     month = bday_date.get("month")
                     day = bday_date.get("day")
+                    print(f"[DEBUG] Birthday date parts: year={year}, month={month}, day={day}", flush=True)
                     # Only return birthday if we have complete date including year
                     # Google may omit year for privacy - we skip those
                     if year and month and day:
                         return date(year, month, day)
-                logger.debug("Google birthday found but missing year, skipping")
+                print("[DEBUG] Google birthday found but missing year, skipping", flush=True)
             elif response.status_code == 403:
-                logger.debug("User did not grant birthday permission to Google")
+                print("[DEBUG] User did not grant birthday permission to Google", flush=True)
             elif response.status_code == 401:
-                logger.warning("Google access token invalid for People API")
+                print("[DEBUG] Google access token invalid for People API", flush=True)
             else:
-                logger.warning(f"Unexpected status from Google People API: {response.status_code}")
+                print(f"[DEBUG] Unexpected status from Google People API: {response.status_code}", flush=True)
     except httpx.RequestError as e:
-        logger.warning(f"Network error fetching Google birthday: {e}")
+        print(f"[DEBUG] Network error fetching Google birthday: {e}", flush=True)
     except (KeyError, ValueError, TypeError) as e:
-        logger.warning(f"Error parsing Google birthday response: {e}")
+        print(f"[DEBUG] Error parsing Google birthday response: {e}", flush=True)
     return None
 
 
@@ -229,8 +233,10 @@ async def _parse_google_user(token: dict, userinfo: dict | None) -> OAuthUserInf
     # Google returns userinfo in the token response via OIDC
     info = userinfo or token.get("userinfo", {})
 
-    # Debug: log token structure to understand where access_token is
-    logger.info(f"Google token keys: {list(token.keys())}")
+    # Debug: print token structure to understand where access_token is
+    print(f"[DEBUG] Google token type: {type(token)}", flush=True)
+    print(f"[DEBUG] Google token keys: {list(token.keys()) if hasattr(token, 'keys') else 'no keys method'}", flush=True)
+    print(f"[DEBUG] Google token content: {dict(token) if hasattr(token, 'keys') else token}", flush=True)
 
     # Fetch birthday from People API if we have an access token
     # Authlib may return token as OAuth2Token object with dict-like access
@@ -239,10 +245,11 @@ async def _parse_google_user(token: dict, userinfo: dict | None) -> OAuthUserInf
     if not access_token and hasattr(token, "access_token"):
         access_token = token.access_token
     if access_token:
-        logger.info(f"Found access_token, fetching birthday from People API")
+        print(f"[DEBUG] Found access_token, fetching birthday from People API", flush=True)
         birthday = await _fetch_google_birthday(access_token)
+        print(f"[DEBUG] Birthday result: {birthday}", flush=True)
     else:
-        logger.warning(f"No access_token in Google token response, skipping birthday fetch. Token type: {type(token)}")
+        print(f"[DEBUG] No access_token found in token", flush=True)
 
     return OAuthUserInfo(
         provider=OAuthProvider.GOOGLE,
