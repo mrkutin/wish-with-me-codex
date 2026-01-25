@@ -23,6 +23,7 @@ const shareLinks = ref<ShareLink[]>([]);
 const isLoading = ref(false);
 const isCreating = ref(false);
 const newLinkExpiry = ref<number | null>(30);
+const newLinkType = ref<'mark' | 'view'>('mark');
 const showQrDialog = ref(false);
 const currentQrCode = ref<string | null>(null);
 
@@ -54,7 +55,7 @@ async function createShareLink() {
     const response = await api.post<ShareLink>(
       `/api/v1/wishlists/${props.wishlistId}/share`,
       {
-        link_type: 'mark',
+        link_type: newLinkType.value,
         expires_in_days: newLinkExpiry.value,
       }
     );
@@ -149,27 +150,48 @@ watch(isOpen, (open) => {
 
       <q-card-section>
         <!-- Create new link -->
-        <div class="row items-center q-gutter-sm q-mb-lg">
-          <q-select
-            v-model="newLinkExpiry"
-            :options="[
-              { label: $t('sharing.expires7days'), value: 7 },
-              { label: $t('sharing.expires30days'), value: 30 },
-              { label: $t('sharing.expires90days'), value: 90 },
-              { label: $t('sharing.neverExpires'), value: null },
-            ]"
-            emit-value
-            map-options
-            dense
-            outlined
-            style="min-width: 150px;"
-          />
-          <q-btn
-            color="primary"
-            :label="$t('sharing.createLink')"
-            :loading="isCreating"
-            @click="createShareLink"
-          />
+        <div class="q-mb-lg">
+          <!-- Link type selector -->
+          <div class="q-mb-md">
+            <div class="text-caption text-grey-7 q-mb-sm">{{ $t('sharing.linkType') }}</div>
+            <q-option-group
+              v-model="newLinkType"
+              :options="[
+                { label: $t('sharing.linkTypeMark'), value: 'mark' },
+                { label: $t('sharing.linkTypeView'), value: 'view' },
+              ]"
+              type="radio"
+              inline
+              dense
+            />
+            <div class="text-caption text-grey-6 q-mt-xs">
+              {{ newLinkType === 'mark' ? $t('sharing.linkTypeMarkHint') : $t('sharing.linkTypeViewHint') }}
+            </div>
+          </div>
+
+          <!-- Expiry and create button -->
+          <div class="row items-center q-gutter-sm">
+            <q-select
+              v-model="newLinkExpiry"
+              :options="[
+                { label: $t('sharing.expires7days'), value: 7 },
+                { label: $t('sharing.expires30days'), value: 30 },
+                { label: $t('sharing.expires90days'), value: 90 },
+                { label: $t('sharing.neverExpires'), value: null },
+              ]"
+              emit-value
+              map-options
+              dense
+              outlined
+              style="min-width: 150px;"
+            />
+            <q-btn
+              color="primary"
+              :label="$t('sharing.createLink')"
+              :loading="isCreating"
+              @click="createShareLink"
+            />
+          </div>
         </div>
 
         <!-- Loading state -->
@@ -183,6 +205,12 @@ watch(isOpen, (open) => {
             <q-item v-for="link in shareLinks" :key="link.id">
               <q-item-section>
                 <q-item-label class="text-caption text-grey">
+                  <q-badge
+                    :color="link.link_type === 'mark' ? 'primary' : 'grey-6'"
+                    class="q-mr-sm"
+                  >
+                    {{ link.link_type === 'mark' ? $t('sharing.linkTypeMarkShort') : $t('sharing.linkTypeViewShort') }}
+                  </q-badge>
                   {{ $t('sharing.createdAt', { date: formatDate(link.created_at) }) }}
                   <span v-if="link.expires_at">
                     &middot; {{ $t('sharing.expiresAt', { date: formatDate(link.expires_at) }) }}
