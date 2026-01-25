@@ -1,5 +1,5 @@
 import { ref, computed } from 'vue';
-import { api } from '@/boot/axios';
+import { api, getApiBaseUrl } from '@/boot/axios';
 import type { ConnectedAccount } from '@/types/user';
 
 export type OAuthProvider = 'google' | 'apple' | 'yandex' | 'sber';
@@ -52,7 +52,7 @@ export function useOAuth() {
   function initiateOAuthLogin(provider: OAuthProvider): void {
     // Redirect to backend OAuth authorize endpoint
     // The backend will redirect to the provider's auth page
-    const baseUrl = import.meta.env.VITE_API_URL || '';
+    const baseUrl = getApiBaseUrl();
     window.location.href = `${baseUrl}/api/v1/oauth/${provider}/authorize`;
   }
 

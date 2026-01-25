@@ -92,4 +92,4 @@ export default boot(({ app, router }) => {
   app.config.globalProperties.$api = api;
 });
 
-export { api };
+export { api, getApiBaseUrl };
