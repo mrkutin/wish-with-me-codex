@@ -101,4 +101,18 @@ export default {
     minValue: 'Минимальное значение: {min}',
     invalidUrl: 'Введите корректную ссылку',
   },
+  oauth: {
+    connect: 'Подключить',
+    disconnect: 'Отключить',
+    connected: 'Подключено',
+    notConnected: 'Не подключено',
+    accountLinked: 'Аккаунт {provider} успешно подключён',
+    accountCreated: 'Аккаунт успешно создан',
+    loginSuccess: 'Вход выполнен успешно',
+    authFailed: 'Ошибка авторизации. Попробуйте ещё раз.',
+    invalidCallback: 'Некорректный ответ авторизации',
+    emailConflict: 'Email {email} уже зарегистрирован. Войдите с паролем, чтобы подключить {provider}.',
+    alreadyLinked: '{provider} уже подключён к другому аккаунту',
+    cantUnlinkLast: 'Нельзя отключить единственный способ входа. Сначала добавьте пароль или другой аккаунт.',
+  },
 };

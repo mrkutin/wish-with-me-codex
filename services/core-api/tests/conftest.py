@@ -3,6 +3,7 @@
 import asyncio
 from collections.abc import AsyncGenerator, Generator
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
@@ -16,6 +17,13 @@ from app.config import settings
 
 # Disable rate limiting for tests
 settings.rate_limit_enabled = False
+
+
+@pytest.fixture(autouse=True)
+def mock_redis():
+    """Mock Redis token blocklist for all tests."""
+    with patch("app.redis.TokenBlocklist.is_blocked", return_value=False):
+        yield
 
 
 # Test database URL (in-memory SQLite for tests)

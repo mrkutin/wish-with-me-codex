@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.types import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -90,7 +90,7 @@ class SocialAccount(Base):
     user: Mapped["User"] = relationship("User", back_populates="social_accounts")
 
     __table_args__ = (
-        # Unique constraint on provider + provider_user_id
+        UniqueConstraint("provider", "provider_user_id", name="uq_social_accounts_provider_user"),
         {"comment": "OAuth social accounts linked to users"},
     )
 

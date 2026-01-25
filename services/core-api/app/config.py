@@ -75,11 +75,17 @@ class Settings(BaseSettings):
     google_client_id: str | None = None
     google_client_secret: str | None = None
     apple_client_id: str | None = None
-    apple_client_secret: str | None = None
+    apple_team_id: str | None = None
+    apple_key_id: str | None = None
+    apple_private_key: str | None = None
     yandex_client_id: str | None = None
     yandex_client_secret: str | None = None
     sber_client_id: str | None = None
     sber_client_secret: str | None = None
+
+    # OAuth URLs
+    frontend_callback_url: str = "https://wishwith.me/auth/callback"
+    oauth_state_secret: str | None = None  # For signing OAuth state parameter
 
 
 @lru_cache

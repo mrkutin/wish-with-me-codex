@@ -46,6 +46,8 @@
       />
     </q-form>
 
+    <SocialLoginButtons class="q-mt-lg" />
+
     <div class="text-center q-mt-lg">
       <router-link :to="{ name: 'login' }" class="text-primary">
         {{ $t('auth.hasAccount') }} {{ $t('auth.login') }}
@@ -59,6 +61,7 @@ import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { useI18n } from 'vue-i18n';
+import SocialLoginButtons from '@/components/SocialLoginButtons.vue';
 
 const authStore = useAuthStore();
 const router = useRouter();

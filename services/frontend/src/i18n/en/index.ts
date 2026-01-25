@@ -99,4 +99,18 @@ export default {
     minLength: 'Minimum {min} characters required',
     maxLength: 'Maximum {max} characters allowed',
   },
+  oauth: {
+    connect: 'Connect',
+    disconnect: 'Disconnect',
+    connected: 'Connected',
+    notConnected: 'Not connected',
+    accountLinked: '{provider} account linked successfully',
+    accountCreated: 'Account created successfully',
+    loginSuccess: 'Signed in successfully',
+    authFailed: 'Authentication failed. Please try again.',
+    invalidCallback: 'Invalid authentication response',
+    emailConflict: 'Email {email} is already registered. Please sign in with your password to link {provider}.',
+    alreadyLinked: '{provider} is already linked to another account',
+    cantUnlinkLast: 'You cannot disconnect your only sign-in method. Add a password or another account first.',
+  },
 };

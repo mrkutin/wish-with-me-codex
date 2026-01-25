@@ -5,5 +5,6 @@ from app.routers.users import router as users_router
 from app.routers.health import router as health_router
 from app.routers.wishlists import router as wishlists_router
 from app.routers.items import router as items_router
+from app.routers.oauth import router as oauth_router
 
-__all__ = ["auth_router", "users_router", "health_router", "wishlists_router", "items_router"]
+__all__ = ["auth_router", "users_router", "health_router", "wishlists_router", "items_router", "oauth_router"]
