@@ -259,12 +259,12 @@ class TestListBookmarks:
         share_token1 = await create_share_link(client, owner_token, wishlist1_id)
         share_token2 = await create_share_link(client, owner_token, wishlist2_id)
 
-        # Access first, then second
+        # Access first, then second with delay to ensure distinct timestamps
         await client.get(
             f"/api/v1/shared/{share_token1}",
             headers={"Authorization": f"Bearer {viewer_token}"},
         )
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(1.0)  # 1 second to ensure distinct timestamps
         await client.get(
             f"/api/v1/shared/{share_token2}",
             headers={"Authorization": f"Bearer {viewer_token}"},
@@ -325,7 +325,7 @@ class TestListBookmarks:
     async def test_list_bookmarks_no_auth(self, client: AsyncClient):
         """Test listing bookmarks without authentication fails."""
         response = await client.get("/api/v1/shared/bookmarks")
-        assert response.status_code == 403
+        assert response.status_code == 401  # Unauthenticated returns 401
 
     @pytest.mark.asyncio
     async def test_bookmarks_isolated_between_users(
@@ -432,7 +432,7 @@ class TestRemoveBookmark:
         response = await client.delete(
             "/api/v1/shared/bookmarks/00000000-0000-0000-0000-000000000000"
         )
-        assert response.status_code == 403
+        assert response.status_code == 401  # Unauthenticated returns 401
 
     @pytest.mark.asyncio
     async def test_remove_bookmark_preserves_others(

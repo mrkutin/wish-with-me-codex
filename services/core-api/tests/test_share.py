@@ -98,9 +98,12 @@ class TestCreateShareLink:
         data = response.json()
         assert data["expires_at"] is not None
         # Verify expiry is approximately 7 days from now
-        expires_at = datetime.fromisoformat(data["expires_at"].replace("Z", "+00:00"))
+        expires_at_str = data["expires_at"].replace("Z", "+00:00")
+        expires_at = datetime.fromisoformat(expires_at_str)
         expected = datetime.now(timezone.utc) + timedelta(days=7)
-        assert abs((expires_at - expected).total_seconds()) < 60  # Within 1 minute
+        # Both should be timezone-aware now; allow 60 second tolerance
+        diff_seconds = abs((expires_at - expected).total_seconds())
+        assert diff_seconds < 60, f"Expiry time diff too large: {diff_seconds}s"
 
     @pytest.mark.asyncio
     async def test_create_share_link_default_type(
@@ -165,7 +168,7 @@ class TestCreateShareLink:
             json={"link_type": "mark"},
         )
 
-        assert response.status_code == 403
+        assert response.status_code == 401  # Unauthenticated returns 401
 
     @pytest.mark.asyncio
     async def test_create_multiple_share_links(

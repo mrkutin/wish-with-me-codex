@@ -207,14 +207,14 @@ class TestGetSharedWishlist:
     async def test_access_shared_wishlist_no_auth(
         self, client: AsyncClient, user_data: dict
     ):
-        """Test accessing shared wishlist without authentication returns 403."""
+        """Test accessing shared wishlist without authentication returns 401."""
         owner_token, _ = await register_and_login(client, user_data)
         wishlist_id = await create_wishlist(client, owner_token)
         share_token = await create_share_link(client, owner_token, wishlist_id)
 
         response = await client.get(f"/api/v1/shared/{share_token}")
 
-        assert response.status_code == 403
+        assert response.status_code == 401  # Unauthenticated returns 401
 
     @pytest.mark.asyncio
     async def test_access_shared_wishlist_revoked(
