@@ -9,7 +9,7 @@
           :label="$t('auth.login')"
           color="primary"
           class="q-mt-lg"
-          :to="{ name: 'login' }"
+          :to="loginRedirect"
         />
       </div>
       <div v-if="successMessage" class="q-mt-md">
@@ -21,7 +21,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { useI18n } from 'vue-i18n';
@@ -35,6 +35,13 @@ const { t } = useI18n();
 const isProcessing = ref(true);
 const errorMessage = ref<string | null>(null);
 const successMessage = ref<string | null>(null);
+const isEmailExistsError = ref(false);
+
+// If email_exists error, redirect to settings after login so user can link account
+const loginRedirect = computed(() => ({
+  name: 'login',
+  query: isEmailExistsError.value ? { redirect: '/settings' } : undefined,
+}));
 
 const REFRESH_TOKEN_KEY = 'refresh_token';
 
@@ -62,6 +69,7 @@ async function processCallback(): Promise<void> {
     const email = query.email as string | undefined;
     const provider = query.provider as string | undefined;
     errorMessage.value = getErrorMessage(error, email, provider);
+    isEmailExistsError.value = error === 'email_exists';
     isProcessing.value = false;
     return;
   }
