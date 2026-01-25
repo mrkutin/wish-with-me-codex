@@ -16,6 +16,7 @@ from app.security import decode_access_token
 
 # HTTP Bearer scheme
 security = HTTPBearer()
+security_optional = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
@@ -60,5 +61,40 @@ async def get_current_user(
     return user
 
 
+async def get_optional_current_user(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security_optional)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> User | None:
+    """Get the current authenticated user if present, or None if not authenticated."""
+    if credentials is None:
+        return None
+
+    token = credentials.credentials
+
+    try:
+        payload = decode_access_token(token)
+        user_id_str: str | None = payload.get("sub")
+        jti: str | None = payload.get("jti")
+
+        if user_id_str is None:
+            return None
+
+        # Check if token is blocklisted
+        if jti and await TokenBlocklist.is_blocked(jti):
+            return None
+
+        user_id = UUID(user_id_str)
+
+    except (JWTError, ValueError):
+        return None
+
+    # Fetch user from database
+    result = await db.execute(
+        select(User).where(User.id == user_id, User.deleted_at.is_(None))
+    )
+    return result.scalar_one_or_none()
+
+
 # Type alias for dependency injection
 CurrentUser = Annotated[User, Depends(get_current_user)]
+OptionalCurrentUser = Annotated[User | None, Depends(get_optional_current_user)]

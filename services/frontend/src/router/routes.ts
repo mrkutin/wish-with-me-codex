@@ -34,6 +34,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/pages/SettingsPage.vue'),
         meta: { requiresAuth: true },
       },
+      {
+        path: 's/:token',
+        name: 'shared-wishlist',
+        component: () => import('@/pages/SharedWishlistPage.vue'),
+        meta: { requiresAuth: true },
+      },
     ],
   },
   {

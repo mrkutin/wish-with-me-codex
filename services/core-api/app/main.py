@@ -9,7 +9,17 @@ from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.redis import close_redis
-from app.routers import auth_router, health_router, users_router, wishlists_router, items_router, oauth_router
+from app.routers import (
+    auth_router,
+    health_router,
+    users_router,
+    wishlists_router,
+    items_router,
+    oauth_router,
+    share_router,
+    shared_router,
+    notifications_router,
+)
 
 
 @asynccontextmanager
@@ -79,6 +89,9 @@ app.include_router(users_router)
 app.include_router(wishlists_router)
 app.include_router(items_router)
 app.include_router(oauth_router)
+app.include_router(share_router)
+app.include_router(shared_router)
+app.include_router(notifications_router)
 
 
 @app.get("/")

@@ -15,6 +15,8 @@
           {{ $t('common.appName') }}
         </q-toolbar-title>
 
+        <NotificationBell v-if="authStore.isAuthenticated" class="q-mr-sm" />
+
         <q-btn
           v-if="authStore.isAuthenticated"
           flat
@@ -137,6 +139,7 @@
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
+import NotificationBell from '@/components/NotificationBell.vue';
 
 const authStore = useAuthStore();
 const router = useRouter();

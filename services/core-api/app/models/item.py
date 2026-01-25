@@ -23,6 +23,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 if TYPE_CHECKING:
+    from app.models.mark import Mark
     from app.models.wishlist import Wishlist
 
 
@@ -74,9 +75,13 @@ class Item(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    marked_quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # Relationships
     wishlist: Mapped["Wishlist"] = relationship("Wishlist", back_populates="items")
+    marks: Mapped[list["Mark"]] = relationship(
+        "Mark", back_populates="item", cascade="all, delete-orphan"
+    )
 
     @property
     def is_active(self) -> bool:

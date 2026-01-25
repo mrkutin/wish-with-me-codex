@@ -22,10 +22,23 @@
           >
             <q-menu>
               <q-list style="min-width: 100px">
+                <q-item clickable v-close-popup @click="showShareDialog = true">
+                  <q-item-section avatar>
+                    <q-icon name="share" />
+                  </q-item-section>
+                  <q-item-section>{{ $t('sharing.share') }}</q-item-section>
+                </q-item>
                 <q-item clickable v-close-popup @click="editWishlist">
+                  <q-item-section avatar>
+                    <q-icon name="edit" />
+                  </q-item-section>
                   <q-item-section>{{ $t('common.edit') }}</q-item-section>
                 </q-item>
+                <q-separator />
                 <q-item clickable v-close-popup @click="confirmDelete">
+                  <q-item-section avatar>
+                    <q-icon name="delete" color="negative" />
+                  </q-item-section>
                   <q-item-section class="text-negative">{{ $t('common.delete') }}</q-item-section>
                 </q-item>
               </q-list>
@@ -135,6 +148,13 @@
       @submit="createItem"
     />
 
+    <!-- Share dialog -->
+    <ShareDialog
+      v-model="showShareDialog"
+      :wishlist-id="route.params.id as string"
+      :wishlist-name="wishlistStore.currentWishlist?.name || ''"
+    />
+
     <!-- Edit item dialog -->
     <q-dialog v-model="showEditItemDialog">
       <q-card style="min-width: 400px">
@@ -219,6 +239,7 @@ import { useWishlistStore } from '@/stores/wishlist';
 import { useItemStore } from '@/stores/item';
 import ItemCard from '@/components/items/ItemCard.vue';
 import AddItemDialog from '@/components/items/AddItemDialog.vue';
+import ShareDialog from '@/components/ShareDialog.vue';
 import type { Item, ItemCreate, ItemUpdate } from '@/types/item';
 
 const route = useRoute();
@@ -231,6 +252,7 @@ const itemStore = useItemStore();
 const showEditDialog = ref(false);
 const showAddDialog = ref(false);
 const showEditItemDialog = ref(false);
+const showShareDialog = ref(false);
 const editingWishlist = reactive({
   id: '',
   name: '',

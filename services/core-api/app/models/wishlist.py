@@ -12,6 +12,7 @@ from app.database import Base
 
 if TYPE_CHECKING:
     from app.models.item import Item
+    from app.models.share import ShareLink
     from app.models.user import User
 
 
@@ -48,6 +49,9 @@ class Wishlist(Base):
     user: Mapped["User"] = relationship("User", back_populates="wishlists")
     items: Mapped[list["Item"]] = relationship(
         "Item", back_populates="wishlist", cascade="all, delete-orphan"
+    )
+    share_links: Mapped[list["ShareLink"]] = relationship(
+        "ShareLink", back_populates="wishlist", cascade="all, delete-orphan"
     )
 
     @property

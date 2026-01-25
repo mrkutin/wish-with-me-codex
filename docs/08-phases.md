@@ -94,15 +94,15 @@
 
 ### Deliverables
 
-- [ ] Share link generation
-- [ ] Share link access (authenticated)
-- [ ] QR code generation
-- [ ] Mark/unmark endpoints
-- [ ] Partial quantity marking
-- [ ] Surprise mode (hide marks from owner)
-- [ ] Mark UI for viewers
-- [ ] Shared wishlist view
-- [ ] In-app notifications (item resolved, wishlist shared)
+- [x] Share link generation
+- [x] Share link access (authenticated)
+- [x] QR code generation
+- [x] Mark/unmark endpoints
+- [x] Partial quantity marking
+- [x] Surprise mode (hide marks from owner)
+- [x] Mark UI for viewers
+- [x] Shared wishlist view
+- [x] In-app notifications (item resolved, wishlist shared)
 
 ### Success Criteria
 

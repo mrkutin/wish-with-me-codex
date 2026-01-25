@@ -50,6 +50,21 @@ class ItemResponse(ItemBase):
     id: UUID
     wishlist_id: UUID
     status: ItemStatus
+    marked_quantity: int = 0  # Hidden from owner (surprise mode)
+    resolver_metadata: dict | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ItemResponseForOwner(ItemBase):
+    """Schema for item response for wishlist owner - marked_quantity hidden."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    wishlist_id: UUID
+    status: ItemStatus
+    # marked_quantity is intentionally omitted for surprise mode
     resolver_metadata: dict | None = None
     created_at: datetime
     updated_at: datetime
