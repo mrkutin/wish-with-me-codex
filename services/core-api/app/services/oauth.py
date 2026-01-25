@@ -306,7 +306,38 @@ class OAuthService:
             # Update social account email if changed
             if user_info.email and social_account.email != user_info.email:
                 social_account.email = user_info.email
+
+            # Update social account profile_data with latest OAuth info
+            social_account.profile_data = {
+                "name": user_info.name,
+                "avatar_url": user_info.avatar_url,
+                "birthday": user_info.birthday.isoformat() if user_info.birthday else None,
+                "raw": user_info.raw_data,
+            }
+
+            # Update user profile from OAuth data if missing or placeholder
+            user_updated = False
+
+            # Update avatar if user has placeholder or no real avatar
+            if user_info.avatar_url:
+                # Check if user still has the default placeholder avatar (exact match)
+                is_placeholder = user.avatar_base64 == DEFAULT_AVATAR_BASE64
+                if is_placeholder:
+                    downloaded = await _download_avatar(user_info.avatar_url)
+                    if downloaded:
+                        user.avatar_base64 = downloaded
+                        user_updated = True
+                        logger.info(f"Updated avatar for user {user.id} from OAuth")
+
+            # Update birthday if user doesn't have one but OAuth provides it
+            if user_info.birthday and not user.birthday:
+                user.birthday = user_info.birthday
+                user_updated = True
+                logger.info(f"Updated birthday for user {user.id} from OAuth")
+
+            if user_updated:
                 await self.db.flush()
+                await self.db.refresh(user)
 
             auth_response = await self._create_auth_response(user, device_info)
             return auth_response, False
@@ -453,6 +484,7 @@ class OAuthService:
             profile_data={
                 "name": user_info.name,
                 "avatar_url": user_info.avatar_url,
+                "birthday": user_info.birthday.isoformat() if user_info.birthday else None,
                 "raw": user_info.raw_data,
             },
         )
