@@ -110,6 +110,13 @@ async function fetchSharedWishlist() {
   isLoading.value = true;
   try {
     const response = await api.get<SharedWishlistResponse>(`/api/v1/shared/${token.value}`);
+
+    // If current user is the owner, redirect to normal wishlist view
+    if (authStore.user && response.data.wishlist.owner.id === authStore.user.id) {
+      router.replace({ name: 'wishlist-detail', params: { id: response.data.wishlist.id } });
+      return;
+    }
+
     sharedWishlist.value = response.data;
   } catch (error: any) {
     if (error.response?.status === 401) {
