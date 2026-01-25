@@ -57,35 +57,141 @@
 
           <!-- Mark/Unmark buttons -->
           <div class="q-mt-md" v-if="canMark">
-            <q-btn
-              v-if="item.my_mark_quantity === 0 && item.available_quantity > 0"
-              color="primary"
-              :label="$t('sharing.markAsPurchased')"
-              :loading="isMarking"
-              :disable="isMarking"
-              @click="$emit('mark', item)"
-              size="sm"
-            />
-            <q-btn
-              v-else-if="item.my_mark_quantity > 0"
-              color="positive"
-              outline
-              :loading="isMarking"
-              :disable="isMarking"
-              @click="$emit('unmark', item)"
-              size="sm"
-            >
-              <q-icon name="check" class="q-mr-xs" size="xs" />
-              {{ $t('sharing.unmark') }}
-            </q-btn>
-            <q-btn
-              v-else
-              color="grey-5"
-              flat
-              disable
-              :label="$t('sharing.fullyMarked')"
-              size="sm"
-            />
+            <!-- Simple mark button for single available quantity -->
+            <template v-if="item.my_mark_quantity === 0 && item.available_quantity === 1">
+              <q-btn
+                color="primary"
+                :label="$t('sharing.markAsPurchased')"
+                :loading="isMarking"
+                :disable="isMarking"
+                @click="handleMark"
+                size="sm"
+              />
+            </template>
+
+            <!-- Quantity selector for multiple available items -->
+            <template v-else-if="item.my_mark_quantity === 0 && item.available_quantity > 1">
+              <div class="row items-center q-gutter-sm">
+                <div class="quantity-selector row items-center no-wrap">
+                  <q-btn
+                    round
+                    dense
+                    flat
+                    icon="remove"
+                    size="sm"
+                    :disable="selectedQuantity <= 1 || isMarking"
+                    @click="decrementQuantity"
+                  />
+                  <q-input
+                    v-model.number="selectedQuantity"
+                    type="number"
+                    dense
+                    borderless
+                    input-class="text-center"
+                    style="width: 50px"
+                    :min="1"
+                    :max="item.available_quantity"
+                    :disable="isMarking"
+                    @update:model-value="clampQuantity"
+                  />
+                  <q-btn
+                    round
+                    dense
+                    flat
+                    icon="add"
+                    size="sm"
+                    :disable="selectedQuantity >= item.available_quantity || isMarking"
+                    @click="incrementQuantity"
+                  />
+                </div>
+                <span class="text-caption text-grey-7">
+                  {{ $t('sharing.ofAvailable', { available: item.available_quantity }) }}
+                </span>
+                <q-btn
+                  color="primary"
+                  :label="$t('sharing.markQuantity', { count: selectedQuantity })"
+                  :loading="isMarking"
+                  :disable="isMarking"
+                  @click="handleMark"
+                  size="sm"
+                />
+              </div>
+            </template>
+
+            <!-- Already marked - show unmark button -->
+            <template v-else-if="item.my_mark_quantity > 0">
+              <q-btn
+                color="positive"
+                outline
+                :loading="isMarking"
+                :disable="isMarking"
+                @click="$emit('unmark', item)"
+                size="sm"
+              >
+                <q-icon name="check" class="q-mr-xs" size="xs" />
+                {{ $t('sharing.unmark') }}
+              </q-btn>
+              <!-- Option to mark more if available -->
+              <template v-if="item.available_quantity > 0">
+                <div class="row items-center q-gutter-sm q-mt-sm">
+                  <div class="quantity-selector row items-center no-wrap">
+                    <q-btn
+                      round
+                      dense
+                      flat
+                      icon="remove"
+                      size="sm"
+                      :disable="selectedQuantity <= 1 || isMarking"
+                      @click="decrementQuantity"
+                    />
+                    <q-input
+                      v-model.number="selectedQuantity"
+                      type="number"
+                      dense
+                      borderless
+                      input-class="text-center"
+                      style="width: 50px"
+                      :min="1"
+                      :max="item.available_quantity"
+                      :disable="isMarking"
+                      @update:model-value="clampQuantity"
+                    />
+                    <q-btn
+                      round
+                      dense
+                      flat
+                      icon="add"
+                      size="sm"
+                      :disable="selectedQuantity >= item.available_quantity || isMarking"
+                      @click="incrementQuantity"
+                    />
+                  </div>
+                  <span class="text-caption text-grey-7">
+                    {{ $t('sharing.ofAvailable', { available: item.available_quantity }) }}
+                  </span>
+                  <q-btn
+                    color="primary"
+                    outline
+                    :label="$t('sharing.markMore')"
+                    :loading="isMarking"
+                    :disable="isMarking"
+                    @click="handleMark"
+                    size="sm"
+                  />
+                </div>
+              </template>
+            </template>
+
+            <!-- Fully marked -->
+            <template v-else>
+              <q-btn
+                color="grey-5"
+                flat
+                disable
+                :label="$t('sharing.fullyMarked')"
+                size="sm"
+              />
+            </template>
           </div>
         </q-card-section>
       </div>
@@ -94,6 +200,7 @@
 </template>
 
 <script setup lang="ts">
+import { ref, watch } from 'vue';
 import type { SharedItem } from '@/types/share';
 
 interface Props {
@@ -102,12 +209,46 @@ interface Props {
   isMarking: boolean;
 }
 
-defineProps<Props>();
+const props = defineProps<Props>();
 
-defineEmits<{
-  mark: [item: SharedItem];
+const emit = defineEmits<{
+  mark: [item: SharedItem, quantity: number];
   unmark: [item: SharedItem];
 }>();
+
+const selectedQuantity = ref(1);
+
+// Reset selected quantity when item changes or after marking
+watch(() => props.item.available_quantity, () => {
+  selectedQuantity.value = 1;
+});
+
+function incrementQuantity() {
+  if (selectedQuantity.value < props.item.available_quantity) {
+    selectedQuantity.value++;
+  }
+}
+
+function decrementQuantity() {
+  if (selectedQuantity.value > 1) {
+    selectedQuantity.value--;
+  }
+}
+
+function clampQuantity(value: number | null) {
+  if (value === null || isNaN(value) || value < 1) {
+    selectedQuantity.value = 1;
+  } else if (value > props.item.available_quantity) {
+    selectedQuantity.value = props.item.available_quantity;
+  } else {
+    selectedQuantity.value = Math.floor(value);
+  }
+}
+
+function handleMark() {
+  emit('mark', props.item, selectedQuantity.value);
+  selectedQuantity.value = 1; // Reset after marking
+}
 
 function truncateText(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text;
@@ -138,5 +279,19 @@ function formatPrice(price: string | null, currency: string | null): string {
 
 .item-card:hover {
   transform: translateY(-2px);
+}
+
+.quantity-selector {
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  padding: 2px;
+}
+
+.quantity-selector :deep(.q-field__control) {
+  height: 28px;
+}
+
+.quantity-selector :deep(input) {
+  padding: 0;
 }
 </style>

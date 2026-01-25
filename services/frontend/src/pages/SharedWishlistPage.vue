@@ -141,14 +141,14 @@ async function fetchSharedWishlist() {
   }
 }
 
-async function markItem(item: SharedItem) {
+async function markItem(item: SharedItem, quantity: number = 1) {
   if (!canMark.value || markingItemId.value) return;
 
   markingItemId.value = item.id;
   try {
     const response = await api.post<MarkResponse>(
       `/api/v1/shared/${token.value}/items/${item.id}/mark`,
-      { quantity: 1 }
+      { quantity }
     );
 
     // Update local state
