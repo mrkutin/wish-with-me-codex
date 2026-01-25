@@ -232,6 +232,22 @@ export function useSync() {
 
 ## 6. Service Worker
 
+### 6.1 Important: OAuth Compatibility
+
+The service worker's navigation fallback **must exclude `/api/` paths** to allow OAuth redirects to reach the backend. This is configured in `quasar.config.js`:
+
+```typescript
+extendGenerateSWOptions(cfg) {
+  cfg.navigateFallbackDenylist = [/^\/api\//];
+}
+```
+
+Without this, OAuth flows break because the service worker serves cached `index.html` instead of letting the browser navigate to backend OAuth endpoints.
+
+See `docs/04-frontend.md` section 8 "PWA Service Worker & OAuth" for full details.
+
+### 6.2 Custom Service Worker
+
 ```typescript
 // /services/frontend/src-pwa/custom-service-worker.ts
 

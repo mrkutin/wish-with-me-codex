@@ -274,6 +274,9 @@ export default configure((/* ctx */) => {
       extendGenerateSWOptions(cfg) {
         cfg.skipWaiting = true;
         cfg.clientsClaim = true;
+        // IMPORTANT: Exclude /api/ from navigation fallback for OAuth redirects
+        // See "PWA Service Worker & OAuth" section below
+        cfg.navigateFallbackDenylist = [/^\/api\//];
       },
       manifest: {
         name: 'Wish With Me',
@@ -746,7 +749,66 @@ export const useAuthStore = defineStore('auth', () => {
 
 ---
 
-## 8. Dockerfile
+## 8. PWA Service Worker & OAuth
+
+### 8.1 The Problem
+
+PWA service workers use a **navigation fallback** strategy that serves `index.html` for all navigation requests. This enables SPA routing but breaks OAuth redirect flows that navigate to backend `/api/` endpoints.
+
+**Symptom**: When user navigates to OAuth authorize endpoint (e.g., `/api/v1/oauth/google/authorize`), the service worker intercepts the request and serves cached `index.html` instead of letting it pass through to the backend. This causes Vue Router to try rendering the API URL as a frontend route, resulting in errors like:
+- "QPage needs to be a deep child of QLayout"
+- Blank/empty page at OAuth URLs
+
+### 8.2 The Solution
+
+Configure `navigateFallbackDenylist` in the Workbox service worker to exclude `/api/` paths:
+
+```typescript
+// quasar.config.js - pwa section
+extendGenerateSWOptions(cfg) {
+  cfg.skipWaiting = true;
+  cfg.clientsClaim = true;
+  // Exclude /api/ from navigation fallback - let requests pass to server
+  cfg.navigateFallbackDenylist = [/^\/api\//];
+},
+```
+
+### 8.3 How OAuth Flow Works
+
+```
+1. User clicks "Login with Google" button
+2. Frontend redirects to: /api/v1/oauth/google/authorize
+3. Backend returns 302 redirect to Google OAuth consent screen
+4. User authorizes on Google
+5. Google redirects to: /api/v1/oauth/google/callback?code=...
+6. Backend exchanges code for tokens
+7. Backend redirects to: /auth/callback?access_token=...
+8. Frontend AuthCallbackPage processes tokens
+```
+
+Steps 2-3 and 5-6 require the browser to reach the backend, not the service worker.
+
+### 8.4 When Implementing New OAuth Providers
+
+When adding new OAuth providers (Apple, Yandex, Sber, etc.):
+
+1. **Backend endpoints follow the pattern**: `/api/v1/oauth/{provider}/authorize` and `/api/v1/oauth/{provider}/callback`
+2. **No frontend route changes needed** - the existing `/auth/callback` handles all providers
+3. **Service worker denylist already covers all `/api/` paths** - no changes needed
+4. **Test the full flow** including logout → re-login to ensure service worker doesn't interfere
+
+### 8.5 Debugging Service Worker Issues
+
+If OAuth stops working after frontend deployment:
+
+1. **Check if service worker is intercepting**: Open DevTools → Network → check if OAuth URLs show "(ServiceWorker)" in the Size column
+2. **Verify denylist is in sw.js**: `grep "denylist" dist/pwa/sw.js` should show `/api/` pattern
+3. **Force service worker update**: Users may need to refresh twice or clear cache for new SW to activate
+4. **Test with SW disabled**: DevTools → Application → Service Workers → Bypass for network
+
+---
+
+## 9. Dockerfile
 
 ```dockerfile
 # /services/frontend/Dockerfile
