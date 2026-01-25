@@ -135,8 +135,9 @@ class OAuthService:
         client = get_oauth_client(provider)
         state = self._generate_state(action, user_id)
 
-        # Build redirect URI for callback
-        redirect_uri = str(request.url_for("oauth_callback", provider=provider.value))
+        # Build redirect URI for callback using configured API base URL
+        # This ensures HTTPS is used even when running behind a reverse proxy
+        redirect_uri = f"{settings.api_base_url}/api/v1/oauth/{provider.value}/callback"
 
         # Get authorization URL
         authorization_endpoint = await client.create_authorization_url(
@@ -177,7 +178,7 @@ class OAuthService:
         client = get_oauth_client(provider)
 
         # Build redirect URI (must match authorization request)
-        redirect_uri = str(request.url_for("oauth_callback", provider=provider.value))
+        redirect_uri = f"{settings.api_base_url}/api/v1/oauth/{provider.value}/callback"
 
         # Exchange code for token
         token = await client.fetch_access_token(

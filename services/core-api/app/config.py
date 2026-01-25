@@ -84,6 +84,7 @@ class Settings(BaseSettings):
     sber_client_secret: str | None = None
 
     # OAuth URLs
+    api_base_url: str = "https://api.wishwith.me"  # Public API base URL for OAuth redirects
     frontend_callback_url: str = "https://wishwith.me/auth/callback"
     oauth_state_secret: str | None = None  # For signing OAuth state parameter
 
