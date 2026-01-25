@@ -12,6 +12,9 @@ from app.oauth.schemas import OAuthProvider, OAuthUserInfo
 # Create OAuth registry
 oauth_registry = OAuth()
 
+# Track which providers are registered
+_registered_providers: set[str] = set()
+
 
 def _generate_apple_client_secret() -> str | None:
     """Generate Apple client secret JWT.
@@ -53,7 +56,7 @@ def _register_providers() -> None:
     """Register all OAuth providers with the registry."""
     # Google - OIDC auto-discovery
     if settings.google_client_id and settings.google_client_secret:
-        oauth_registry.register_client(
+        oauth_registry.register(
             name="google",
             client_id=settings.google_client_id,
             client_secret=settings.google_client_secret,
@@ -62,12 +65,13 @@ def _register_providers() -> None:
                 "scope": "openid email profile",
             },
         )
+        _registered_providers.add("google")
 
     # Apple - Manual configuration
     if settings.apple_client_id and settings.apple_team_id:
         apple_secret = _generate_apple_client_secret()
         if apple_secret:
-            oauth_registry.register_client(
+            oauth_registry.register(
                 name="apple",
                 client_id=settings.apple_client_id,
                 client_secret=apple_secret,
@@ -78,10 +82,11 @@ def _register_providers() -> None:
                     "response_mode": "form_post",
                 },
             )
+            _registered_providers.add("apple")
 
     # Yandex - Manual configuration
     if settings.yandex_client_id and settings.yandex_client_secret:
-        oauth_registry.register_client(
+        oauth_registry.register(
             name="yandex",
             client_id=settings.yandex_client_id,
             client_secret=settings.yandex_client_secret,
@@ -92,10 +97,11 @@ def _register_providers() -> None:
                 "scope": "login:email login:info login:avatar",
             },
         )
+        _registered_providers.add("yandex")
 
     # Sber ID - Manual configuration
     if settings.sber_client_id and settings.sber_client_secret:
-        oauth_registry.register_client(
+        oauth_registry.register(
             name="sber",
             client_id=settings.sber_client_id,
             client_secret=settings.sber_client_secret,
@@ -106,6 +112,7 @@ def _register_providers() -> None:
                 "scope": "openid name email",
             },
         )
+        _registered_providers.add("sber")
 
 
 # Register providers on module load
@@ -124,15 +131,14 @@ def get_oauth_client(provider: OAuthProvider):
     Raises:
         ValueError: If provider is not configured.
     """
-    client = oauth_registry._clients.get(provider.value)
-    if client is None:
+    if provider.value not in _registered_providers:
         raise ValueError(f"OAuth provider '{provider.value}' is not configured")
-    return client
+    return oauth_registry.create_client(provider.value)
 
 
 def is_provider_configured(provider: OAuthProvider) -> bool:
     """Check if an OAuth provider is configured."""
-    return provider.value in oauth_registry._clients
+    return provider.value in _registered_providers
 
 
 def get_configured_providers() -> list[OAuthProvider]:
