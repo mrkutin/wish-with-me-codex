@@ -229,13 +229,20 @@ async def _parse_google_user(token: dict, userinfo: dict | None) -> OAuthUserInf
     # Google returns userinfo in the token response via OIDC
     info = userinfo or token.get("userinfo", {})
 
+    # Debug: log token structure to understand where access_token is
+    logger.info(f"Google token keys: {list(token.keys())}")
+
     # Fetch birthday from People API if we have an access token
+    # Authlib may return token as OAuth2Token object with dict-like access
     birthday = None
     access_token = token.get("access_token")
+    if not access_token and hasattr(token, "access_token"):
+        access_token = token.access_token
     if access_token:
+        logger.info(f"Found access_token, fetching birthday from People API")
         birthday = await _fetch_google_birthday(access_token)
     else:
-        logger.debug("No access_token in Google token response, skipping birthday fetch")
+        logger.warning(f"No access_token in Google token response, skipping birthday fetch. Token type: {type(token)}")
 
     return OAuthUserInfo(
         provider=OAuthProvider.GOOGLE,

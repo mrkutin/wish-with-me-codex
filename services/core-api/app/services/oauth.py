@@ -318,6 +318,12 @@ class OAuthService:
             # Update user profile from OAuth data if missing or placeholder
             user_updated = False
 
+            # Update name from OAuth if provided and different
+            if user_info.name and user_info.name != user.name:
+                user.name = user_info.name
+                user_updated = True
+                logger.info(f"Updated name for user {user.id} from OAuth")
+
             # Update avatar if user has placeholder or no real avatar
             if user_info.avatar_url:
                 # Check if user still has the default placeholder avatar (exact match)
