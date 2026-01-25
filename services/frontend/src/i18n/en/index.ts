@@ -83,6 +83,7 @@ export default {
     publicUrl: 'Public URL',
     connectedAccounts: 'Connected Accounts',
     language: 'Language',
+    birthday: 'Date of birth',
   },
   errors: {
     generic: 'Something went wrong',

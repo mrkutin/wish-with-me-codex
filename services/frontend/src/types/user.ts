@@ -15,6 +15,7 @@ export interface User {
   public_url_slug?: string;
   social_links?: SocialLinks;
   locale: string;
+  birthday?: string;
   created_at: string;
   updated_at: string;
 }

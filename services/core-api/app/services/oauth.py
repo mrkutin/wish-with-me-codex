@@ -1,13 +1,16 @@
 """OAuth service for social authentication."""
 
+import base64
 import hashlib
 import hmac
+import logging
 import secrets
 import time
 from typing import Literal
 from uuid import UUID
 
-from sqlalchemy import select, and_
+import httpx
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from starlette.requests import Request
@@ -25,6 +28,51 @@ from app.security import (
     hash_token,
 )
 from app.services.user import UserService
+
+logger = logging.getLogger(__name__)
+
+
+MAX_AVATAR_SIZE = 5 * 1024 * 1024  # 5MB max
+
+
+async def _download_avatar(url: str) -> str | None:
+    """Download avatar from URL and return as base64 data URI.
+
+    Args:
+        url: The avatar URL to download.
+
+    Returns:
+        Base64 data URI string, or None if download fails.
+    """
+    # Only allow HTTPS URLs for security (SSRF protection)
+    if not url.startswith("https://"):
+        logger.warning(f"Avatar URL not HTTPS, skipping: {url}")
+        return None
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True, max_redirects=3) as client:
+            response = await client.get(url)
+            if response.status_code == 200:
+                # Check content size to prevent memory exhaustion
+                if len(response.content) > MAX_AVATAR_SIZE:
+                    logger.warning(f"Avatar too large from {url}: {len(response.content)} bytes")
+                    return None
+
+                content_type = response.headers.get("content-type", "image/jpeg")
+                # Strip any charset or other parameters from content type
+                if ";" in content_type:
+                    content_type = content_type.split(";")[0].strip()
+
+                # Validate content type is an image
+                if not content_type.startswith("image/"):
+                    logger.warning(f"Avatar not an image type: {content_type}")
+                    return None
+
+                b64 = base64.b64encode(response.content).decode()
+                return f"data:{content_type};base64,{b64}"
+    except Exception as e:
+        logger.warning(f"Failed to download avatar from {url}: {e}")
+    return None
 
 
 class OAuthService:
@@ -374,12 +422,20 @@ class OAuthService:
 
     async def _create_oauth_user(self, user_info: OAuthUserInfo, locale: str = "en") -> User:
         """Create a new user from OAuth info."""
+        # Try to download avatar from OAuth provider
+        avatar = DEFAULT_AVATAR_BASE64
+        if user_info.avatar_url:
+            downloaded = await _download_avatar(user_info.avatar_url)
+            if downloaded:
+                avatar = downloaded
+
         user_data = UserCreate(
             email=user_info.email or f"{user_info.provider_user_id}@{user_info.provider.value}.oauth",
             password=None,  # OAuth users don't have passwords initially
             name=user_info.name or user_info.email or "User",
             locale=locale,
-            avatar_base64=DEFAULT_AVATAR_BASE64,
+            avatar_base64=avatar,
+            birthday=user_info.birthday,
         )
         return await self.user_service.create(user_data)
 

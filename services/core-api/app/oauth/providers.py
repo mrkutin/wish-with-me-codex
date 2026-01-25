@@ -1,6 +1,8 @@
 """OAuth provider configuration and registry."""
 
+import logging
 import time
+from datetime import datetime
 from typing import Any
 
 import jwt
@@ -8,6 +10,8 @@ from authlib.integrations.starlette_client import OAuth
 
 from app.config import settings
 from app.oauth.schemas import OAuthProvider, OAuthUserInfo
+
+logger = logging.getLogger(__name__)
 
 # Create OAuth registry
 oauth_registry = OAuth()
@@ -94,7 +98,7 @@ def _register_providers() -> None:
             access_token_url="https://oauth.yandex.ru/token",
             userinfo_endpoint="https://login.yandex.ru/info",
             client_kwargs={
-                "scope": "login:email login:info login:avatar",
+                "scope": "login:email login:info login:avatar login:birthday",
             },
         )
         _registered_providers.add("yandex")
@@ -193,9 +197,6 @@ def _parse_apple_user(token: dict, userinfo: dict | None) -> OAuthUserInfo:
     Note: Apple only returns name on the first authorization.
     The name is passed in the form_post user parameter.
     """
-    import logging
-    logger = logging.getLogger(__name__)
-
     # Decode ID token to get user info
     id_token = token.get("id_token", "")
     if id_token:
@@ -236,12 +237,21 @@ def _parse_yandex_user(token: dict, userinfo: dict | None) -> OAuthUserInfo:
     if info.get("default_avatar_id"):
         avatar_url = f"https://avatars.yandex.net/get-yapic/{info['default_avatar_id']}/islands-200"
 
+    # Extract birthday if available
+    birthday = None
+    if info.get("birthday"):
+        try:
+            birthday = datetime.strptime(info["birthday"], "%Y-%m-%d").date()
+        except ValueError:
+            logger.warning(f"Failed to parse Yandex birthday: {info['birthday']}")
+
     return OAuthUserInfo(
         provider=OAuthProvider.YANDEX,
         provider_user_id=info.get("id", ""),
         email=info.get("default_email"),
         name=info.get("real_name") or info.get("display_name"),
         avatar_url=avatar_url,
+        birthday=birthday,
         raw_data=info,
     )
 

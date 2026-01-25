@@ -1,6 +1,6 @@
 """User-related Pydantic schemas."""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -28,6 +28,7 @@ class UserBase(BaseModel):
     ] = None
     social_links: SocialLinks | None = None
     locale: Annotated[str, Field(pattern=r"^(ru|en)$")] = "ru"
+    birthday: date | None = None
 
 
 class UserCreate(UserBase):
@@ -48,6 +49,7 @@ class UserUpdate(BaseModel):
     social_links: SocialLinks | None = None
     avatar_base64: str | None = None
     locale: Annotated[str | None, Field(pattern=r"^(ru|en)$")] = None
+    birthday: date | None = None
 
 
 class UserResponse(UserBase):

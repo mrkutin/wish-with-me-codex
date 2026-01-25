@@ -83,6 +83,7 @@ export default {
     publicUrl: 'Публичная ссылка',
     connectedAccounts: 'Подключённые аккаунты',
     language: 'Язык',
+    birthday: 'Дата рождения',
   },
   errors: {
     generic: 'Что-то пошло не так',

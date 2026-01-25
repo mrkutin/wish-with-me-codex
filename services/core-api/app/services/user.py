@@ -51,6 +51,7 @@ class UserService:
             public_url_slug=data.public_url_slug,
             social_links=data.social_links.model_dump() if data.social_links else {},
             locale=data.locale,
+            birthday=data.birthday,
         )
         self.db.add(user)
         await self.db.flush()

@@ -1,5 +1,6 @@
 """OAuth schemas and enums."""
 
+from datetime import date
 from enum import Enum
 from pydantic import BaseModel, EmailStr
 
@@ -21,6 +22,7 @@ class OAuthUserInfo(BaseModel):
     email: EmailStr | None = None
     name: str | None = None
     avatar_url: str | None = None
+    birthday: date | None = None
     raw_data: dict | None = None
 
 

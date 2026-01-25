@@ -40,6 +40,13 @@
             :rules="[val => !val || /^[a-z0-9-]+$/.test(val) || 'Only lowercase letters, numbers, and hyphens']"
           />
 
+          <q-input
+            v-model="profileForm.birthday"
+            :label="$t('profile.birthday')"
+            outlined
+            type="date"
+          />
+
           <q-btn
             type="submit"
             color="primary"
@@ -68,6 +75,7 @@ const profileForm = reactive({
   name: '',
   bio: '',
   public_url_slug: '',
+  birthday: '',
 });
 
 watchEffect(() => {
@@ -75,6 +83,7 @@ watchEffect(() => {
     profileForm.name = authStore.user.name;
     profileForm.bio = authStore.user.bio || '';
     profileForm.public_url_slug = authStore.user.public_url_slug || '';
+    profileForm.birthday = authStore.user.birthday || '';
   }
 });
 
@@ -85,6 +94,7 @@ async function updateProfile() {
       name: profileForm.name,
       bio: profileForm.bio || null,
       public_url_slug: profileForm.public_url_slug || null,
+      birthday: profileForm.birthday || null,
     });
     await authStore.fetchCurrentUser();
     $q.notify({
