@@ -188,12 +188,9 @@ class OAuthService:
 
         # Get user info (some providers include it in token, others need separate call)
         userinfo = None
-        if provider in (OAuthProvider.YANDEX, OAuthProvider.SBER):
-            # These providers need a separate userinfo request
+        if provider in (OAuthProvider.GOOGLE, OAuthProvider.YANDEX, OAuthProvider.SBER):
+            # These providers support userinfo endpoint
             userinfo = await client.userinfo(token=token)
-        elif provider == OAuthProvider.GOOGLE:
-            # Google OIDC includes userinfo in token
-            userinfo = await client.parse_id_token(token)
         elif provider == OAuthProvider.APPLE:
             # Apple: check if user info came in form post (stored in request)
             userinfo = getattr(request, "_apple_user", None)
