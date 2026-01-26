@@ -59,9 +59,23 @@ class EventChannelManager:
             )
             return queue
 
-    async def disconnect(self, user_id: UUID) -> None:
-        """Remove user's connection."""
+    async def disconnect(self, user_id: UUID, queue: asyncio.Queue[ServerEvent | None] | None = None) -> None:
+        """Remove user's connection.
+
+        If queue is provided, only disconnects if the current queue matches.
+        This prevents a race condition where a new connection's queue gets
+        removed by the old connection's cleanup.
+        """
         async with self._lock:
+            current_queue = self._channels.get(user_id)
+
+            # If queue is specified, only disconnect if it matches the current queue
+            if queue is not None and current_queue is not queue:
+                logger.debug(
+                    f"SSE: Skipping disconnect for user {user_id} - queue already replaced"
+                )
+                return
+
             removed = self._channels.pop(user_id, None)
             if removed:
                 logger.info(

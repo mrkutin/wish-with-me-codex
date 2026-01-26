@@ -125,7 +125,9 @@ async def event_stream(
         except Exception as e:
             logger.exception(f"SSE error for user {current_user.id}: {e}")
         finally:
-            await event_manager.disconnect(current_user.id)
+            # Pass the queue to disconnect to avoid race condition where
+            # a new connection's queue gets removed by old connection's cleanup
+            await event_manager.disconnect(current_user.id, queue)
             logger.info(
                 f"SSE disconnected: user={current_user.id}, "
                 f"total={event_manager.connection_count}"
