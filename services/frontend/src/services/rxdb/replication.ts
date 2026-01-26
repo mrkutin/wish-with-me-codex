@@ -259,8 +259,12 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
     marks: markReplication,
     pullStream$,
     triggerPull: () => {
-      console.log('[RxDB] triggerPull called, emitting to pullStream$');
-      pullStream$.next();
+      console.log('[RxDB] triggerPull called, using reSync() for immediate pull');
+      // Use reSync() to force immediate sync rather than just emitting to stream
+      // This ensures the pull happens immediately rather than being debounced
+      wishlistReplication.reSync();
+      itemReplication.reSync();
+      markReplication.reSync();
     },
     cancel: async () => {
       // Remove event listener on cleanup
