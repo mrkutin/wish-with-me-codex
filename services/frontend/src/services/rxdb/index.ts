@@ -8,6 +8,36 @@ import { RxDBDevModePlugin } from 'rxdb/plugins/dev-mode';
 import { RxDBQueryBuilderPlugin } from 'rxdb/plugins/query-builder';
 import { RxDBUpdatePlugin } from 'rxdb/plugins/update';
 
+/**
+ * Suppress RxDB premium marketing messages in console.
+ */
+function suppressRxDBPremiumLogs<T>(fn: () => T): T {
+  const originalLog = console.log;
+  const originalWarn = console.warn;
+
+  const filter = (...args: unknown[]) => {
+    const msg = args.join(' ');
+    if (msg.includes('RxDB') && msg.includes('premium')) return;
+    if (msg.includes('Open Core RxStorage')) return;
+    originalLog.apply(console, args);
+  };
+
+  console.log = filter;
+  console.warn = (...args: unknown[]) => {
+    const msg = args.join(' ');
+    if (msg.includes('RxDB') && msg.includes('premium')) return;
+    if (msg.includes('Open Core RxStorage')) return;
+    originalWarn.apply(console, args);
+  };
+
+  try {
+    return fn();
+  } finally {
+    console.log = originalLog;
+    console.warn = originalWarn;
+  }
+}
+
 import {
   wishlistSchema,
   itemSchema,
@@ -49,7 +79,7 @@ export async function getDatabase(): Promise<WishWithMeDatabase> {
 
   const db = await createRxDatabase<WishWithMeCollections>({
     name: 'wishwithme',
-    storage: getRxStorageDexie(),
+    storage: suppressRxDBPremiumLogs(() => getRxStorageDexie()),
     multiInstance: true,
     eventReduce: true,
     ignoreDuplicate: true,
