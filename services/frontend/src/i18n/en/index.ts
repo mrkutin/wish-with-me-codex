@@ -109,6 +109,9 @@ export default {
     email: 'Please enter a valid email',
     minLength: 'Minimum {min} characters required',
     maxLength: 'Maximum {max} characters allowed',
+    minValue: 'Minimum value: {min}',
+    invalidUrl: 'Please enter a valid URL',
+    invalidHandle: 'Only lowercase letters, numbers, and hyphens',
   },
   oauth: {
     connect: 'Connect',

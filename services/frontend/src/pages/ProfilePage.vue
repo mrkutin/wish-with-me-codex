@@ -22,7 +22,7 @@
             v-model="profileForm.name"
             :label="$t('auth.name')"
             outlined
-            :rules="[val => !!val || 'Name is required']"
+            :rules="[val => !!val || $t('validation.required')]"
           />
 
           <q-input
@@ -37,7 +37,7 @@
             :label="$t('profile.publicUrl')"
             outlined
             prefix="wishwith.me/u/"
-            :rules="[val => !val || /^[a-z0-9-]+$/.test(val) || 'Only lowercase letters, numbers, and hyphens']"
+            :rules="[val => !val || /^[a-z0-9-]+$/.test(val) || $t('validation.invalidHandle')]"
           />
 
           <q-input

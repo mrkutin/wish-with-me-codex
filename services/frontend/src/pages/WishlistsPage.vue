@@ -1,5 +1,6 @@
 <template>
   <q-page padding>
+    <q-pull-to-refresh @refresh="handleRefresh">
     <div class="row items-center justify-between q-mb-md">
       <h1 class="text-h5 q-ma-none">{{ $t('wishlists.title') }}</h1>
       <q-btn
@@ -30,9 +31,20 @@
     <!-- My Wishlists Tab -->
     <q-tab-panels v-model="activeTab" animated>
       <q-tab-panel name="my" class="q-pa-none">
-        <!-- Loading state -->
-        <div v-if="wishlistStore.isLoading && wishlistStore.wishlists.length === 0" class="flex flex-center q-pa-xl">
-          <q-spinner color="primary" size="50px" />
+        <!-- Loading skeleton -->
+        <div v-if="wishlistStore.isLoading && wishlistStore.wishlists.length === 0" class="row q-col-gutter-md">
+          <div v-for="n in 3" :key="n" class="col-12 col-sm-6 col-md-4">
+            <q-card>
+              <q-card-section>
+                <q-skeleton type="text" width="60%" class="text-h6" />
+                <q-skeleton type="text" width="100%" class="q-mt-sm" />
+                <q-skeleton type="text" width="80%" />
+              </q-card-section>
+              <q-card-section>
+                <q-skeleton type="text" width="40%" />
+              </q-card-section>
+            </q-card>
+          </div>
         </div>
 
         <!-- Empty state -->
@@ -52,61 +64,89 @@
             :key="wishlist.id"
             class="col-12 col-sm-6 col-md-4"
           >
-            <q-card class="wishlist-card cursor-pointer" @click="openWishlist(wishlist.id)">
-              <q-card-section>
-                <div class="row items-start justify-between">
-                  <div class="text-h6">{{ wishlist.name }}</div>
-                  <q-btn
-                    flat
-                    dense
-                    round
-                    icon="more_vert"
-                    @click.stop="showMenu(wishlist)"
-                  >
-                    <q-menu>
-                      <q-list style="min-width: 100px">
-                        <q-item clickable v-close-popup @click="shareWishlist(wishlist)">
-                          <q-item-section avatar>
-                            <q-icon name="share" />
-                          </q-item-section>
-                          <q-item-section>{{ $t('sharing.share') }}</q-item-section>
-                        </q-item>
-                        <q-item clickable v-close-popup @click="editWishlist(wishlist)">
-                          <q-item-section avatar>
-                            <q-icon name="edit" />
-                          </q-item-section>
-                          <q-item-section>{{ $t('common.edit') }}</q-item-section>
-                        </q-item>
-                        <q-separator />
-                        <q-item clickable v-close-popup @click="confirmDelete(wishlist)">
-                          <q-item-section avatar>
-                            <q-icon name="delete" color="negative" />
-                          </q-item-section>
-                          <q-item-section class="text-negative">{{ $t('common.delete') }}</q-item-section>
-                        </q-item>
-                      </q-list>
-                    </q-menu>
-                  </q-btn>
-                </div>
-                <div v-if="wishlist.description" class="text-body2 text-grey-7 q-mt-sm">
-                  {{ wishlist.description }}
-                </div>
-              </q-card-section>
-              <q-card-section>
-                <div class="text-caption text-grey">
-                  {{ formatDate(wishlist.created_at) }}
-                </div>
-              </q-card-section>
-            </q-card>
+            <q-slide-item
+              @left="({ reset }) => onSwipeLeft(wishlist, reset)"
+              @right="({ reset }) => onSwipeRight(wishlist, reset)"
+              left-color="primary"
+              right-color="negative"
+            >
+              <template v-slot:left>
+                <q-icon name="share" />
+              </template>
+              <template v-slot:right>
+                <q-icon name="delete" />
+              </template>
+              <q-card class="wishlist-card cursor-pointer" @click="openWishlist(wishlist.id)">
+                <q-card-section>
+                  <div class="row items-start justify-between">
+                    <div class="text-h6">{{ wishlist.name }}</div>
+                    <q-btn
+                      flat
+                      dense
+                      round
+                      icon="more_vert"
+                      aria-label="Wishlist options"
+                      aria-haspopup="menu"
+                      @click.stop="showMenu(wishlist)"
+                    >
+                      <q-menu>
+                        <q-list style="min-width: 100px">
+                          <q-item clickable v-close-popup @click="shareWishlist(wishlist)">
+                            <q-item-section avatar>
+                              <q-icon name="share" />
+                            </q-item-section>
+                            <q-item-section>{{ $t('sharing.share') }}</q-item-section>
+                          </q-item>
+                          <q-item clickable v-close-popup @click="editWishlist(wishlist)">
+                            <q-item-section avatar>
+                              <q-icon name="edit" />
+                            </q-item-section>
+                            <q-item-section>{{ $t('common.edit') }}</q-item-section>
+                          </q-item>
+                          <q-separator />
+                          <q-item clickable v-close-popup @click="confirmDelete(wishlist)">
+                            <q-item-section avatar>
+                              <q-icon name="delete" color="negative" />
+                            </q-item-section>
+                            <q-item-section class="text-negative">{{ $t('common.delete') }}</q-item-section>
+                          </q-item>
+                        </q-list>
+                      </q-menu>
+                    </q-btn>
+                  </div>
+                  <div v-if="wishlist.description" class="text-body2 text-grey-7 q-mt-sm">
+                    {{ wishlist.description }}
+                  </div>
+                </q-card-section>
+                <q-card-section>
+                  <div class="text-caption text-grey">
+                    {{ formatDate(wishlist.created_at) }}
+                  </div>
+                </q-card-section>
+              </q-card>
+            </q-slide-item>
           </div>
         </div>
       </q-tab-panel>
 
       <!-- Shared With Me Tab -->
       <q-tab-panel name="shared" class="q-pa-none">
-        <!-- Loading state -->
-        <div v-if="isLoadingBookmarks" class="flex flex-center q-pa-xl">
-          <q-spinner color="primary" size="50px" />
+        <!-- Loading skeleton -->
+        <div v-if="isLoadingBookmarks" class="row q-col-gutter-md">
+          <div v-for="n in 3" :key="n" class="col-12 col-sm-6 col-md-4">
+            <q-card>
+              <q-card-section>
+                <q-skeleton type="text" width="60%" class="text-h6" />
+                <div class="row items-center q-mt-sm">
+                  <q-skeleton type="QAvatar" size="24px" class="q-mr-sm" />
+                  <q-skeleton type="text" width="40%" />
+                </div>
+              </q-card-section>
+              <q-card-section>
+                <q-skeleton type="text" width="30%" />
+              </q-card-section>
+            </q-card>
+          </div>
         </div>
 
         <!-- Empty state -->
@@ -173,6 +213,7 @@
         </div>
       </q-tab-panel>
     </q-tab-panels>
+    </q-pull-to-refresh>
 
     <!-- Create wishlist dialog -->
     <q-dialog v-model="showCreateDialog">
@@ -317,6 +358,18 @@ async function fetchBookmarks() {
   }
 }
 
+async function handleRefresh(done: () => void) {
+  try {
+    if (activeTab.value === 'my') {
+      await wishlistStore.fetchWishlists();
+    } else {
+      await fetchBookmarks();
+    }
+  } finally {
+    done();
+  }
+}
+
 async function createWishlist() {
   try {
     await wishlistStore.createWishlist({
@@ -397,6 +450,16 @@ function showMenu(wishlist: Wishlist) {
 function shareWishlist(wishlist: Wishlist) {
   sharingWishlist.value = wishlist;
   showShareDialog.value = true;
+}
+
+function onSwipeLeft(wishlist: Wishlist, reset: () => void) {
+  reset();
+  shareWishlist(wishlist);
+}
+
+function onSwipeRight(wishlist: Wishlist, reset: () => void) {
+  reset();
+  confirmDelete(wishlist);
 }
 
 function openWishlist(id: string) {

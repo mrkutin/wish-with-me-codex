@@ -199,23 +199,23 @@
 
 ### Deliverables
 
-- [ ] Russian translations (complete)
-- [ ] English translations (complete)
-- [ ] Language auto-detection
-- [ ] Language switcher in settings
-- [ ] Empty states for all pages
-- [ ] Error states for all scenarios
-- [ ] Loading skeletons
-- [ ] Pull-to-refresh
-- [ ] Swipe actions (mobile)
-- [ ] Accessibility audit + fixes
-- [ ] Color contrast fixes
+- [x] Russian translations (complete)
+- [x] English translations (complete)
+- [x] Language auto-detection
+- [x] Language switcher in settings
+- [x] Empty states for all pages
+- [x] Error states for all scenarios
+- [x] Loading skeletons
+- [x] Pull-to-refresh
+- [x] Swipe actions (mobile)
+- [x] Accessibility audit + fixes
+- [ ] Color contrast fixes (minor - grey shades need verification)
 
 ### Success Criteria
 
-- App fully localized in RU and EN
-- All empty/error states have proper UI
-- Accessibility passes basic audit
+- [x] App fully localized in RU and EN
+- [x] All empty/error states have proper UI
+- [x] Accessibility passes basic audit
 
 ---
 

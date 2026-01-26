@@ -6,6 +6,7 @@
         <q-img
           v-if="item.image_base64"
           :src="item.image_base64"
+          :alt="item.title"
           :ratio="1"
           width="100px"
           class="rounded-borders"
@@ -14,6 +15,7 @@
           v-else
           class="flex flex-center bg-grey-3 rounded-borders"
           style="width: 100px; height: 100px"
+          aria-hidden="true"
         >
           <q-icon name="image" size="40px" color="grey-6" />
         </div>

@@ -1,8 +1,34 @@
 <template>
   <q-page padding>
-    <!-- Loading state -->
-    <div v-if="wishlistStore.isLoading && !wishlistStore.currentWishlist" class="flex flex-center q-pa-xl">
-      <q-spinner color="primary" size="50px" />
+    <q-pull-to-refresh @refresh="handleRefresh">
+    <!-- Loading skeleton -->
+    <div v-if="wishlistStore.isLoading && !wishlistStore.currentWishlist">
+      <!-- Header skeleton -->
+      <div class="row items-center q-mb-md">
+        <q-skeleton type="QBtn" width="40px" height="40px" class="q-mr-md" />
+        <q-skeleton type="text" width="200px" class="text-h5" />
+      </div>
+      <!-- Description skeleton -->
+      <q-skeleton type="text" width="100%" class="q-mb-md" />
+      <q-skeleton type="text" width="60%" class="q-mb-lg" />
+      <!-- Items section skeleton -->
+      <div class="row items-center justify-between q-mb-md">
+        <q-skeleton type="text" width="80px" class="text-h6" />
+        <q-skeleton type="QBtn" width="100px" height="36px" />
+      </div>
+      <!-- Item cards skeleton -->
+      <div class="q-gutter-md">
+        <q-card v-for="n in 3" :key="n">
+          <q-card-section horizontal>
+            <q-skeleton type="rect" width="100px" height="100px" />
+            <q-card-section class="col">
+              <q-skeleton type="text" width="70%" class="text-subtitle1" />
+              <q-skeleton type="text" width="100%" class="q-mt-sm" />
+              <q-skeleton type="text" width="30%" class="q-mt-sm" />
+            </q-card-section>
+          </q-card-section>
+        </q-card>
+      </div>
     </div>
 
     <!-- Wishlist found -->
@@ -10,7 +36,7 @@
       <!-- Header -->
       <div class="row items-center justify-between q-mb-md">
         <div class="col">
-          <q-btn flat dense icon="arrow_back" @click="goBack" class="q-mr-md" />
+          <q-btn flat dense icon="arrow_back" aria-label="Go back" @click="goBack" class="q-mr-md" />
           <span class="text-h5">{{ wishlistStore.currentWishlist.name }}</span>
         </div>
         <div>
@@ -64,9 +90,18 @@
           />
         </div>
 
-        <!-- Loading items -->
-        <div v-if="itemStore.isLoading && itemStore.items.length === 0" class="flex flex-center q-pa-xl">
-          <q-spinner color="primary" size="40px" />
+        <!-- Loading items skeleton -->
+        <div v-if="itemStore.isLoading && itemStore.items.length === 0" class="q-gutter-md">
+          <q-card v-for="n in 2" :key="n">
+            <q-card-section horizontal>
+              <q-skeleton type="rect" width="100px" height="100px" />
+              <q-card-section class="col">
+                <q-skeleton type="text" width="70%" class="text-subtitle1" />
+                <q-skeleton type="text" width="100%" class="q-mt-sm" />
+                <q-skeleton type="text" width="30%" class="q-mt-sm" />
+              </q-card-section>
+            </q-card-section>
+          </q-card>
         </div>
 
         <!-- Empty state -->
@@ -81,14 +116,27 @@
 
         <!-- Items list -->
         <div v-else class="q-gutter-md">
-          <ItemCard
+          <q-slide-item
             v-for="item in itemStore.items"
             :key="item.id"
-            :item="item"
-            @edit="editItem"
-            @delete="confirmDeleteItem"
-            @retry="retryResolve"
-          />
+            @left="({ reset }) => onItemSwipeLeft(item, reset)"
+            @right="({ reset }) => onItemSwipeRight(item, reset)"
+            left-color="primary"
+            right-color="negative"
+          >
+            <template v-slot:left>
+              <q-icon name="edit" />
+            </template>
+            <template v-slot:right>
+              <q-icon name="delete" />
+            </template>
+            <ItemCard
+              :item="item"
+              @edit="editItem"
+              @delete="confirmDeleteItem"
+              @retry="retryResolve"
+            />
+          </q-slide-item>
         </div>
       </div>
     </div>
@@ -98,6 +146,7 @@
       <q-icon name="error_outline" size="64px" color="grey-5" />
       <p class="text-h6 text-grey-7 q-mt-md">{{ $t('errors.notFound') }}</p>
     </div>
+    </q-pull-to-refresh>
 
     <!-- Edit wishlist dialog -->
     <q-dialog v-model="showEditDialog">
@@ -268,6 +317,18 @@ function goBack() {
   router.push({ name: 'wishlists' });
 }
 
+async function handleRefresh(done: () => void) {
+  const wishlistId = route.params.id as string;
+  try {
+    await Promise.all([
+      wishlistStore.fetchWishlist(wishlistId),
+      itemStore.fetchItems(wishlistId),
+    ]);
+  } finally {
+    done();
+  }
+}
+
 function editWishlist() {
   if (!wishlistStore.currentWishlist) return;
 
@@ -355,6 +416,16 @@ async function createItem(data: ItemCreate) {
       message: t('errors.createFailed'),
     });
   }
+}
+
+function onItemSwipeLeft(item: Item, reset: () => void) {
+  reset();
+  editItem(item);
+}
+
+function onItemSwipeRight(item: Item, reset: () => void) {
+  reset();
+  confirmDeleteItem(item);
 }
 
 function editItem(item: Item) {

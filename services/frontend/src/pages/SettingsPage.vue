@@ -70,6 +70,7 @@
 import { computed, onMounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useOAuth } from '@/composables/useOAuth';
+import { saveLocale, type SupportedLocale } from '@/boot/i18n';
 import type { OAuthProvider } from '@/composables/useOAuth';
 import type { ConnectedAccount } from '@/types/user';
 
@@ -100,6 +101,7 @@ const currentLocale = computed({
   get: () => locale.value,
   set: (val: string) => {
     locale.value = val;
+    saveLocale(val as SupportedLocale);
   },
 });
 

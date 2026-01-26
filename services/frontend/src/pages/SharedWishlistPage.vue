@@ -1,8 +1,40 @@
 <template>
   <q-page padding>
-    <!-- Loading state -->
-    <div v-if="isLoading" class="flex flex-center q-pa-xl">
-      <q-spinner color="primary" size="50px" />
+    <q-pull-to-refresh @refresh="handleRefresh">
+    <!-- Loading skeleton -->
+    <div v-if="isLoading">
+      <!-- Header skeleton -->
+      <div class="row items-center q-mb-md">
+        <q-skeleton type="QBtn" width="40px" height="40px" class="q-mr-md" />
+        <q-skeleton type="text" width="200px" class="text-h5" />
+      </div>
+      <!-- Owner info skeleton -->
+      <div class="row items-center q-mb-md">
+        <q-skeleton type="QAvatar" size="40px" class="q-mr-sm" />
+        <q-skeleton type="text" width="150px" />
+      </div>
+      <!-- Description skeleton -->
+      <q-skeleton type="text" width="100%" class="q-mb-md" />
+      <!-- Items section skeleton -->
+      <div class="q-mt-lg">
+        <div class="row items-center justify-between q-mb-md">
+          <q-skeleton type="text" width="80px" class="text-h6" />
+          <q-skeleton type="QBadge" width="60px" />
+        </div>
+        <!-- Item cards skeleton -->
+        <div class="q-gutter-md">
+          <q-card v-for="n in 3" :key="n">
+            <q-card-section horizontal>
+              <q-skeleton type="rect" width="100px" height="100px" />
+              <q-card-section class="col">
+                <q-skeleton type="text" width="70%" class="text-subtitle1" />
+                <q-skeleton type="text" width="100%" class="q-mt-sm" />
+                <q-skeleton type="text" width="30%" class="q-mt-sm" />
+              </q-card-section>
+            </q-card-section>
+          </q-card>
+        </div>
+      </div>
     </div>
 
     <!-- Content -->
@@ -10,7 +42,7 @@
       <!-- Header -->
       <div class="row items-center justify-between q-mb-md">
         <div class="col">
-          <q-btn flat dense icon="arrow_back" @click="goBack" class="q-mr-md" />
+          <q-btn flat dense icon="arrow_back" aria-label="Go back" @click="goBack" class="q-mr-md" />
           <span class="text-h5">{{ sharedWishlist.wishlist.title }}</span>
         </div>
       </div>
@@ -71,6 +103,7 @@
       <q-icon name="error_outline" size="64px" color="grey-5" />
       <p class="text-h6 text-grey-7 q-mt-md">{{ $t('sharing.linkNotFound') }}</p>
     </div>
+    </q-pull-to-refresh>
   </q-page>
 </template>
 
@@ -104,6 +137,14 @@ const canMark = computed(() => {
 
 function goBack() {
   router.push({ name: 'wishlists', query: { tab: 'shared' } });
+}
+
+async function handleRefresh(done: () => void) {
+  try {
+    await fetchSharedWishlist();
+  } finally {
+    done();
+  }
 }
 
 async function fetchSharedWishlist() {

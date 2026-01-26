@@ -6,7 +6,7 @@
         :label="$t('auth.email')"
         type="email"
         outlined
-        :rules="[val => !!val || 'Email is required', val => /.+@.+\..+/.test(val) || 'Invalid email']"
+        :rules="[val => !!val || $t('validation.required'), val => /.+@.+\..+/.test(val) || $t('validation.email')]"
       />
 
       <q-input
@@ -14,18 +14,21 @@
         :label="$t('auth.password')"
         :type="showPassword ? 'text' : 'password'"
         outlined
-        :rules="[val => !!val || 'Password is required']"
+        :rules="[val => !!val || $t('validation.required')]"
       >
         <template v-slot:append>
-          <q-icon
-            :name="showPassword ? 'visibility_off' : 'visibility'"
-            class="cursor-pointer"
+          <q-btn
+            flat
+            round
+            dense
+            :icon="showPassword ? 'visibility_off' : 'visibility'"
+            :aria-label="showPassword ? 'Hide password' : 'Show password'"
             @click="showPassword = !showPassword"
           />
         </template>
       </q-input>
 
-      <div v-if="error" class="text-negative text-center">
+      <div v-if="error" class="text-negative text-center" role="alert" aria-live="polite">
         {{ error }}
       </div>
 

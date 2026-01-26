@@ -111,6 +111,7 @@ export default {
     maxLength: 'Максимум {max} символов',
     minValue: 'Минимальное значение: {min}',
     invalidUrl: 'Введите корректную ссылку',
+    invalidHandle: 'Только строчные латинские буквы, цифры и дефис',
   },
   oauth: {
     connect: 'Подключить',

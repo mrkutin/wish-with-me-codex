@@ -1,5 +1,8 @@
 <template>
   <q-layout view="lHh Lpr lFf">
+    <!-- Skip link for keyboard navigation -->
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+
     <!-- Offline banner at very top -->
     <OfflineBanner />
 
@@ -136,7 +139,9 @@
     </q-drawer>
 
     <q-page-container>
-      <router-view />
+      <main id="main-content">
+        <router-view />
+      </main>
     </q-page-container>
 
     <!-- PWA install prompt -->
@@ -190,3 +195,24 @@ function isPlaceholderAvatar(avatar: string): boolean {
   return avatar.includes('PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAiIGhlaWdodD0iMTAwIiB2aWV3Qm94PSIwIDAgMTAwIDEwMCI+PGNpcmNsZSBjeD0iNTAiIGN5PSI1MCIgcj0iNTAiIGZpbGw9IiM2MzY2ZjEiLz48dGV4dCB4PSI1MCIgeT0iNTUiIGZvbnQtc2l6ZT0iNDAiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IndoaXRlIiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiI+PzwvdGV4dD48L3N2Zz4=');
 }
 </script>
+
+<style scoped>
+.skip-link {
+  position: absolute;
+  top: -50px;
+  left: 16px;
+  background: var(--q-primary);
+  color: white;
+  padding: 8px 16px;
+  z-index: 9999;
+  text-decoration: none;
+  border-radius: 4px;
+  transition: top 0.2s;
+}
+
+.skip-link:focus {
+  top: 16px;
+  outline: 2px solid white;
+  outline-offset: 2px;
+}
+</style>
