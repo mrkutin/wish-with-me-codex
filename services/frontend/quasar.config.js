@@ -82,14 +82,12 @@ module.exports = configure((/* ctx */) => {
     animations: 'all',
 
     pwa: {
-      workboxMode: 'generateSW',
+      workboxMode: 'InjectManifest',
       injectPwaMetaTags: true,
       swFilename: 'sw.js',
       manifestFilename: 'manifest.json',
       useCredentialsForManifestTag: false,
-      extendGenerateSWOptions(cfg) {
-        cfg.skipWaiting = true;
-        cfg.clientsClaim = true;
+      extendInjectManifestOptions(cfg) {
         // Exclude /api/ paths from navigation fallback - let them pass through to server
         cfg.navigateFallbackDenylist = [/^\/api\//];
       },

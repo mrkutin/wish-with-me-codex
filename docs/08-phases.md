@@ -119,17 +119,17 @@
 
 ### Deliverables
 
-- [ ] RxDB setup with schemas
-- [ ] Wishlist collection + replication
-- [ ] Item collection + replication
-- [ ] Sync endpoints (pull/push)
-- [ ] Conflict resolution (LWW)
-- [ ] Service worker with Workbox
-- [ ] Live replication (auto-sync)
-- [ ] PWA manifest
-- [ ] Offline banner UI
-- [ ] Sync status indicator
-- [ ] App install prompt
+- [x] RxDB setup with schemas
+- [x] Wishlist collection + replication
+- [x] Item collection + replication
+- [x] Sync endpoints (pull/push)
+- [x] Conflict resolution (LWW)
+- [x] Service worker with Workbox
+- [x] Live replication (auto-sync)
+- [x] PWA manifest
+- [x] Offline banner UI
+- [x] Sync status indicator
+- [x] App install prompt
 
 ### Success Criteria
 

@@ -9,6 +9,7 @@ from app.routers.oauth import router as oauth_router
 from app.routers.share import router as share_router
 from app.routers.shared import router as shared_router
 from app.routers.notifications import router as notifications_router
+from app.routers.sync import router as sync_router
 
 __all__ = [
     "auth_router",
@@ -20,4 +21,5 @@ __all__ = [
     "share_router",
     "shared_router",
     "notifications_router",
+    "sync_router",
 ]

@@ -1,5 +1,8 @@
 <template>
   <q-layout view="lHh Lpr lFf">
+    <!-- Offline banner at very top -->
+    <OfflineBanner />
+
     <q-header elevated>
       <q-toolbar>
         <q-btn
@@ -14,6 +17,9 @@
         <q-toolbar-title>
           {{ $t('common.appName') }}
         </q-toolbar-title>
+
+        <!-- Sync status indicator -->
+        <SyncStatus v-if="authStore.isAuthenticated" class="q-mr-xs" />
 
         <NotificationBell v-if="authStore.isAuthenticated" class="q-mr-sm" />
 
@@ -132,14 +138,21 @@
     <q-page-container>
       <router-view />
     </q-page-container>
+
+    <!-- PWA install prompt -->
+    <AppInstallPrompt />
   </q-layout>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
+import { initializeSync, cleanupSync } from '@/composables/useSync';
 import NotificationBell from '@/components/NotificationBell.vue';
+import OfflineBanner from '@/components/OfflineBanner.vue';
+import SyncStatus from '@/components/SyncStatus.vue';
+import AppInstallPrompt from '@/components/AppInstallPrompt.vue';
 
 const authStore = useAuthStore();
 const router = useRouter();
@@ -150,9 +163,27 @@ function toggleLeftDrawer() {
 }
 
 async function handleLogout() {
+  // Cleanup sync before logout
+  await cleanupSync();
   await authStore.logout();
   router.push({ name: 'login' });
 }
+
+// Initialize sync when authenticated
+onMounted(() => {
+  if (authStore.isAuthenticated) {
+    initializeSync();
+  }
+});
+
+// Watch for auth changes to init/cleanup sync
+watch(() => authStore.isAuthenticated, async (isAuth) => {
+  if (isAuth) {
+    await initializeSync();
+  } else {
+    await cleanupSync();
+  }
+});
 
 function isPlaceholderAvatar(avatar: string): boolean {
   // Check if avatar is the default placeholder SVG (contains "?" text element)

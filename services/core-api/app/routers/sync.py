@@ -1,0 +1,391 @@
+"""Sync endpoints for RxDB replication."""
+
+import logging
+from datetime import datetime, timezone
+from decimal import Decimal
+from typing import Annotated, Literal
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database import get_db
+from app.dependencies import CurrentUser
+from app.models.item import Item, ItemStatus
+from app.models.wishlist import Wishlist
+from app.schemas.sync import (
+    ConflictDocument,
+    PullResponse,
+    PushRequest,
+    PushResponse,
+    SyncCheckpoint,
+)
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/v1/sync", tags=["sync"])
+
+CollectionType = Literal["wishlists", "items"]
+
+
+def _wishlist_to_sync_doc(wishlist: Wishlist) -> dict:
+    """Convert wishlist model to sync document."""
+    return {
+        "id": str(wishlist.id),
+        "user_id": str(wishlist.user_id),
+        "name": wishlist.name,
+        "description": wishlist.description,
+        "is_public": wishlist.is_public,
+        "created_at": wishlist.created_at.isoformat(),
+        "updated_at": wishlist.updated_at.isoformat(),
+        "_deleted": wishlist.deleted_at is not None,
+    }
+
+
+def _item_to_sync_doc(item: Item) -> dict:
+    """Convert item model to sync document."""
+    return {
+        "id": str(item.id),
+        "wishlist_id": str(item.wishlist_id),
+        "title": item.title,
+        "description": item.description,
+        "price": str(item.price) if item.price else None,
+        "currency": item.currency,
+        "quantity": item.quantity,
+        "source_url": item.source_url,
+        "image_url": item.image_url,
+        "image_base64": item.image_base64,
+        "status": item.status.value,
+        "created_at": item.created_at.isoformat(),
+        "updated_at": item.updated_at.isoformat(),
+        "_deleted": item.deleted_at is not None,
+    }
+
+
+@router.get(
+    "/pull/{collection}",
+    response_model=PullResponse,
+)
+async def pull_collection(
+    collection: CollectionType,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    checkpoint_updated_at: Annotated[datetime | None, Query()] = None,
+    checkpoint_id: Annotated[UUID | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+) -> PullResponse:
+    """Pull changes from server for RxDB replication.
+
+    Uses checkpoint-based pagination for efficient sync.
+    Returns documents updated after the checkpoint.
+    """
+    if collection == "wishlists":
+        return await _pull_wishlists(
+            db=db,
+            user_id=current_user.id,
+            checkpoint_updated_at=checkpoint_updated_at,
+            checkpoint_id=checkpoint_id,
+            limit=limit,
+        )
+    elif collection == "items":
+        return await _pull_items(
+            db=db,
+            user_id=current_user.id,
+            checkpoint_updated_at=checkpoint_updated_at,
+            checkpoint_id=checkpoint_id,
+            limit=limit,
+        )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown collection: {collection}",
+        )
+
+
+async def _pull_wishlists(
+    db: AsyncSession,
+    user_id: UUID,
+    checkpoint_updated_at: datetime | None,
+    checkpoint_id: UUID | None,
+    limit: int,
+) -> PullResponse:
+    """Pull wishlist changes."""
+    query = select(Wishlist).where(Wishlist.user_id == user_id)
+
+    # Apply checkpoint filter for pagination
+    if checkpoint_updated_at and checkpoint_id:
+        # Get documents updated after checkpoint or same time but with larger ID
+        query = query.where(
+            (Wishlist.updated_at > checkpoint_updated_at)
+            | ((Wishlist.updated_at == checkpoint_updated_at) & (Wishlist.id > checkpoint_id))
+        )
+    elif checkpoint_updated_at:
+        query = query.where(Wishlist.updated_at > checkpoint_updated_at)
+
+    # Order by updated_at, then id for consistent pagination
+    query = query.order_by(Wishlist.updated_at, Wishlist.id).limit(limit)
+
+    result = await db.execute(query)
+    wishlists = result.scalars().all()
+
+    documents = [_wishlist_to_sync_doc(w) for w in wishlists]
+
+    # Build checkpoint from last document
+    checkpoint = None
+    if wishlists:
+        last = wishlists[-1]
+        checkpoint = SyncCheckpoint(updated_at=last.updated_at, id=last.id)
+
+    return PullResponse(documents=documents, checkpoint=checkpoint)
+
+
+async def _pull_items(
+    db: AsyncSession,
+    user_id: UUID,
+    checkpoint_updated_at: datetime | None,
+    checkpoint_id: UUID | None,
+    limit: int,
+) -> PullResponse:
+    """Pull item changes for user's wishlists."""
+    # Get items from user's wishlists
+    query = (
+        select(Item)
+        .join(Wishlist, Item.wishlist_id == Wishlist.id)
+        .where(Wishlist.user_id == user_id)
+    )
+
+    # Apply checkpoint filter
+    if checkpoint_updated_at and checkpoint_id:
+        query = query.where(
+            (Item.updated_at > checkpoint_updated_at)
+            | ((Item.updated_at == checkpoint_updated_at) & (Item.id > checkpoint_id))
+        )
+    elif checkpoint_updated_at:
+        query = query.where(Item.updated_at > checkpoint_updated_at)
+
+    query = query.order_by(Item.updated_at, Item.id).limit(limit)
+
+    result = await db.execute(query)
+    items = result.scalars().all()
+
+    documents = [_item_to_sync_doc(i) for i in items]
+
+    checkpoint = None
+    if items:
+        last = items[-1]
+        checkpoint = SyncCheckpoint(updated_at=last.updated_at, id=last.id)
+
+    return PullResponse(documents=documents, checkpoint=checkpoint)
+
+
+@router.post(
+    "/push/{collection}",
+    response_model=PushResponse,
+)
+async def push_collection(
+    collection: CollectionType,
+    data: PushRequest,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> PushResponse:
+    """Push changes to server for RxDB replication.
+
+    Uses Last-Write-Wins (LWW) conflict resolution based on updated_at.
+    Returns conflicts if server has newer versions.
+    """
+    if collection == "wishlists":
+        return await _push_wishlists(
+            db=db,
+            user_id=current_user.id,
+            documents=data.documents,
+        )
+    elif collection == "items":
+        return await _push_items(
+            db=db,
+            user_id=current_user.id,
+            documents=data.documents,
+        )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown collection: {collection}",
+        )
+
+
+async def _push_wishlists(
+    db: AsyncSession,
+    user_id: UUID,
+    documents: list[dict],
+) -> PushResponse:
+    """Push wishlist changes with LWW conflict resolution."""
+    conflicts: list[ConflictDocument] = []
+
+    for doc in documents:
+        try:
+            doc_id = UUID(doc["id"])
+            client_updated_at = datetime.fromisoformat(doc["updated_at"].replace("Z", "+00:00"))
+
+            # Find existing wishlist
+            result = await db.execute(
+                select(Wishlist).where(
+                    Wishlist.id == doc_id,
+                    Wishlist.user_id == user_id,
+                )
+            )
+            existing = result.scalar_one_or_none()
+
+            if existing:
+                # LWW: Check if client version is newer
+                if client_updated_at > existing.updated_at:
+                    # Client wins - apply changes
+                    if doc.get("_deleted"):
+                        existing.deleted_at = datetime.now(timezone.utc)
+                    else:
+                        existing.name = doc["name"]
+                        existing.description = doc.get("description")
+                        existing.is_public = doc.get("is_public", False)
+                    existing.updated_at = client_updated_at
+                else:
+                    # Server wins - return conflict
+                    conflicts.append(
+                        ConflictDocument(
+                            document_id=doc_id,
+                            error="Server has newer version",
+                            server_document=_wishlist_to_sync_doc(existing),
+                        )
+                    )
+            else:
+                # New wishlist - only create if not deleted
+                if not doc.get("_deleted"):
+                    new_wishlist = Wishlist(
+                        id=doc_id,
+                        user_id=user_id,
+                        name=doc["name"],
+                        description=doc.get("description"),
+                        is_public=doc.get("is_public", False),
+                        created_at=datetime.fromisoformat(
+                            doc["created_at"].replace("Z", "+00:00")
+                        ),
+                        updated_at=client_updated_at,
+                    )
+                    db.add(new_wishlist)
+
+        except (KeyError, ValueError) as e:
+            logger.warning(f"Invalid sync document: {e}")
+            conflicts.append(
+                ConflictDocument(
+                    document_id=UUID(doc.get("id", "00000000-0000-0000-0000-000000000000")),
+                    error=f"Invalid document: {str(e)}",
+                )
+            )
+
+    await db.commit()
+    return PushResponse(conflicts=conflicts)
+
+
+async def _push_items(
+    db: AsyncSession,
+    user_id: UUID,
+    documents: list[dict],
+) -> PushResponse:
+    """Push item changes with LWW conflict resolution."""
+    conflicts: list[ConflictDocument] = []
+
+    # Get user's wishlist IDs for authorization
+    wishlist_result = await db.execute(
+        select(Wishlist.id).where(Wishlist.user_id == user_id)
+    )
+    user_wishlist_ids = {row[0] for row in wishlist_result.fetchall()}
+
+    for doc in documents:
+        try:
+            doc_id = UUID(doc["id"])
+            wishlist_id = UUID(doc["wishlist_id"])
+            client_updated_at = datetime.fromisoformat(doc["updated_at"].replace("Z", "+00:00"))
+
+            # Authorization check
+            if wishlist_id not in user_wishlist_ids:
+                conflicts.append(
+                    ConflictDocument(
+                        document_id=doc_id,
+                        error="Unauthorized: wishlist not owned by user",
+                    )
+                )
+                continue
+
+            # Find existing item
+            result = await db.execute(
+                select(Item).where(Item.id == doc_id)
+            )
+            existing = result.scalar_one_or_none()
+
+            if existing:
+                # Verify ownership
+                if existing.wishlist_id not in user_wishlist_ids:
+                    conflicts.append(
+                        ConflictDocument(
+                            document_id=doc_id,
+                            error="Unauthorized: item not in user's wishlist",
+                        )
+                    )
+                    continue
+
+                # LWW: Check if client version is newer
+                if client_updated_at > existing.updated_at:
+                    if doc.get("_deleted"):
+                        existing.deleted_at = datetime.now(timezone.utc)
+                    else:
+                        existing.title = doc["title"]
+                        existing.description = doc.get("description")
+                        if doc.get("price"):
+                            existing.price = Decimal(doc["price"])
+                        else:
+                            existing.price = None
+                        existing.currency = doc.get("currency")
+                        existing.quantity = doc.get("quantity", 1)
+                        existing.source_url = doc.get("source_url")
+                        existing.image_url = doc.get("image_url")
+                        existing.image_base64 = doc.get("image_base64")
+                    existing.updated_at = client_updated_at
+                else:
+                    conflicts.append(
+                        ConflictDocument(
+                            document_id=doc_id,
+                            error="Server has newer version",
+                            server_document=_item_to_sync_doc(existing),
+                        )
+                    )
+            else:
+                # New item - only create if not deleted
+                if not doc.get("_deleted"):
+                    new_item = Item(
+                        id=doc_id,
+                        wishlist_id=wishlist_id,
+                        title=doc["title"],
+                        description=doc.get("description"),
+                        price=Decimal(doc["price"]) if doc.get("price") else None,
+                        currency=doc.get("currency"),
+                        quantity=doc.get("quantity", 1),
+                        source_url=doc.get("source_url"),
+                        image_url=doc.get("image_url"),
+                        image_base64=doc.get("image_base64"),
+                        status=ItemStatus.PENDING,
+                        created_at=datetime.fromisoformat(
+                            doc["created_at"].replace("Z", "+00:00")
+                        ),
+                        updated_at=client_updated_at,
+                    )
+                    db.add(new_item)
+
+        except (KeyError, ValueError) as e:
+            logger.warning(f"Invalid sync document: {e}")
+            conflicts.append(
+                ConflictDocument(
+                    document_id=UUID(doc.get("id", "00000000-0000-0000-0000-000000000000")),
+                    error=f"Invalid document: {str(e)}",
+                )
+            )
+
+    await db.commit()
+    return PushResponse(conflicts=conflicts)
