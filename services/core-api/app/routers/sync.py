@@ -8,6 +8,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session_maker, get_db
@@ -331,18 +332,30 @@ async def _push_wishlists(
             else:
                 # New wishlist - only create if not deleted
                 if not doc.get("_deleted"):
-                    new_wishlist = Wishlist(
+                    created_at = datetime.fromisoformat(
+                        doc["created_at"].replace("Z", "+00:00")
+                    )
+
+                    # Use PostgreSQL upsert to handle concurrent inserts
+                    stmt = pg_insert(Wishlist).values(
                         id=doc_id,
                         user_id=user_id,
                         name=doc["name"],
                         description=doc.get("description"),
                         is_public=doc.get("is_public", False),
-                        created_at=datetime.fromisoformat(
-                            doc["created_at"].replace("Z", "+00:00")
-                        ),
+                        created_at=created_at,
                         updated_at=client_updated_at,
+                    ).on_conflict_do_update(
+                        index_elements=["id"],
+                        set_={
+                            "name": doc["name"],
+                            "description": doc.get("description"),
+                            "is_public": doc.get("is_public", False),
+                            "updated_at": client_updated_at,
+                        },
+                        where=Wishlist.updated_at < client_updated_at,
                     )
-                    db.add(new_wishlist)
+                    await db.execute(stmt)
                     updated_wishlist_ids.append(doc_id)
 
         except (KeyError, ValueError) as e:
@@ -446,7 +459,13 @@ async def _push_items(
                 # New item - only create if not deleted
                 if not doc.get("_deleted"):
                     source_url = doc.get("source_url")
-                    new_item = Item(
+                    created_at = datetime.fromisoformat(
+                        doc["created_at"].replace("Z", "+00:00")
+                    )
+
+                    # Use PostgreSQL upsert to handle concurrent inserts
+                    # ON CONFLICT DO UPDATE only if client version is newer (LWW)
+                    stmt = pg_insert(Item).values(
                         id=doc_id,
                         wishlist_id=wishlist_id,
                         title=doc["title"],
@@ -458,12 +477,25 @@ async def _push_items(
                         image_url=doc.get("image_url"),
                         image_base64=doc.get("image_base64"),
                         status=ItemStatus.PENDING if source_url else ItemStatus.RESOLVED,
-                        created_at=datetime.fromisoformat(
-                            doc["created_at"].replace("Z", "+00:00")
-                        ),
+                        created_at=created_at,
                         updated_at=client_updated_at,
+                    ).on_conflict_do_update(
+                        index_elements=["id"],
+                        set_={
+                            "title": doc["title"],
+                            "description": doc.get("description"),
+                            "price": Decimal(doc["price"]) if doc.get("price") else None,
+                            "currency": doc.get("currency"),
+                            "quantity": doc.get("quantity", 1),
+                            "source_url": source_url,
+                            "image_url": doc.get("image_url"),
+                            "image_base64": doc.get("image_base64"),
+                            "updated_at": client_updated_at,
+                        },
+                        # Only update if client is newer (LWW)
+                        where=Item.updated_at < client_updated_at,
                     )
-                    db.add(new_item)
+                    await db.execute(stmt)
                     updated_items.append((doc_id, wishlist_id))
 
                     # Track items that need resolution
@@ -553,17 +585,27 @@ async def _push_marks(
             else:
                 # New mark - only create if not deleted
                 if not doc.get("_deleted"):
-                    new_mark = Mark(
+                    created_at = datetime.fromisoformat(
+                        doc["created_at"].replace("Z", "+00:00")
+                    )
+
+                    # Use PostgreSQL upsert to handle concurrent inserts
+                    stmt = pg_insert(Mark).values(
                         id=doc_id,
                         item_id=item_id,
                         user_id=user_id,
                         quantity=doc.get("quantity", 1),
-                        created_at=datetime.fromisoformat(
-                            doc["created_at"].replace("Z", "+00:00")
-                        ),
+                        created_at=created_at,
                         updated_at=client_updated_at,
+                    ).on_conflict_do_update(
+                        index_elements=["id"],
+                        set_={
+                            "quantity": doc.get("quantity", 1),
+                            "updated_at": client_updated_at,
+                        },
+                        where=Mark.updated_at < client_updated_at,
                     )
-                    db.add(new_mark)
+                    await db.execute(stmt)
                     updated_mark_item_ids.append(item_id)
 
         except (KeyError, ValueError) as e:
