@@ -75,7 +75,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useQuasar, LocalStorage } from 'quasar';
 import { useI18n } from 'vue-i18n';
@@ -210,6 +210,21 @@ async function unmarkItem(item: SharedItem) {
   }
 }
 
+// Handle SSE marks:updated events for real-time sync
+function handleMarksUpdated(event: Event) {
+  const customEvent = event as CustomEvent<{ item_id?: string }>;
+  const itemId = customEvent.detail?.item_id;
+
+  // If we have this item in our list, refresh the whole wishlist
+  if (sharedWishlist.value && itemId) {
+    const hasItem = sharedWishlist.value.items.some((item) => item.id === itemId);
+    if (hasItem) {
+      console.log('[SharedWishlist] Refreshing due to marks:updated for item:', itemId);
+      fetchSharedWishlist();
+    }
+  }
+}
+
 onMounted(() => {
   if (!authStore.isAuthenticated) {
     // Store share token so we can redirect back after login
@@ -218,5 +233,12 @@ onMounted(() => {
     return;
   }
   fetchSharedWishlist();
+
+  // Listen for SSE marks:updated events
+  window.addEventListener('sse:marks-updated', handleMarksUpdated);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('sse:marks-updated', handleMarksUpdated);
 });
 </script>

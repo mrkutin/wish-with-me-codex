@@ -152,6 +152,11 @@ export function useRealtimeSync() {
           console.log('[SSE] marks:updated:', data);
           lastEventTime.value = new Date();
           triggerPull();
+
+          // Emit custom event for shared wishlist pages to listen to
+          window.dispatchEvent(
+            new CustomEvent('sse:marks-updated', { detail: data })
+          );
         } catch (e) {
           console.error('[SSE] Failed to parse marks:updated:', e);
         }
