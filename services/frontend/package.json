@@ -20,6 +20,7 @@
   "dependencies": {
     "@quasar/extras": "^1.16.0",
     "@vueuse/core": "^10.9.0",
+    "@vueuse/rxjs": "^10.9.0",
     "axios": "^1.6.0",
     "date-fns": "^3.3.0",
     "pinia": "^2.1.0",
