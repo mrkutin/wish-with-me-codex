@@ -203,11 +203,20 @@ async def publish_marks_updated_to_many(user_ids: list[UUID], item_id: UUID) -> 
 
     Returns count of users who received the event.
     """
+    logger.info(
+        f"Publishing marks:updated for item={item_id} to {len(user_ids)} users: "
+        f"{[str(uid) for uid in user_ids]}"
+    )
+    connected_users = [uid for uid in user_ids if event_manager.is_connected(uid)]
+    logger.info(f"Connected users: {[str(uid) for uid in connected_users]}")
+
     event = ServerEvent(
         event="marks:updated",
         data={"item_id": str(item_id)},
     )
-    return await event_manager.publish_to_many(user_ids, event)
+    delivered = await event_manager.publish_to_many(user_ids, event)
+    logger.info(f"Delivered marks:updated to {delivered} users")
+    return delivered
 
 
 def create_ping_event() -> ServerEvent:
