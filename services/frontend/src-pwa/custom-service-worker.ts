@@ -4,8 +4,8 @@
  */
 
 import { clientsClaim } from 'workbox-core';
-import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching';
-import { registerRoute } from 'workbox-routing';
+import { precacheAndRoute, cleanupOutdatedCaches, createHandlerBoundToURL } from 'workbox-precaching';
+import { registerRoute, NavigationRoute } from 'workbox-routing';
 import { NetworkFirst, NetworkOnly, CacheFirst, StaleWhileRevalidate } from 'workbox-strategies';
 import { ExpirationPlugin } from 'workbox-expiration';
 import { CacheableResponsePlugin } from 'workbox-cacheable-response';
@@ -18,6 +18,14 @@ clientsClaim();
 // Precache static assets from build
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
+
+// Navigation fallback - serve index.html for navigation requests
+// IMPORTANT: Exclude /api/ paths so OAuth redirects work properly
+const navigationHandler = createHandlerBoundToURL('/index.html');
+const navigationRoute = new NavigationRoute(navigationHandler, {
+  denylist: [/^\/api\//],
+});
+registerRoute(navigationRoute);
 
 // API calls - Network First with fallback to cache
 // Note: OAuth endpoints are excluded via navigateFallbackDenylist in quasar.config.js

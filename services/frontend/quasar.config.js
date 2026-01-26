@@ -87,10 +87,6 @@ module.exports = configure((/* ctx */) => {
       swFilename: 'sw.js',
       manifestFilename: 'manifest.json',
       useCredentialsForManifestTag: false,
-      extendInjectManifestOptions(cfg) {
-        // Exclude /api/ paths from navigation fallback - let them pass through to server
-        cfg.navigateFallbackDenylist = [/^\/api\//];
-      },
       manifest: {
         name: 'Wish With Me',
         short_name: 'WishWithMe',
