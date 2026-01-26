@@ -258,7 +258,10 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
     items: itemReplication,
     marks: markReplication,
     pullStream$,
-    triggerPull: () => pullStream$.next(),
+    triggerPull: () => {
+      console.log('[RxDB] triggerPull called, emitting to pullStream$');
+      pullStream$.next();
+    },
     cancel: async () => {
       // Remove event listener on cleanup
       if (typeof window !== 'undefined') {

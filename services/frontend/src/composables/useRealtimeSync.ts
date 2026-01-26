@@ -50,7 +50,10 @@ export function useRealtimeSync() {
   function triggerPull() {
     const replication = getReplicationState();
     if (replication) {
+      console.log('[SSE] Triggering RxDB pull...');
       replication.triggerPull();
+    } else {
+      console.warn('[SSE] Cannot trigger pull - replication state not initialized');
     }
   }
 
