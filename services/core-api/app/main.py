@@ -16,6 +16,7 @@ logging.getLogger("app").setLevel(logging.INFO)
 logging.getLogger("app.services.events").setLevel(logging.INFO)
 logging.getLogger("app.routers.events").setLevel(logging.INFO)
 logging.getLogger("app.routers.items").setLevel(logging.INFO)
+logging.getLogger("app.routers.sync").setLevel(logging.INFO)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
