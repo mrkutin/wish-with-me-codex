@@ -9,6 +9,7 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session_maker, get_db
@@ -495,12 +496,23 @@ async def _push_items(
                         # Only update if client is newer (LWW)
                         where=Item.updated_at < client_updated_at,
                     )
-                    await db.execute(stmt)
-                    updated_items.append((doc_id, wishlist_id))
+                    try:
+                        await db.execute(stmt)
+                        updated_items.append((doc_id, wishlist_id))
 
-                    # Track items that need resolution
-                    if source_url:
-                        items_to_resolve.append((doc_id, source_url))
+                        # Track items that need resolution
+                        if source_url:
+                            items_to_resolve.append((doc_id, source_url))
+                    except IntegrityError as e:
+                        # Handle unique constraint violations (e.g., duplicate title in wishlist)
+                        await db.rollback()
+                        logger.warning(f"Item sync integrity error for {doc_id}: {e}")
+                        conflicts.append(
+                            ConflictDocument(
+                                document_id=doc_id,
+                                error="Duplicate item or constraint violation",
+                            )
+                        )
 
         except (KeyError, ValueError) as e:
             logger.warning(f"Invalid sync document: {e}")
