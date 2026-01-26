@@ -50,16 +50,25 @@ class EventChannelManager:
                     self._channels[user_id].put_nowait(None)
                 except asyncio.QueueFull:
                     pass
-                logger.info(f"Closing existing SSE connection for user {user_id}")
+                logger.info(f"SSE: Closing existing connection for user {user_id}")
 
             queue: asyncio.Queue[ServerEvent | None] = asyncio.Queue(maxsize=100)
             self._channels[user_id] = queue
+            logger.info(
+                f"SSE: User {user_id} connected, total connections: {len(self._channels)}"
+            )
             return queue
 
     async def disconnect(self, user_id: UUID) -> None:
         """Remove user's connection."""
         async with self._lock:
-            self._channels.pop(user_id, None)
+            removed = self._channels.pop(user_id, None)
+            if removed:
+                logger.info(
+                    f"SSE: User {user_id} disconnected, total connections: {len(self._channels)}"
+                )
+            else:
+                logger.warning(f"SSE: Disconnect called but user {user_id} was not connected")
 
     async def publish(self, user_id: UUID, event: ServerEvent) -> bool:
         """Send event to specific user.
@@ -125,7 +134,12 @@ async def publish_item_resolved(
     title: str | None = None,
 ) -> bool:
     """Notify user that item resolution completed."""
-    return await event_manager.publish(
+    is_connected = event_manager.is_connected(user_id)
+    logger.info(
+        f"Publishing items:resolved event: user={user_id}, "
+        f"item={item_id}, status={status}, connected={is_connected}"
+    )
+    result = await event_manager.publish(
         user_id,
         ServerEvent(
             event="items:resolved",
@@ -137,6 +151,12 @@ async def publish_item_resolved(
             },
         ),
     )
+    if not result:
+        logger.warning(
+            f"Failed to deliver items:resolved event: user={user_id}, "
+            f"item={item_id} - user not connected to SSE"
+        )
+    return result
 
 
 async def publish_wishlist_updated(user_id: UUID, wishlist_id: UUID) -> bool:
