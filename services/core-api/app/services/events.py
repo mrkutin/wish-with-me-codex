@@ -198,6 +198,18 @@ async def publish_marks_updated(user_id: UUID, item_id: UUID) -> bool:
     )
 
 
+async def publish_marks_updated_to_many(user_ids: list[UUID], item_id: UUID) -> int:
+    """Notify multiple users that marks on an item changed.
+
+    Returns count of users who received the event.
+    """
+    event = ServerEvent(
+        event="marks:updated",
+        data={"item_id": str(item_id)},
+    )
+    return await event_manager.publish_to_many(user_ids, event)
+
+
 def create_ping_event() -> ServerEvent:
     """Create a keepalive ping event."""
     return ServerEvent(

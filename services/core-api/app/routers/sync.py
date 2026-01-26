@@ -27,7 +27,7 @@ from app.schemas.sync import (
 )
 from app.services.events import (
     publish_item_updated,
-    publish_marks_updated,
+    publish_marks_updated_to_many,
     publish_wishlist_updated,
 )
 
@@ -631,8 +631,35 @@ async def _push_marks(
 
     await db.commit()
 
-    # Publish SSE events for successful updates (for multi-tab/device sync)
+    # Publish SSE events to all users who have access to affected wishlists
     for mark_item_id in set(updated_mark_item_ids):  # Deduplicate
-        await publish_marks_updated(user_id, mark_item_id)
+        # Get the item's wishlist and find all users to notify
+        item_result = await db.execute(
+            select(Item.wishlist_id).where(Item.id == mark_item_id)
+        )
+        wishlist_id = item_result.scalar_one_or_none()
+        if not wishlist_id:
+            continue
+
+        # Get wishlist owner
+        wishlist_result = await db.execute(
+            select(Wishlist.user_id).where(Wishlist.id == wishlist_id)
+        )
+        owner_id = wishlist_result.scalar_one_or_none()
+
+        # Get all users who have marks on items in this wishlist
+        marks_result = await db.execute(
+            select(Mark.user_id)
+            .join(Item, Mark.item_id == Item.id)
+            .where(Item.wishlist_id == wishlist_id)
+            .distinct()
+        )
+        mark_user_ids = [row[0] for row in marks_result.fetchall()]
+
+        # Combine owner + mark users, deduplicate
+        all_user_ids = list(set([owner_id] + mark_user_ids) if owner_id else set(mark_user_ids))
+
+        if all_user_ids:
+            await publish_marks_updated_to_many(all_user_ids, mark_item_id)
 
     return PushResponse(conflicts=conflicts)
