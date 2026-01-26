@@ -1,35 +1,10 @@
 <template>
   <div class="auth-page">
-    <!-- Branding section for large desktop -->
-    <div class="auth-branding">
-      <div class="branding-content">
-        <div class="branding-icon">
-          <q-icon name="card_giftcard" size="64px" color="white" />
-        </div>
-        <h2 class="branding-title">Wish With Me</h2>
-        <p class="branding-description">{{ $t('auth.brandingDescription') || 'Create wishlists, share with friends, and make gift-giving magical.' }}</p>
-        <div class="branding-features">
-          <div class="feature-item">
-            <q-icon name="check_circle" size="20px" />
-            <span>{{ $t('auth.featureOffline') || 'Works offline' }}</span>
-          </div>
-          <div class="feature-item">
-            <q-icon name="check_circle" size="20px" />
-            <span>{{ $t('auth.featureShare') || 'Easy sharing' }}</span>
-          </div>
-          <div class="feature-item">
-            <q-icon name="check_circle" size="20px" />
-            <span>{{ $t('auth.featureSync') || 'Syncs everywhere' }}</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <div class="auth-card">
       <!-- Header -->
       <div class="auth-header">
-        <h1 class="auth-title">{{ $t('auth.welcomeBack') || 'Welcome back' }}</h1>
-        <p class="auth-subtitle">{{ $t('auth.loginSubtitle') || 'Sign in to continue to your wishlists' }}</p>
+        <h1 class="auth-title">{{ $t('auth.welcomeBack') }}</h1>
+        <p class="auth-subtitle">{{ $t('auth.loginSubtitle') }}</p>
       </div>
 
       <!-- Form -->
@@ -169,7 +144,7 @@ async function handleLogin() {
   display: flex
   align-items: center
   justify-content: center
-  padding: var(--space-6)
+  padding: var(--space-4)
   background: var(--bg-primary)
 
   // Subtle gradient background
@@ -181,99 +156,15 @@ async function handleLogin() {
     pointer-events: none
     z-index: 0
 
-  // Large desktop: two-column layout
-  @media (min-width: 1200px)
-    width: 100%
-    justify-content: flex-start
-    align-items: stretch
-    gap: 0
-    padding: 0
-
-// Branding section - hidden by default, shown on large desktop
-.auth-branding
-  display: none
-
-  @media (min-width: 1200px)
-    display: flex
-    align-items: center
-    justify-content: center
-    flex-shrink: 0
-    width: 45%
-    min-height: 100vh
-    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark, #4338ca) 100%)
-    position: relative
-    overflow: hidden
-
-    // Decorative circles
-    &::before,
-    &::after
-      content: ''
-      position: absolute
-      border-radius: 50%
-      background: rgba(255, 255, 255, 0.1)
-
-    &::before
-      width: 300px
-      height: 300px
-      top: -100px
-      right: -100px
-
-    &::after
-      width: 200px
-      height: 200px
-      bottom: -50px
-      left: -50px
-
-.branding-content
-  position: relative
-  z-index: 1
-  max-width: 400px
-  padding: var(--space-12)
-  color: white
-  text-align: center
-
-.branding-icon
-  width: 100px
-  height: 100px
-  margin: 0 auto var(--space-6)
-  background: rgba(255, 255, 255, 0.15)
-  border-radius: var(--radius-xl)
-  display: flex
-  align-items: center
-  justify-content: center
-
-.branding-title
-  font-size: 2.5rem
-  font-weight: 700
-  margin: 0 0 var(--space-4) 0
-  letter-spacing: -0.02em
-
-.branding-description
-  font-size: 1.125rem
-  opacity: 0.9
-  margin: 0 0 var(--space-8) 0
-  line-height: 1.6
-
-.branding-features
-  display: flex
-  flex-direction: column
-  gap: var(--space-3)
-  text-align: left
-
-.feature-item
-  display: flex
-  align-items: center
-  gap: var(--space-3)
-  font-size: 1rem
-  opacity: 0.95
+  @media (min-width: 600px)
+    padding: var(--space-6)
 
 .auth-card
   position: relative
   z-index: 1
   width: 100%
-  max-width: 400px
-  // Fluid padding: 24px on mobile, scales up to 48px on desktop
-  padding: clamp(var(--space-6), 4vw, var(--space-12))
+  max-width: 420px
+  padding: var(--space-6)
   background: var(--bg-primary)
   border-radius: var(--radius-xl)
   box-shadow: var(--shadow-lg)
@@ -281,48 +172,33 @@ async function handleLogin() {
 
   // Mobile: full-width, no card styling
   @media (max-width: 599px)
-    padding: var(--space-6)
     box-shadow: none
     border: none
     background: transparent
 
-  // Tablet: 440px max-width, comfortable padding
-  @media (min-width: 600px) and (max-width: 1023px)
+  // Tablet and up: comfortable sizing
+  @media (min-width: 600px)
     max-width: 440px
     padding: var(--space-8)
 
-  // Desktop: 480px max-width, generous padding
-  @media (min-width: 1024px) and (max-width: 1199px)
+  // Desktop: generous sizing
+  @media (min-width: 1024px)
     max-width: 480px
-    padding: var(--space-12)
-
-  // Large desktop: form side of two-column layout
-  @media (min-width: 1200px)
-    max-width: none
-    width: 55%
-    min-height: 100vh
-    display: flex
-    flex-direction: column
-    justify-content: center
-    padding: var(--space-12) clamp(var(--space-12), 8vw, 160px)
-    border-radius: 0
-    box-shadow: none
-    border: none
+    padding: var(--space-10)
 
 .auth-header
   text-align: center
-  margin-bottom: clamp(var(--space-6), 4vw, var(--space-10))
-
-  @media (min-width: 1200px)
-    text-align: left
-    max-width: 480px
+  margin-bottom: var(--space-8)
 
 .auth-title
-  font-size: clamp(1.5rem, 4vw, var(--text-h1))
+  font-size: var(--text-h2)
   font-weight: 700
   color: var(--text-primary)
   margin: 0 0 var(--space-2) 0
   letter-spacing: -0.02em
+
+  @media (min-width: 600px)
+    font-size: var(--text-h1)
 
 .auth-subtitle
   font-size: var(--text-body)
@@ -333,9 +209,6 @@ async function handleLogin() {
   display: flex
   flex-direction: column
   gap: var(--space-4)
-
-  @media (min-width: 1200px)
-    max-width: 480px
 
 .form-fields
   display: flex
@@ -365,16 +238,9 @@ async function handleLogin() {
   padding-top: var(--space-6)
   border-top: 1px solid var(--border-default)
 
-  @media (min-width: 1200px)
-    max-width: 480px
-
 .auth-footer
   text-align: center
   margin-top: var(--space-6)
-
-  @media (min-width: 1200px)
-    text-align: left
-    max-width: 480px
 
 .footer-text
   color: var(--text-secondary)
@@ -397,11 +263,4 @@ async function handleLogin() {
   @media (max-width: 599px)
     background: transparent
     border: none
-
-  @media (min-width: 1200px)
-    background: var(--bg-primary)
-    border: none
-
-.body--dark .auth-branding
-  background: linear-gradient(135deg, var(--primary-dark, #4338ca) 0%, #312e81 100%)
 </style>
