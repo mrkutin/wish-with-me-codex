@@ -4,10 +4,13 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import CurrentUser
+from app.models.item import Item
+from app.models.mark import Mark
 from app.models.share import ShareLinkType
 from app.schemas.share import (
     MarkCreate,
@@ -21,6 +24,7 @@ from app.schemas.share import (
     SharedWishlistResponse,
 )
 from app.services.bookmark import BookmarkService
+from app.services.events import publish_marks_updated_to_many
 from app.services.mark import MarkService
 from app.services.notification import notify_wishlist_accessed
 from app.services.share import ShareService
@@ -327,6 +331,17 @@ async def mark_item(
             detail=str(e),
         )
 
+    # Notify all users who have access to this wishlist via SSE
+    marks_result = await db.execute(
+        select(Mark.user_id)
+        .join(Item, Mark.item_id == Item.id)
+        .where(Item.wishlist_id == wishlist.id)
+        .distinct()
+    )
+    mark_user_ids = [row[0] for row in marks_result.fetchall()]
+    all_user_ids = list(set([wishlist.user_id] + mark_user_ids))
+    await publish_marks_updated_to_many(all_user_ids, item_id)
+
     return MarkResponse(
         item_id=item_id,
         my_mark_quantity=my_qty,
@@ -405,6 +420,17 @@ async def unmark_item(
         user_id=current_user.id,
         owner_id=wishlist.user_id,
     )
+
+    # Notify all users who have access to this wishlist via SSE
+    marks_result = await db.execute(
+        select(Mark.user_id)
+        .join(Item, Mark.item_id == Item.id)
+        .where(Item.wishlist_id == wishlist.id)
+        .distinct()
+    )
+    mark_user_ids = [row[0] for row in marks_result.fetchall()]
+    all_user_ids = list(set([wishlist.user_id] + mark_user_ids))
+    await publish_marks_updated_to_many(all_user_ids, item_id)
 
     return MarkResponse(
         item_id=item_id,
