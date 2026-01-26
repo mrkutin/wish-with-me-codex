@@ -188,11 +188,7 @@
                 type="number"
                 step="0.01"
                 min="0"
-              >
-                <template #prepend>
-                  <q-icon name="attach_money" />
-                </template>
-              </q-input>
+              />
             </div>
             <div class="col-4">
               <q-input

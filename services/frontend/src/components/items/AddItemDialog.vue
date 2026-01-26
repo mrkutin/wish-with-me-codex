@@ -73,11 +73,7 @@
                   type="number"
                   step="0.01"
                   min="0"
-                >
-                  <template #prepend>
-                    <q-icon name="attach_money" />
-                  </template>
-                </q-input>
+                />
               </div>
               <div class="col-4">
                 <q-input
@@ -85,7 +81,7 @@
                   :label="$t('items.currency')"
                   outlined
                   maxlength="3"
-                  placeholder="USD"
+                  placeholder="RUB"
                 />
               </div>
             </div>
@@ -141,7 +137,7 @@ const formData = reactive<ItemCreate & { source_url: string | null }>({
   title: '',
   description: null,
   price: null,
-  currency: 'USD',
+  currency: 'RUB',
   quantity: 1,
   source_url: null,
 });
