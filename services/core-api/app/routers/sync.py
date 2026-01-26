@@ -6,15 +6,16 @@ from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db
+from app.database import async_session_maker, get_db
 from app.dependencies import CurrentUser
 from app.models.item import Item, ItemStatus
 from app.models.mark import Mark
 from app.models.wishlist import Wishlist
+from app.routers.items import resolve_item_background
 from app.schemas.sync import (
     ConflictDocument,
     PullResponse,
@@ -245,6 +246,7 @@ async def push_collection(
     data: PushRequest,
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
+    background_tasks: BackgroundTasks,
 ) -> PushResponse:
     """Push changes to server for RxDB replication.
 
@@ -262,6 +264,7 @@ async def push_collection(
             db=db,
             user_id=current_user.id,
             documents=data.documents,
+            background_tasks=background_tasks,
         )
     elif collection == "marks":
         return await _push_marks(
@@ -351,9 +354,14 @@ async def _push_items(
     db: AsyncSession,
     user_id: UUID,
     documents: list[dict],
+    background_tasks: BackgroundTasks,
 ) -> PushResponse:
-    """Push item changes with LWW conflict resolution."""
+    """Push item changes with LWW conflict resolution.
+
+    Automatically triggers resolution for new items with source_url.
+    """
     conflicts: list[ConflictDocument] = []
+    items_to_resolve: list[tuple[UUID, str]] = []  # (item_id, source_url)
 
     # Get user's wishlist IDs for authorization
     wishlist_result = await db.execute(
@@ -422,6 +430,7 @@ async def _push_items(
             else:
                 # New item - only create if not deleted
                 if not doc.get("_deleted"):
+                    source_url = doc.get("source_url")
                     new_item = Item(
                         id=doc_id,
                         wishlist_id=wishlist_id,
@@ -430,16 +439,20 @@ async def _push_items(
                         price=Decimal(doc["price"]) if doc.get("price") else None,
                         currency=doc.get("currency"),
                         quantity=doc.get("quantity", 1),
-                        source_url=doc.get("source_url"),
+                        source_url=source_url,
                         image_url=doc.get("image_url"),
                         image_base64=doc.get("image_base64"),
-                        status=ItemStatus.PENDING,
+                        status=ItemStatus.PENDING if source_url else ItemStatus.RESOLVED,
                         created_at=datetime.fromisoformat(
                             doc["created_at"].replace("Z", "+00:00")
                         ),
                         updated_at=client_updated_at,
                     )
                     db.add(new_item)
+
+                    # Track items that need resolution
+                    if source_url:
+                        items_to_resolve.append((doc_id, source_url))
 
         except (KeyError, ValueError) as e:
             logger.warning(f"Invalid sync document: {e}")
@@ -451,6 +464,17 @@ async def _push_items(
             )
 
     await db.commit()
+
+    # Trigger resolution for new items with URLs (after commit so items exist)
+    for item_id, source_url in items_to_resolve:
+        logger.info(f"Scheduling resolution for synced item {item_id}")
+        background_tasks.add_task(
+            resolve_item_background,
+            item_id=item_id,
+            source_url=source_url,
+            session_maker=async_session_maker,
+        )
+
     return PushResponse(conflicts=conflicts)
 
 

@@ -1,16 +1,17 @@
 <script setup lang="ts">
+/**
+ * OfflineBanner - Shows only offline/online transition notifications.
+ * Sync status is shown via the SyncStatus cloud icon in the navbar.
+ */
 import { ref, watch, onMounted, onUnmounted } from 'vue';
-import { useSync } from '@/composables/useSync';
+import { useOnline } from '@vueuse/core';
 
-const { isOnline, status, syncError } = useSync();
+const isOnline = useOnline();
 
 const showBanner = ref(false);
 const bannerMessage = ref('');
 const bannerIcon = ref('');
 const bannerColor = ref('');
-
-// Track previous online state to detect transitions
-const wasOnline = ref(true);
 
 // Auto-hide timer
 let hideTimer: ReturnType<typeof setTimeout> | null = null;
@@ -36,39 +37,19 @@ function showTemporaryBanner(message: string, icon: string, color: string, durat
   }
 }
 
-// Watch online status changes
+// Watch online status changes only
 watch(isOnline, (online, prevOnline) => {
   if (!online && prevOnline) {
-    // Just went offline
+    // Just went offline - show persistent banner
     showTemporaryBanner('offline.youAreOffline', 'cloud_off', 'warning', 0);
   } else if (online && !prevOnline) {
-    // Just came back online
-    showTemporaryBanner('offline.backOnline', 'cloud_done', 'positive', 3000);
-  }
-  wasOnline.value = online;
-});
-
-// Watch sync status
-watch(status, (newStatus) => {
-  if (newStatus === 'syncing') {
-    showTemporaryBanner('offline.syncing', 'sync', 'info', 0);
-  } else if (newStatus === 'error') {
-    showTemporaryBanner('offline.syncError', 'sync_problem', 'negative', 0);
-  } else if (newStatus === 'idle' && showBanner.value && bannerIcon.value === 'sync') {
-    // Sync completed
-    showTemporaryBanner('offline.syncComplete', 'cloud_done', 'positive', 2000);
-  }
-});
-
-// Watch sync errors
-watch(syncError, (error) => {
-  if (error) {
-    showTemporaryBanner('offline.syncError', 'sync_problem', 'negative', 5000);
+    // Just came back online - brief notification then hide
+    showTemporaryBanner('offline.backOnline', 'cloud_done', 'positive', 2000);
   }
 });
 
 onMounted(() => {
-  wasOnline.value = isOnline.value;
+  // Show offline banner if starting offline
   if (!isOnline.value) {
     showTemporaryBanner('offline.youAreOffline', 'cloud_off', 'warning', 0);
   }
