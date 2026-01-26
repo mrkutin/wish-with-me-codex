@@ -211,17 +211,31 @@ async function unmarkItem(item: SharedItem) {
 }
 
 // Handle SSE marks:updated events for real-time sync
-function handleMarksUpdated(event: Event) {
+async function handleMarksUpdated(event: Event) {
   const customEvent = event as CustomEvent<{ item_id?: string }>;
   const itemId = customEvent.detail?.item_id;
 
-  // If we have this item in our list, refresh the whole wishlist
-  if (sharedWishlist.value && itemId) {
-    const hasItem = sharedWishlist.value.items.some((item) => item.id === itemId);
-    if (hasItem) {
-      console.log('[SharedWishlist] Refreshing due to marks:updated for item:', itemId);
-      fetchSharedWishlist();
+  if (!sharedWishlist.value || !itemId) return;
+
+  // Find the item in our list
+  const item = sharedWishlist.value.items.find((i) => i.id === itemId);
+  if (!item) return;
+
+  console.log('[SharedWishlist] Updating item due to marks:updated:', itemId);
+
+  try {
+    // Fetch fresh data
+    const response = await api.get<SharedWishlistResponse>(`/api/v1/shared/${token.value}`);
+    const updatedItem = response.data.items.find((i) => i.id === itemId);
+
+    if (updatedItem) {
+      // Only update the mark-related fields of this specific item
+      item.marked_quantity = updatedItem.marked_quantity;
+      item.available_quantity = updatedItem.available_quantity;
+      item.my_mark_quantity = updatedItem.my_mark_quantity;
     }
+  } catch (error) {
+    console.error('[SharedWishlist] Failed to update item:', error);
   }
 }
 
