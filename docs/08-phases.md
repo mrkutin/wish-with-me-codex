@@ -150,23 +150,27 @@
 ### Deliverables
 
 **Backend:**
-- [ ] EventChannelManager service (`app/services/events.py`)
-- [ ] SSE endpoint (`/api/v1/events/stream`)
-- [ ] Event publishing on item resolution
-- [ ] Event publishing on sync push
-- [ ] Keepalive ping (30s interval)
-- [ ] Unit tests for event manager
+- [x] EventChannelManager service (`app/services/events.py`)
+- [x] SSE endpoint (`/api/v1/events/stream`)
+- [x] Event publishing on item resolution
+- [x] Event publishing on sync push
+- [x] Keepalive ping (30s interval)
+- [x] Multi-device support (multiple SSE connections per user)
+- [x] Real-time mark sync for shared wishlists
+- [x] SSE notifications to owner + markers + bookmarked users
 
 **Frontend:**
-- [ ] `useRealtimeSync` composable with EventSource
-- [ ] Automatic reconnection with exponential backoff
-- [ ] RxDB pull trigger on events
-- [ ] Integration in App.vue
-- [ ] i18n translations (realtime/polling status)
+- [x] `useRealtimeSync` composable with EventSource
+- [x] Automatic reconnection with exponential backoff
+- [x] RxDB pull trigger on events
+- [x] Integration in App.vue
+- [x] Offline-aware SSE (close connection when offline to prevent error spam)
+- [x] Custom DOM events for shared wishlist mark updates
+- [x] Optimized mark updates (only re-render affected item, not entire list)
 
 **Infrastructure:**
-- [ ] Nginx SSE configuration (disable buffering)
-- [ ] Montreal server verification
+- [x] Nginx SSE configuration (disable buffering)
+- [x] Montreal server verification
 
 ### Event Types
 
@@ -175,15 +179,17 @@
 | `items:updated` | Item created/modified | Pull items |
 | `items:resolved` | Resolution complete | Pull items |
 | `wishlists:updated` | Wishlist modified | Pull wishlists |
-| `marks:updated` | Mark added/removed | Pull marks |
+| `marks:updated` | Mark added/removed | Pull marks, refresh shared wishlist view |
 | `sync:ping` | Keepalive (30s) | None |
 
 ### Success Criteria
 
-- Item added by URL resolves and updates UI without refresh
-- Cross-device edits appear within seconds
-- Connection auto-reconnects after network drop
-- App works normally if SSE unavailable (graceful degradation)
+- [x] Item added by URL resolves and updates UI without refresh
+- [x] Cross-device edits appear within seconds
+- [x] Connection auto-reconnects after network drop
+- [x] App works normally if SSE unavailable (graceful degradation)
+- [x] Multiple devices with same account receive SSE events simultaneously
+- [x] Shared wishlist viewers see mark changes in real-time
 
 ---
 
