@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import CurrentUser
+from app.models.bookmark import SharedWishlistBookmark
 from app.models.item import Item
 from app.models.mark import Mark
 from app.models.share import ShareLinkType
@@ -332,6 +333,7 @@ async def mark_item(
         )
 
     # Notify all users who have access to this wishlist via SSE
+    # Include: owner, users with marks, users with bookmarks
     marks_result = await db.execute(
         select(Mark.user_id)
         .join(Item, Mark.item_id == Item.id)
@@ -339,7 +341,14 @@ async def mark_item(
         .distinct()
     )
     mark_user_ids = [row[0] for row in marks_result.fetchall()]
-    all_user_ids = list(set([wishlist.user_id] + mark_user_ids))
+
+    bookmarks_result = await db.execute(
+        select(SharedWishlistBookmark.user_id)
+        .where(SharedWishlistBookmark.wishlist_id == wishlist.id)
+    )
+    bookmark_user_ids = [row[0] for row in bookmarks_result.fetchall()]
+
+    all_user_ids = list(set([wishlist.user_id] + mark_user_ids + bookmark_user_ids))
     await publish_marks_updated_to_many(all_user_ids, item_id)
 
     return MarkResponse(
@@ -422,6 +431,7 @@ async def unmark_item(
     )
 
     # Notify all users who have access to this wishlist via SSE
+    # Include: owner, users with marks, users with bookmarks
     marks_result = await db.execute(
         select(Mark.user_id)
         .join(Item, Mark.item_id == Item.id)
@@ -429,7 +439,14 @@ async def unmark_item(
         .distinct()
     )
     mark_user_ids = [row[0] for row in marks_result.fetchall()]
-    all_user_ids = list(set([wishlist.user_id] + mark_user_ids))
+
+    bookmarks_result = await db.execute(
+        select(SharedWishlistBookmark.user_id)
+        .where(SharedWishlistBookmark.wishlist_id == wishlist.id)
+    )
+    bookmark_user_ids = [row[0] for row in bookmarks_result.fetchall()]
+
+    all_user_ids = list(set([wishlist.user_id] + mark_user_ids + bookmark_user_ids))
     await publish_marks_updated_to_many(all_user_ids, item_id)
 
     return MarkResponse(
