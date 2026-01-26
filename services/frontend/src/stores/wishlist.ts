@@ -8,6 +8,7 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { useOnline } from '@vueuse/core';
 import { Notify } from 'quasar';
+import { useI18n } from 'vue-i18n';
 import { getDatabase, type WishWithMeDatabase, type WishlistDoc } from '@/services/rxdb';
 import { useAuthStore } from '@/stores/auth';
 import type { Subscription } from 'rxjs';
@@ -20,6 +21,7 @@ import type {
 export const useWishlistStore = defineStore('wishlist', () => {
   const authStore = useAuthStore();
   const isOnline = useOnline();
+  const { t } = useI18n();
 
   const wishlists = ref<Wishlist[]>([]);
   const currentWishlist = ref<Wishlist | null>(null);
@@ -149,8 +151,8 @@ export const useWishlistStore = defineStore('wishlist', () => {
       // Show offline notification
       if (!isOnline.value) {
         Notify.create({
-          message: 'Saved offline',
-          caption: 'Will sync when back online',
+          message: t('offline.createdOffline'),
+          caption: t('offline.createdOfflineCaption'),
           icon: 'cloud_off',
           color: 'info',
           timeout: 3000,

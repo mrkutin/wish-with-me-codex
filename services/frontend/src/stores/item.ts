@@ -8,6 +8,7 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { useOnline } from '@vueuse/core';
 import { Notify } from 'quasar';
+import { useI18n } from 'vue-i18n';
 import { getDatabase, type WishWithMeDatabase, type ItemDoc } from '@/services/rxdb';
 import { api } from '@/boot/axios';
 import type { Subscription } from 'rxjs';
@@ -15,6 +16,7 @@ import type { Item, ItemCreate, ItemUpdate } from '@/types/item';
 
 export const useItemStore = defineStore('item', () => {
   const isOnline = useOnline();
+  const { t } = useI18n();
 
   const items = ref<Item[]>([]);
   const currentItem = ref<Item | null>(null);
@@ -134,8 +136,8 @@ export const useItemStore = defineStore('item', () => {
       // Show offline notification
       if (!isOnline.value) {
         Notify.create({
-          message: 'Saved offline',
-          caption: 'Will sync when back online',
+          message: t('offline.createdOffline'),
+          caption: t('offline.createdOfflineCaption'),
           icon: 'cloud_off',
           color: 'info',
           timeout: 3000,
@@ -255,8 +257,8 @@ export const useItemStore = defineStore('item', () => {
         return response.data;
       } else {
         Notify.create({
-          message: 'Offline',
-          caption: 'Will retry when back online',
+          message: t('offline.youAreOffline'),
+          caption: t('offline.willSyncWhenOnline'),
           icon: 'cloud_off',
           color: 'warning',
           timeout: 3000,
