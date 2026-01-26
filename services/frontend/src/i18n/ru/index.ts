@@ -36,6 +36,12 @@ export default {
     loginSubtitle: 'Войдите, чтобы продолжить работу с вишлистами',
     createAccount: 'Создать аккаунт',
     registerSubtitle: 'Начните создавать и делиться вишлистами',
+    brandingDescription: 'Создавайте вишлисты, делитесь с друзьями и делайте подарки волшебными.',
+    featureOffline: 'Работает офлайн',
+    featureShare: 'Простой шаринг',
+    featureSync: 'Синхронизация везде',
+    showPassword: 'Показать пароль',
+    hidePassword: 'Скрыть пароль',
   },
   wishlists: {
     title: 'Мои вишлисты',

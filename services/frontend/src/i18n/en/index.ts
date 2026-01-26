@@ -36,6 +36,12 @@ export default {
     loginSubtitle: 'Sign in to continue to your wishlists',
     createAccount: 'Create account',
     registerSubtitle: 'Start creating and sharing your wishlists',
+    brandingDescription: 'Create wishlists, share with friends, and make gift-giving magical.',
+    featureOffline: 'Works offline',
+    featureShare: 'Easy sharing',
+    featureSync: 'Syncs everywhere',
+    showPassword: 'Show password',
+    hidePassword: 'Hide password',
   },
   wishlists: {
     title: 'My Wishlists',
