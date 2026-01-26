@@ -116,6 +116,11 @@ export function useRealtimeSync() {
           console.log('[SSE] items:updated:', data);
           lastEventTime.value = new Date();
           triggerPull();
+
+          // Emit custom event for NotificationBell to listen to
+          window.dispatchEvent(
+            new CustomEvent('sse:items-updated', { detail: data })
+          );
         } catch (e) {
           console.error('[SSE] Failed to parse items:updated:', e);
         }
@@ -128,6 +133,11 @@ export function useRealtimeSync() {
           console.log('[SSE] items:resolved:', data);
           lastEventTime.value = new Date();
           triggerPull();
+
+          // Emit custom event for NotificationBell to listen to
+          window.dispatchEvent(
+            new CustomEvent('sse:items-resolved', { detail: data })
+          );
         } catch (e) {
           console.error('[SSE] Failed to parse items:resolved:', e);
         }

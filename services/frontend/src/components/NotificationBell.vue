@@ -15,6 +15,10 @@ const showMenu = ref(false);
 
 let pollInterval: ReturnType<typeof setInterval> | null = null;
 
+// Debounce SSE-triggered refreshes to avoid multiple rapid API calls
+let sseRefreshTimeout: ReturnType<typeof setTimeout> | null = null;
+const SSE_REFRESH_DEBOUNCE_MS = 500;
+
 async function fetchNotifications() {
   if (!authStore.isAuthenticated) return;
 
@@ -149,11 +153,43 @@ function formatTime(dateStr: string): string {
   return date.toLocaleDateString();
 }
 
+/**
+ * Handle SSE events by debouncing notification refetches.
+ * This prevents multiple rapid API calls when several events arrive quickly.
+ */
+function handleSSEEvent() {
+  if (sseRefreshTimeout) {
+    clearTimeout(sseRefreshTimeout);
+  }
+  sseRefreshTimeout = setTimeout(() => {
+    console.log('[NotificationBell] Refreshing notifications after SSE event');
+    fetchNotifications();
+  }, SSE_REFRESH_DEBOUNCE_MS);
+}
+
+// SSE event handlers
+function onItemsResolved() {
+  handleSSEEvent();
+}
+
+function onItemsUpdated() {
+  handleSSEEvent();
+}
+
+function onMarksUpdated() {
+  handleSSEEvent();
+}
+
 onMounted(() => {
   if (authStore.isAuthenticated) {
     fetchNotifications();
-    // Poll for new notifications every 60 seconds
+    // Poll for new notifications every 60 seconds (fallback)
     pollInterval = setInterval(fetchNotifications, 60000);
+
+    // Listen to SSE events for real-time updates
+    window.addEventListener('sse:items-resolved', onItemsResolved);
+    window.addEventListener('sse:items-updated', onItemsUpdated);
+    window.addEventListener('sse:marks-updated', onMarksUpdated);
   }
 });
 
@@ -161,6 +197,14 @@ onUnmounted(() => {
   if (pollInterval) {
     clearInterval(pollInterval);
   }
+  if (sseRefreshTimeout) {
+    clearTimeout(sseRefreshTimeout);
+  }
+
+  // Clean up SSE event listeners
+  window.removeEventListener('sse:items-resolved', onItemsResolved);
+  window.removeEventListener('sse:items-updated', onItemsUpdated);
+  window.removeEventListener('sse:marks-updated', onMarksUpdated);
 });
 </script>
 
