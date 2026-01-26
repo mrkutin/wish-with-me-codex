@@ -4,8 +4,6 @@
 
 import { replicateRxCollection, type RxReplicationState } from 'rxdb/plugins/replication';
 import { Subject } from 'rxjs';
-import { Notify } from 'quasar';
-import { i18n } from '@/boot/i18n';
 import { api } from '@/boot/axios';
 import type { WishWithMeDatabase, WishlistDoc, ItemDoc, MarkDoc } from './index';
 
@@ -42,19 +40,11 @@ export interface ReplicationState {
 }
 
 /**
- * Show conflict notification when server wins LWW resolution.
+ * Handle conflicts silently - no user notification needed.
+ * Conflicts are resolved automatically via LWW (Last-Write-Wins).
  */
-function notifyConflict(conflicts: ConflictInfo[]): void {
-  if (conflicts.length > 0) {
-    const t = i18n.global.t;
-    Notify.create({
-      message: t('offline.conflictResolved'),
-      caption: t('offline.conflictCaption'),
-      icon: 'sync_problem',
-      color: 'warning',
-      timeout: 4000,
-    });
-  }
+function notifyConflict(_conflicts: ConflictInfo[]): void {
+  // Conflicts are handled silently - no notification to user
 }
 
 /**
