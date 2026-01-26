@@ -96,6 +96,7 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
 
     pull: {
       async handler(checkpoint, batchSize) {
+        console.log('[RxDB] Wishlists pull handler called, checkpoint:', checkpoint);
         try {
           const params: Record<string, string | number> = {
             limit: batchSize,
@@ -111,6 +112,7 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
             '/api/v1/sync/pull/wishlists',
             { params }
           );
+          console.log('[RxDB] Wishlists pull response:', response.data.documents.length, 'docs');
 
           return {
             documents: response.data.documents,
@@ -158,6 +160,7 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
 
     pull: {
       async handler(checkpoint, batchSize) {
+        console.log('[RxDB] Items pull handler called, checkpoint:', checkpoint);
         try {
           const params: Record<string, string | number> = {
             limit: batchSize,
@@ -172,6 +175,7 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
           const response = await api.get<PullResponse<ItemDoc>>('/api/v1/sync/pull/items', {
             params,
           });
+          console.log('[RxDB] Items pull response:', response.data.documents.length, 'docs');
 
           return {
             documents: response.data.documents,
@@ -219,6 +223,7 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
 
     pull: {
       async handler(checkpoint, batchSize) {
+        console.log('[RxDB] Marks pull handler called, checkpoint:', checkpoint);
         try {
           const params: Record<string, string | number> = {
             limit: batchSize,
@@ -233,6 +238,7 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
           const response = await api.get<PullResponse<MarkDoc>>('/api/v1/sync/pull/marks', {
             params,
           });
+          console.log('[RxDB] Marks pull response:', response.data.documents.length, 'docs');
 
           return {
             documents: response.data.documents,
@@ -254,16 +260,27 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
     window.addEventListener('online', onlineHandler);
   }
 
+  // Debug: log when pull handler is called
+  pullStream$.subscribe((event) => {
+    console.log('[RxDB] pullStream$ event received:', event);
+  });
+
   const state: ReplicationState = {
     wishlists: wishlistReplication,
     items: itemReplication,
     marks: markReplication,
     pullStream$,
     triggerPull: () => {
-      console.log('[RxDB] triggerPull called, emitting RESYNC to pullStream$');
-      // Emit 'RESYNC' flag to tell RxDB to do a full checkpoint iteration
-      // This catches up any missed changes since SSE doesn't send full documents
-      pullStream$.next('RESYNC');
+      console.log('[RxDB] triggerPull called');
+      // Call reSync() directly on each replication state
+      // This is the documented method to trigger immediate checkpoint iteration
+      console.log('[RxDB] Calling reSync() on wishlists...');
+      wishlistReplication.reSync();
+      console.log('[RxDB] Calling reSync() on items...');
+      itemReplication.reSync();
+      console.log('[RxDB] Calling reSync() on marks...');
+      markReplication.reSync();
+      console.log('[RxDB] reSync() called on all replications');
     },
     cancel: async () => {
       // Remove event listener on cleanup
