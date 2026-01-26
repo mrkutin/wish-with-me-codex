@@ -19,6 +19,7 @@ from app.schemas.item import (
 )
 from app.services.events import publish_item_resolved
 from app.services.item import ItemService
+from app.services.notification import notify_item_resolved, notify_item_resolution_failed
 from app.services.wishlist import WishlistService
 
 logger = logging.getLogger(__name__)
@@ -259,12 +260,22 @@ async def resolve_item_background(
                 title=item.title,
             )
 
+            # Create persistent notification
+            await notify_item_resolved(
+                db=session,
+                user_id=wishlist.user_id,
+                wishlist_id=item.wishlist_id,
+                item_id=item.id,
+                item_title=item.title or "Item",
+            )
+            await session.commit()
+
         except ItemResolverError as e:
             logger.error(f"Failed to resolve item {item_id}: {str(e)}")
             await item_service.mark_resolver_failed(item, str(e))
             await session.commit()
 
-            # Also notify about failure
+            # Also notify about failure via SSE and notification
             if wishlist:
                 await publish_item_resolved(
                     user_id=wishlist.user_id,
@@ -273,6 +284,15 @@ async def resolve_item_background(
                     status="failed",
                     title=item.title,
                 )
+                await notify_item_resolution_failed(
+                    db=session,
+                    user_id=wishlist.user_id,
+                    wishlist_id=item.wishlist_id,
+                    item_id=item.id,
+                    item_title=item.title or "Item",
+                    error=str(e),
+                )
+                await session.commit()
 
         except Exception as e:
             logger.exception(f"Unexpected error resolving item {item_id}: {str(e)}")
@@ -281,7 +301,7 @@ async def resolve_item_background(
             )
             await session.commit()
 
-            # Also notify about failure
+            # Also notify about failure via SSE and notification
             if wishlist:
                 await publish_item_resolved(
                     user_id=wishlist.user_id,
@@ -290,6 +310,15 @@ async def resolve_item_background(
                     status="failed",
                     title=item.title,
                 )
+                await notify_item_resolution_failed(
+                    db=session,
+                    user_id=wishlist.user_id,
+                    wishlist_id=item.wishlist_id,
+                    item_id=item.id,
+                    item_title=item.title or "Item",
+                    error=str(e),
+                )
+                await session.commit()
 
 
 @router.post(
