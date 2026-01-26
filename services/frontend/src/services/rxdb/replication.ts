@@ -81,11 +81,18 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
           });
           // Notify user about conflicts (server wins)
           notifyConflict(response.data.conflicts);
-          return response.data.conflicts.map((c) => ({
-            isError: true,
-            documentId: c.document_id,
-            writeRow: docs.find((d) => d.newDocumentState.id === c.document_id),
-          }));
+          // Filter out conflicts where we can't find the matching doc in this batch
+          return response.data.conflicts
+            .map((c) => {
+              const writeRow = docs.find((d) => d.newDocumentState.id === c.document_id);
+              if (!writeRow) return null;
+              return {
+                isError: true,
+                documentId: c.document_id,
+                writeRow,
+              };
+            })
+            .filter((c): c is NonNullable<typeof c> => c !== null);
         } catch (error) {
           console.error('Wishlist push error:', error);
           throw error;
@@ -145,11 +152,18 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
           });
           // Notify user about conflicts (server wins)
           notifyConflict(response.data.conflicts);
-          return response.data.conflicts.map((c) => ({
-            isError: true,
-            documentId: c.document_id,
-            writeRow: docs.find((d) => d.newDocumentState.id === c.document_id),
-          }));
+          // Filter out conflicts where we can't find the matching doc in this batch
+          return response.data.conflicts
+            .map((c) => {
+              const writeRow = docs.find((d) => d.newDocumentState.id === c.document_id);
+              if (!writeRow) return null;
+              return {
+                isError: true,
+                documentId: c.document_id,
+                writeRow,
+              };
+            })
+            .filter((c): c is NonNullable<typeof c> => c !== null);
         } catch (error) {
           console.error('Item push error:', error);
           throw error;
@@ -208,11 +222,18 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
           });
           // Notify user about conflicts (server wins)
           notifyConflict(response.data.conflicts);
-          return response.data.conflicts.map((c) => ({
-            isError: true,
-            documentId: c.document_id,
-            writeRow: docs.find((d) => d.newDocumentState.id === c.document_id),
-          }));
+          // Filter out conflicts where we can't find the matching doc in this batch
+          return response.data.conflicts
+            .map((c) => {
+              const writeRow = docs.find((d) => d.newDocumentState.id === c.document_id);
+              if (!writeRow) return null;
+              return {
+                isError: true,
+                documentId: c.document_id,
+                writeRow,
+              };
+            })
+            .filter((c): c is NonNullable<typeof c> => c !== null);
         } catch (error) {
           console.error('Mark push error:', error);
           throw error;
