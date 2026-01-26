@@ -1,9 +1,21 @@
 """FastAPI application entry point."""
 
+import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
 from fastapi import FastAPI, Request, status
+
+# Configure logging for the app
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+# Set specific loggers to INFO level
+logging.getLogger("app").setLevel(logging.INFO)
+logging.getLogger("app.services.events").setLevel(logging.INFO)
+logging.getLogger("app.routers.events").setLevel(logging.INFO)
+logging.getLogger("app.routers.items").setLevel(logging.INFO)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
