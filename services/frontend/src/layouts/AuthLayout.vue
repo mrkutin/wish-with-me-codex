@@ -20,6 +20,19 @@
 <style lang="sass" scoped>
 .auth-container
   width: 100%
-  max-width: 400px
-  padding: 24px
+  max-width: 420px
+  padding: 16px
+
+  @media (min-width: 600px)
+    max-width: 500px
+    padding: 24px
+
+  @media (min-width: 1024px)
+    max-width: 580px
+
+  @media (min-width: 1440px)
+    max-width: 680px
+
+  @media (min-width: 1680px)
+    max-width: 780px
 </style>
