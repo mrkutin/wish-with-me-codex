@@ -172,15 +172,19 @@ async function handleRegister() {
     border: none
     background: transparent
 
-  // Tablet and up: comfortable sizing
+  // Tablet: comfortable sizing
   @media (min-width: 600px)
-    max-width: 440px
+    max-width: 480px
     padding: var(--space-8)
 
-  // Desktop: generous sizing
+  // Desktop: wider form
   @media (min-width: 1024px)
-    max-width: 480px
+    max-width: 540px
     padding: var(--space-10)
+
+  // Large desktop: generous sizing
+  @media (min-width: 1440px)
+    max-width: 600px
 
 .auth-header
   text-align: center
