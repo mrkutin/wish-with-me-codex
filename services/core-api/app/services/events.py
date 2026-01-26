@@ -10,7 +10,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from uuid import UUID
+from uuid import UUID, uuid4
 
 logger = logging.getLogger(__name__)
 
@@ -31,73 +31,76 @@ class EventChannelManager:
     """Manages SSE event channels for connected users.
 
     For single-instance deployment, uses in-memory queues.
-    Each user can have one active SSE connection.
+    Supports multiple connections per user (multiple devices).
     """
 
     def __init__(self) -> None:
-        self._channels: dict[UUID, asyncio.Queue[ServerEvent | None]] = {}
+        # user_id -> {connection_id -> queue}
+        self._channels: dict[UUID, dict[str, asyncio.Queue[ServerEvent | None]]] = {}
         self._lock = asyncio.Lock()
 
-    async def connect(self, user_id: UUID) -> asyncio.Queue[ServerEvent | None]:
+    async def connect(self, user_id: UUID) -> tuple[str, asyncio.Queue[ServerEvent | None]]:
         """Register a new connection for user.
 
-        If user already has a connection, the old one is signaled to close.
+        Returns (connection_id, queue) tuple.
+        Supports multiple connections per user (multiple devices).
         """
         async with self._lock:
-            # If user already connected, signal old connection to close
-            if user_id in self._channels:
-                try:
-                    self._channels[user_id].put_nowait(None)
-                except asyncio.QueueFull:
-                    pass
-                logger.info(f"SSE: Closing existing connection for user {user_id}")
-
+            connection_id = str(uuid4())
             queue: asyncio.Queue[ServerEvent | None] = asyncio.Queue(maxsize=100)
-            self._channels[user_id] = queue
+
+            if user_id not in self._channels:
+                self._channels[user_id] = {}
+
+            self._channels[user_id][connection_id] = queue
+            total = sum(len(conns) for conns in self._channels.values())
             logger.info(
-                f"SSE: User {user_id} connected, total connections: {len(self._channels)}"
+                f"SSE: User {user_id} connected (conn={connection_id[:8]}), "
+                f"user has {len(self._channels[user_id])} connections, total: {total}"
             )
-            return queue
+            return connection_id, queue
 
-    async def disconnect(self, user_id: UUID, queue: asyncio.Queue[ServerEvent | None] | None = None) -> None:
-        """Remove user's connection.
-
-        If queue is provided, only disconnects if the current queue matches.
-        This prevents a race condition where a new connection's queue gets
-        removed by the old connection's cleanup.
-        """
+    async def disconnect(self, user_id: UUID, connection_id: str) -> None:
+        """Remove a specific connection for user."""
         async with self._lock:
-            current_queue = self._channels.get(user_id)
-
-            # If queue is specified, only disconnect if it matches the current queue
-            if queue is not None and current_queue is not queue:
-                logger.debug(
-                    f"SSE: Skipping disconnect for user {user_id} - queue already replaced"
-                )
+            user_connections = self._channels.get(user_id)
+            if not user_connections:
+                logger.debug(f"SSE: Disconnect called but user {user_id} has no connections")
                 return
 
-            removed = self._channels.pop(user_id, None)
+            removed = user_connections.pop(connection_id, None)
             if removed:
+                # Clean up user entry if no more connections
+                if not user_connections:
+                    del self._channels[user_id]
+                total = sum(len(conns) for conns in self._channels.values())
                 logger.info(
-                    f"SSE: User {user_id} disconnected, total connections: {len(self._channels)}"
+                    f"SSE: User {user_id} disconnected (conn={connection_id[:8]}), total: {total}"
                 )
             else:
-                logger.warning(f"SSE: Disconnect called but user {user_id} was not connected")
+                logger.debug(
+                    f"SSE: Connection {connection_id[:8]} not found for user {user_id}"
+                )
 
     async def publish(self, user_id: UUID, event: ServerEvent) -> bool:
-        """Send event to specific user.
+        """Send event to all connections for a specific user.
 
-        Returns True if user was connected and event queued, False otherwise.
+        Returns True if at least one connection received the event.
         """
-        queue = self._channels.get(user_id)
-        if queue:
+        user_connections = self._channels.get(user_id)
+        if not user_connections:
+            return False
+
+        delivered = False
+        for conn_id, queue in list(user_connections.items()):
             try:
                 queue.put_nowait(event)
-                return True
+                delivered = True
             except asyncio.QueueFull:
-                logger.warning(f"Event queue full for user {user_id}, dropping event")
-                return False
-        return False
+                logger.warning(
+                    f"Event queue full for user {user_id} conn {conn_id[:8]}, dropping event"
+                )
+        return delivered
 
     async def publish_to_many(self, user_ids: list[UUID], event: ServerEvent) -> int:
         """Send event to multiple users.
@@ -111,13 +114,13 @@ class EventChannelManager:
         return delivered
 
     def is_connected(self, user_id: UUID) -> bool:
-        """Check if user has active SSE connection."""
-        return user_id in self._channels
+        """Check if user has at least one active SSE connection."""
+        return user_id in self._channels and len(self._channels[user_id]) > 0
 
     @property
     def connection_count(self) -> int:
-        """Number of active connections."""
-        return len(self._channels)
+        """Total number of active connections across all users."""
+        return sum(len(conns) for conns in self._channels.values())
 
 
 # Global singleton instance

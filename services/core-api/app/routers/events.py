@@ -86,9 +86,9 @@ async def event_stream(
     """
 
     async def generate():
-        queue = await event_manager.connect(current_user.id)
+        connection_id, queue = await event_manager.connect(current_user.id)
         logger.info(
-            f"SSE connected: user={current_user.id}, "
+            f"SSE connected: user={current_user.id}, conn={connection_id[:8]}, "
             f"total={event_manager.connection_count}"
         )
 
@@ -107,7 +107,6 @@ async def event_stream(
 
                     if event is None:
                         # None signals connection should close
-                        # (user reconnected elsewhere or logout)
                         logger.debug(
                             f"SSE connection signaled to close: user={current_user.id}"
                         )
@@ -125,11 +124,9 @@ async def event_stream(
         except Exception as e:
             logger.exception(f"SSE error for user {current_user.id}: {e}")
         finally:
-            # Pass the queue to disconnect to avoid race condition where
-            # a new connection's queue gets removed by old connection's cleanup
-            await event_manager.disconnect(current_user.id, queue)
+            await event_manager.disconnect(current_user.id, connection_id)
             logger.info(
-                f"SSE disconnected: user={current_user.id}, "
+                f"SSE disconnected: user={current_user.id}, conn={connection_id[:8]}, "
                 f"total={event_manager.connection_count}"
             )
 
