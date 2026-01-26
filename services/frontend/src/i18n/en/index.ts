@@ -32,6 +32,10 @@ export default {
     invalidCredentials: 'Invalid email or password',
     emailTaken: 'This email is already registered',
     passwordTooShort: 'Password must be at least 8 characters',
+    welcomeBack: 'Welcome back',
+    loginSubtitle: 'Sign in to continue to your wishlists',
+    createAccount: 'Create account',
+    registerSubtitle: 'Start creating and sharing your wishlists',
   },
   wishlists: {
     title: 'My Wishlists',

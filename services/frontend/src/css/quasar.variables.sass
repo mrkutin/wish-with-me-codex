@@ -1,13 +1,45 @@
 // Quasar SASS variables
+// Based on visual design system: docs/11-visual-design.md
 
-$primary   : #6366f1
-$secondary : #26A69A
-$accent    : #9C27B0
+// ============================================
+// BRAND COLORS
+// ============================================
+$primary   : #6366f1  // Indigo 500 - Primary actions, links
+$primary-dark: #4F46E5  // Indigo 600 - Hover states
+$secondary : #14B8A6  // Teal 500 - Secondary actions
+$accent    : #FBBF24  // Amber 400 - Gift/celebration accents
 
-$dark      : #1d1d1d
-$dark-page : #121212
+// ============================================
+// DARK MODE COLORS
+// ============================================
+$dark      : #0F172A  // Slate 900
+$dark-page : #0F172A  // Slate 900
 
-$positive  : #1a9f38
-$negative  : #C10015
-$info      : #31CCEC
-$warning   : #F2C037
+// ============================================
+// SEMANTIC COLORS (WCAG AA Compliant)
+// ============================================
+$positive  : #16A34A  // Green 600 - Success, sync complete
+$negative  : #DC2626  // Red 600 - Errors, destructive
+$info      : #2563EB  // Blue 600 - Information, syncing
+$warning   : #D97706  // Amber 600 - Offline, pending
+
+// ============================================
+// BORDER RADIUS
+// ============================================
+$generic-border-radius: 8px
+
+// ============================================
+// TYPOGRAPHY
+// ============================================
+$typography-font-family: 'Inter', 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif
+
+// Button text should not be transformed
+$button-font-size: 14px
+$button-font-weight: 600
+$button-border-radius: 8px
+
+// ============================================
+// COMPONENT SIZING (44px touch targets)
+// ============================================
+$button-padding-horizontal: 16px
+$button-padding-vertical: 10px

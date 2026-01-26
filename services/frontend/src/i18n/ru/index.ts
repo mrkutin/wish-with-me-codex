@@ -32,6 +32,10 @@ export default {
     invalidCredentials: 'Неверный email или пароль',
     emailTaken: 'Этот email уже зарегистрирован',
     passwordTooShort: 'Пароль должен содержать минимум 8 символов',
+    welcomeBack: 'С возвращением',
+    loginSubtitle: 'Войдите, чтобы продолжить работу с вишлистами',
+    createAccount: 'Создать аккаунт',
+    registerSubtitle: 'Начните создавать и делиться вишлистами',
   },
   wishlists: {
     title: 'Мои вишлисты',
