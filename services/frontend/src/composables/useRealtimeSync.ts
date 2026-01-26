@@ -90,8 +90,18 @@ export function useRealtimeSync() {
       };
 
       eventSource.onerror = (error) => {
-        console.error('[SSE] Error:', error);
+        // Only log errors when online (offline errors are expected and noisy)
+        if (isOnline.value) {
+          console.error('[SSE] Error:', error);
+        }
         isConnected.value = false;
+
+        // If offline, close the EventSource to stop its auto-reconnect attempts
+        // This prevents the flood of ERR_NAME_NOT_RESOLVED errors
+        if (!isOnline.value) {
+          disconnect();
+          return;
+        }
 
         // EventSource auto-reconnects for some errors, but if closed we need manual reconnect
         if (eventSource?.readyState === EventSource.CLOSED) {
