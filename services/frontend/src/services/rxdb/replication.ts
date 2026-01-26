@@ -36,7 +36,7 @@ export interface ReplicationState {
   wishlists: RxReplicationState<WishlistDoc, ReplicationCheckpoint>;
   items: RxReplicationState<ItemDoc, ReplicationCheckpoint>;
   marks: RxReplicationState<MarkDoc, ReplicationCheckpoint>;
-  pullStream$: Subject<void>;
+  pullStream$: Subject<'RESYNC' | void>;
   cancel: () => Promise<void>;
   triggerPull: () => void;
 }
@@ -61,7 +61,8 @@ function notifyConflict(conflicts: ConflictInfo[]): void {
  * Setup replication for all collections.
  */
 export function setupReplication(db: WishWithMeDatabase): ReplicationState {
-  const pullStream$ = new Subject<void>();
+  // Use 'RESYNC' | void to allow emitting RESYNC flag for full sync
+  const pullStream$ = new Subject<'RESYNC' | void>();
 
   // Wishlist replication
   const wishlistReplication = replicateRxCollection<WishlistDoc, ReplicationCheckpoint>({
@@ -259,12 +260,10 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
     marks: markReplication,
     pullStream$,
     triggerPull: () => {
-      console.log('[RxDB] triggerPull called, using reSync() for immediate pull');
-      // Use reSync() to force immediate sync rather than just emitting to stream
-      // This ensures the pull happens immediately rather than being debounced
-      wishlistReplication.reSync();
-      itemReplication.reSync();
-      markReplication.reSync();
+      console.log('[RxDB] triggerPull called, emitting RESYNC to pullStream$');
+      // Emit 'RESYNC' flag to tell RxDB to do a full checkpoint iteration
+      // This catches up any missed changes since SSE doesn't send full documents
+      pullStream$.next('RESYNC');
     },
     cancel: async () => {
       // Remove event listener on cleanup
