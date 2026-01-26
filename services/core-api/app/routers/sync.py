@@ -23,6 +23,11 @@ from app.schemas.sync import (
     PushResponse,
     SyncCheckpoint,
 )
+from app.services.events import (
+    publish_item_updated,
+    publish_marks_updated,
+    publish_wishlist_updated,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -286,6 +291,7 @@ async def _push_wishlists(
 ) -> PushResponse:
     """Push wishlist changes with LWW conflict resolution."""
     conflicts: list[ConflictDocument] = []
+    updated_wishlist_ids: list[UUID] = []  # Track successful updates for SSE
 
     for doc in documents:
         try:
@@ -312,6 +318,7 @@ async def _push_wishlists(
                         existing.description = doc.get("description")
                         existing.is_public = doc.get("is_public", False)
                     existing.updated_at = client_updated_at
+                    updated_wishlist_ids.append(doc_id)
                 else:
                     # Server wins - return conflict
                     conflicts.append(
@@ -336,6 +343,7 @@ async def _push_wishlists(
                         updated_at=client_updated_at,
                     )
                     db.add(new_wishlist)
+                    updated_wishlist_ids.append(doc_id)
 
         except (KeyError, ValueError) as e:
             logger.warning(f"Invalid sync document: {e}")
@@ -347,6 +355,11 @@ async def _push_wishlists(
             )
 
     await db.commit()
+
+    # Publish SSE events for successful updates (for multi-tab/device sync)
+    for wishlist_id in updated_wishlist_ids:
+        await publish_wishlist_updated(user_id, wishlist_id)
+
     return PushResponse(conflicts=conflicts)
 
 
@@ -362,6 +375,7 @@ async def _push_items(
     """
     conflicts: list[ConflictDocument] = []
     items_to_resolve: list[tuple[UUID, str]] = []  # (item_id, source_url)
+    updated_items: list[tuple[UUID, UUID]] = []  # (item_id, wishlist_id) for SSE
 
     # Get user's wishlist IDs for authorization
     wishlist_result = await db.execute(
@@ -419,6 +433,7 @@ async def _push_items(
                         existing.image_url = doc.get("image_url")
                         existing.image_base64 = doc.get("image_base64")
                     existing.updated_at = client_updated_at
+                    updated_items.append((doc_id, wishlist_id))
                 else:
                     conflicts.append(
                         ConflictDocument(
@@ -449,6 +464,7 @@ async def _push_items(
                         updated_at=client_updated_at,
                     )
                     db.add(new_item)
+                    updated_items.append((doc_id, wishlist_id))
 
                     # Track items that need resolution
                     if source_url:
@@ -464,6 +480,13 @@ async def _push_items(
             )
 
     await db.commit()
+
+    # Publish SSE events for successful updates (for multi-tab/device sync)
+    # Skip items that will be resolved (they'll get SSE events after resolution)
+    items_to_resolve_ids = {item_id for item_id, _ in items_to_resolve}
+    for item_id, wishlist_id in updated_items:
+        if item_id not in items_to_resolve_ids:
+            await publish_item_updated(user_id, item_id, wishlist_id)
 
     # Trigger resolution for new items with URLs (after commit so items exist)
     for item_id, source_url in items_to_resolve:
@@ -485,6 +508,7 @@ async def _push_marks(
 ) -> PushResponse:
     """Push mark changes with LWW conflict resolution."""
     conflicts: list[ConflictDocument] = []
+    updated_mark_item_ids: list[UUID] = []  # Track item IDs for SSE
 
     for doc in documents:
         try:
@@ -517,6 +541,7 @@ async def _push_marks(
                     else:
                         existing.quantity = doc.get("quantity", 1)
                         existing.updated_at = client_updated_at
+                    updated_mark_item_ids.append(item_id)
                 else:
                     conflicts.append(
                         ConflictDocument(
@@ -539,6 +564,7 @@ async def _push_marks(
                         updated_at=client_updated_at,
                     )
                     db.add(new_mark)
+                    updated_mark_item_ids.append(item_id)
 
         except (KeyError, ValueError) as e:
             logger.warning(f"Invalid sync document: {e}")
@@ -550,4 +576,9 @@ async def _push_marks(
             )
 
     await db.commit()
+
+    # Publish SSE events for successful updates (for multi-tab/device sync)
+    for mark_item_id in set(updated_mark_item_ids):  # Deduplicate
+        await publish_marks_updated(user_id, mark_item_id)
+
     return PushResponse(conflicts=conflicts)

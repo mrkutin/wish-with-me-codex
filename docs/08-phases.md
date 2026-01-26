@@ -13,8 +13,9 @@
 | 3 | OAuth | Week 5 |
 | 4 | Marking System | Week 6-7 |
 | 5 | Offline & PWA | Week 8-9 |
-| 6 | i18n & Polish | Week 10 |
-| 7 | Deploy | Week 11-12 |
+| 6 | Real-Time Updates (SSE) | Week 10 |
+| 7 | i18n & Polish | Week 11 |
+| 8 | Deploy | Week 12-13 |
 
 ---
 
@@ -140,7 +141,53 @@
 
 ---
 
-## Phase 6: i18n & Polish (Week 10)
+## Phase 6: Real-Time Updates via SSE (Week 10)
+
+**Goal**: Server-to-client real-time notifications for instant UI updates
+
+> Full specification: [docs/14-realtime-sse.md](./14-realtime-sse.md)
+
+### Deliverables
+
+**Backend:**
+- [ ] EventChannelManager service (`app/services/events.py`)
+- [ ] SSE endpoint (`/api/v1/events/stream`)
+- [ ] Event publishing on item resolution
+- [ ] Event publishing on sync push
+- [ ] Keepalive ping (30s interval)
+- [ ] Unit tests for event manager
+
+**Frontend:**
+- [ ] `useRealtimeSync` composable with EventSource
+- [ ] Automatic reconnection with exponential backoff
+- [ ] RxDB pull trigger on events
+- [ ] Integration in App.vue
+- [ ] i18n translations (realtime/polling status)
+
+**Infrastructure:**
+- [ ] Nginx SSE configuration (disable buffering)
+- [ ] Montreal server verification
+
+### Event Types
+
+| Event | Trigger | Action |
+|-------|---------|--------|
+| `items:updated` | Item created/modified | Pull items |
+| `items:resolved` | Resolution complete | Pull items |
+| `wishlists:updated` | Wishlist modified | Pull wishlists |
+| `marks:updated` | Mark added/removed | Pull marks |
+| `sync:ping` | Keepalive (30s) | None |
+
+### Success Criteria
+
+- Item added by URL resolves and updates UI without refresh
+- Cross-device edits appear within seconds
+- Connection auto-reconnects after network drop
+- App works normally if SSE unavailable (graceful degradation)
+
+---
+
+## Phase 7: i18n & Polish (Week 11)
 
 **Goal**: Localization and UI polish
 
@@ -166,15 +213,15 @@
 
 ---
 
-## Phase 7: Deploy (Week 11-12)
+## Phase 8: Deploy & Production Hardening (Week 12-13)
 
-**Goal**: Production deployment
+**Goal**: Production deployment and operational readiness
 
 ### Deliverables
 
 - [x] Frontend Dockerfile (Quasar PWA)
 - [x] Backend Dockerfile (FastAPI)
-- [ ] Kubernetes manifests
+- [ ] Kubernetes manifests (optional - Montreal uses docker-compose)
 - [x] CI/CD pipeline (GitHub Actions)
 - [x] Domain + SSL setup (wishwith.me, api.wishwith.me)
 - [ ] CDN configuration

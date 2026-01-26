@@ -204,6 +204,9 @@ export default {
     conflictCaption: 'На сервере найдена более новая версия',
     createdOffline: 'Создано офлайн',
     createdOfflineCaption: 'Синхронизируется при подключении',
+    realtimeConnected: 'Синхронизация в реальном времени',
+    realtimeDisconnected: 'Нет связи с сервером',
+    realtimeReconnecting: 'Переподключение...',
   },
   pwa: {
     installTitle: 'Установить Wish With Me',

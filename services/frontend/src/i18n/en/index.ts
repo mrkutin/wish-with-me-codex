@@ -202,6 +202,9 @@ export default {
     conflictCaption: 'A newer version was found on the server',
     createdOffline: 'Created offline',
     createdOfflineCaption: 'Will sync when back online',
+    realtimeConnected: 'Real-time sync active',
+    realtimeDisconnected: 'Real-time sync disconnected',
+    realtimeReconnecting: 'Reconnecting...',
   },
   pwa: {
     installTitle: 'Install Wish With Me',

@@ -9,6 +9,9 @@ import { i18n } from '@/boot/i18n';
 import { api } from '@/boot/axios';
 import type { WishWithMeDatabase, WishlistDoc, ItemDoc, MarkDoc } from './index';
 
+// Global reference for SSE to trigger syncs
+let currentReplicationState: ReplicationState | null = null;
+
 export interface ReplicationCheckpoint {
   updated_at: string;
   id: string;
@@ -250,7 +253,7 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
     window.addEventListener('online', onlineHandler);
   }
 
-  return {
+  const state: ReplicationState = {
     wishlists: wishlistReplication,
     items: itemReplication,
     marks: markReplication,
@@ -261,9 +264,23 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
       if (typeof window !== 'undefined') {
         window.removeEventListener('online', onlineHandler);
       }
+      currentReplicationState = null;
       await wishlistReplication.cancel();
       await itemReplication.cancel();
       await markReplication.cancel();
     },
   };
+
+  // Store globally for SSE access
+  currentReplicationState = state;
+
+  return state;
+}
+
+/**
+ * Get the current replication state.
+ * Used by SSE composable to trigger syncs.
+ */
+export function getReplicationState(): ReplicationState | null {
+  return currentReplicationState;
 }

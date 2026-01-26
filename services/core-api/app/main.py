@@ -20,6 +20,7 @@ from app.routers import (
     shared_router,
     notifications_router,
     sync_router,
+    events_router,
 )
 
 
@@ -94,6 +95,7 @@ app.include_router(share_router)
 app.include_router(shared_router)
 app.include_router(notifications_router)
 app.include_router(sync_router)
+app.include_router(events_router)
 
 
 @app.get("/")

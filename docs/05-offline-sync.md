@@ -328,3 +328,23 @@ Notify.create({
   timeout: 2000
 });
 ```
+
+---
+
+## 8. Real-Time Updates (SSE)
+
+For instant UI updates when backend data changes (e.g., item resolution completes), the app uses Server-Sent Events to push notifications that trigger RxDB pulls.
+
+See [docs/14-realtime-sse.md](./14-realtime-sse.md) for full specification.
+
+```
+Backend event (item resolved)
+        ↓
+SSE stream to frontend
+        ↓
+EventSource receives event
+        ↓
+Triggers RxDB replication.reSync()
+        ↓
+RxDB subscription updates UI
+```

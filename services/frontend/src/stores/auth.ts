@@ -103,6 +103,14 @@ export const useAuthStore = defineStore('auth', () => {
     LocalStorage.remove(REFRESH_TOKEN_KEY);
   }
 
+  /**
+   * Get the current access token.
+   * Used by SSE composable since EventSource doesn't support headers.
+   */
+  function getAccessToken(): string | null {
+    return accessToken.value;
+  }
+
   return {
     user,
     accessToken,
@@ -114,5 +122,6 @@ export const useAuthStore = defineStore('auth', () => {
     refreshToken,
     logout,
     fetchCurrentUser,
+    getAccessToken,
   };
 });

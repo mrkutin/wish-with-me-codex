@@ -3,5 +3,9 @@
 </template>
 
 <script setup lang="ts">
-// Main App component - minimal as routing handles everything
+import { useRealtimeSync } from '@/composables/useRealtimeSync';
+
+// Initialize SSE connection for real-time updates
+// This connects when user is authenticated and online
+useRealtimeSync();
 </script>

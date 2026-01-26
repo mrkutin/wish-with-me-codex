@@ -17,6 +17,7 @@ from app.schemas.item import (
     ItemResponse,
     ItemUpdate,
 )
+from app.services.events import publish_item_resolved
 from app.services.item import ItemService
 from app.services.wishlist import WishlistService
 
@@ -215,14 +216,22 @@ async def resolve_item_background(
         session_maker: Async session maker for database access
     """
     resolver = ItemResolverClient()
+    wishlist = None  # Initialize for exception handler scope
 
     async with session_maker() as session:
         try:
             item_service = ItemService(session)
+            wishlist_service = WishlistService(session)
             item = await item_service.get_by_id(item_id)
 
             if item is None:
                 logger.error(f"Item {item_id} not found for resolution")
+                return
+
+            # Get wishlist to know who to notify
+            wishlist = await wishlist_service.get_by_id(item.wishlist_id)
+            if wishlist is None:
+                logger.error(f"Wishlist {item.wishlist_id} not found for item {item_id}")
                 return
 
             # Mark as resolving
@@ -236,12 +245,34 @@ async def resolve_item_background(
             # Update item with resolved data
             await item_service.update_from_resolver(item, resolver_data)
             await session.commit()
+
+            # Refresh to get latest state after commit (may expire attributes)
+            await session.refresh(item)
             logger.info(f"Successfully resolved item {item_id}")
+
+            # Publish SSE event to notify user
+            await publish_item_resolved(
+                user_id=wishlist.user_id,
+                item_id=item.id,
+                wishlist_id=item.wishlist_id,
+                status=item.status.value if hasattr(item.status, 'value') else item.status,
+                title=item.title,
+            )
 
         except ItemResolverError as e:
             logger.error(f"Failed to resolve item {item_id}: {str(e)}")
             await item_service.mark_resolver_failed(item, str(e))
             await session.commit()
+
+            # Also notify about failure
+            if wishlist:
+                await publish_item_resolved(
+                    user_id=wishlist.user_id,
+                    item_id=item.id,
+                    wishlist_id=item.wishlist_id,
+                    status="failed",
+                    title=item.title,
+                )
 
         except Exception as e:
             logger.exception(f"Unexpected error resolving item {item_id}: {str(e)}")
@@ -249,6 +280,16 @@ async def resolve_item_background(
                 item, f"Unexpected error: {str(e)}"
             )
             await session.commit()
+
+            # Also notify about failure
+            if wishlist:
+                await publish_item_resolved(
+                    user_id=wishlist.user_id,
+                    item_id=item.id,
+                    wishlist_id=item.wishlist_id,
+                    status="failed",
+                    title=item.title,
+                )
 
 
 @router.post(
