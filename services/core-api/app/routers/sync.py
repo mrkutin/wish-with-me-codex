@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import CurrentUser
 from app.models.item import Item, ItemStatus
+from app.models.mark import Mark
 from app.models.wishlist import Wishlist
 from app.schemas.sync import (
     ConflictDocument,
@@ -26,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/sync", tags=["sync"])
 
-CollectionType = Literal["wishlists", "items"]
+CollectionType = Literal["wishlists", "items", "marks"]
 
 
 def _wishlist_to_sync_doc(wishlist: Wishlist) -> dict:
@@ -63,6 +64,19 @@ def _item_to_sync_doc(item: Item) -> dict:
     }
 
 
+def _mark_to_sync_doc(mark: Mark, deleted: bool = False) -> dict:
+    """Convert mark model to sync document."""
+    return {
+        "id": str(mark.id),
+        "item_id": str(mark.item_id),
+        "user_id": str(mark.user_id),
+        "quantity": mark.quantity,
+        "created_at": mark.created_at.isoformat(),
+        "updated_at": mark.updated_at.isoformat(),
+        "_deleted": deleted,
+    }
+
+
 @router.get(
     "/pull/{collection}",
     response_model=PullResponse,
@@ -90,6 +104,14 @@ async def pull_collection(
         )
     elif collection == "items":
         return await _pull_items(
+            db=db,
+            user_id=current_user.id,
+            checkpoint_updated_at=checkpoint_updated_at,
+            checkpoint_id=checkpoint_id,
+            limit=limit,
+        )
+    elif collection == "marks":
+        return await _pull_marks(
             db=db,
             user_id=current_user.id,
             checkpoint_updated_at=checkpoint_updated_at,
@@ -179,6 +201,41 @@ async def _pull_items(
     return PullResponse(documents=documents, checkpoint=checkpoint)
 
 
+async def _pull_marks(
+    db: AsyncSession,
+    user_id: UUID,
+    checkpoint_updated_at: datetime | None,
+    checkpoint_id: UUID | None,
+    limit: int,
+) -> PullResponse:
+    """Pull mark changes for the current user."""
+    # Get marks created by this user
+    query = select(Mark).where(Mark.user_id == user_id)
+
+    # Apply checkpoint filter
+    if checkpoint_updated_at and checkpoint_id:
+        query = query.where(
+            (Mark.updated_at > checkpoint_updated_at)
+            | ((Mark.updated_at == checkpoint_updated_at) & (Mark.id > checkpoint_id))
+        )
+    elif checkpoint_updated_at:
+        query = query.where(Mark.updated_at > checkpoint_updated_at)
+
+    query = query.order_by(Mark.updated_at, Mark.id).limit(limit)
+
+    result = await db.execute(query)
+    marks = result.scalars().all()
+
+    documents = [_mark_to_sync_doc(m) for m in marks]
+
+    checkpoint = None
+    if marks:
+        last = marks[-1]
+        checkpoint = SyncCheckpoint(updated_at=last.updated_at, id=last.id)
+
+    return PullResponse(documents=documents, checkpoint=checkpoint)
+
+
 @router.post(
     "/push/{collection}",
     response_model=PushResponse,
@@ -202,6 +259,12 @@ async def push_collection(
         )
     elif collection == "items":
         return await _push_items(
+            db=db,
+            user_id=current_user.id,
+            documents=data.documents,
+        )
+    elif collection == "marks":
+        return await _push_marks(
             db=db,
             user_id=current_user.id,
             documents=data.documents,
@@ -377,6 +440,81 @@ async def _push_items(
                         updated_at=client_updated_at,
                     )
                     db.add(new_item)
+
+        except (KeyError, ValueError) as e:
+            logger.warning(f"Invalid sync document: {e}")
+            conflicts.append(
+                ConflictDocument(
+                    document_id=UUID(doc.get("id", "00000000-0000-0000-0000-000000000000")),
+                    error=f"Invalid document: {str(e)}",
+                )
+            )
+
+    await db.commit()
+    return PushResponse(conflicts=conflicts)
+
+
+async def _push_marks(
+    db: AsyncSession,
+    user_id: UUID,
+    documents: list[dict],
+) -> PushResponse:
+    """Push mark changes with LWW conflict resolution."""
+    conflicts: list[ConflictDocument] = []
+
+    for doc in documents:
+        try:
+            doc_id = UUID(doc["id"])
+            item_id = UUID(doc["item_id"])
+            client_updated_at = datetime.fromisoformat(doc["updated_at"].replace("Z", "+00:00"))
+
+            # Find existing mark
+            result = await db.execute(
+                select(Mark).where(Mark.id == doc_id)
+            )
+            existing = result.scalar_one_or_none()
+
+            if existing:
+                # Verify ownership - only the mark creator can modify
+                if existing.user_id != user_id:
+                    conflicts.append(
+                        ConflictDocument(
+                            document_id=doc_id,
+                            error="Unauthorized: mark not owned by user",
+                        )
+                    )
+                    continue
+
+                # LWW: Check if client version is newer
+                if client_updated_at > existing.updated_at:
+                    if doc.get("_deleted"):
+                        # Delete the mark
+                        await db.delete(existing)
+                    else:
+                        existing.quantity = doc.get("quantity", 1)
+                        existing.updated_at = client_updated_at
+                else:
+                    conflicts.append(
+                        ConflictDocument(
+                            document_id=doc_id,
+                            error="Server has newer version",
+                            server_document=_mark_to_sync_doc(existing),
+                        )
+                    )
+            else:
+                # New mark - only create if not deleted
+                if not doc.get("_deleted"):
+                    new_mark = Mark(
+                        id=doc_id,
+                        item_id=item_id,
+                        user_id=user_id,
+                        quantity=doc.get("quantity", 1),
+                        created_at=datetime.fromisoformat(
+                            doc["created_at"].replace("Z", "+00:00")
+                        ),
+                        updated_at=client_updated_at,
+                    )
+                    db.add(new_mark)
 
         except (KeyError, ValueError) as e:
             logger.warning(f"Invalid sync document: {e}")

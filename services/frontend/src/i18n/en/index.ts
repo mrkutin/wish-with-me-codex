@@ -198,6 +198,10 @@ export default {
     statusSynced: 'All synced',
     savedOffline: 'Saved offline',
     willSyncWhenOnline: 'Will sync when online',
+    conflictResolved: 'Some changes were updated',
+    conflictCaption: 'A newer version was found on the server',
+    createdOffline: 'Created offline',
+    createdOfflineCaption: 'Will sync when back online',
   },
   pwa: {
     installTitle: 'Install Wish With Me',

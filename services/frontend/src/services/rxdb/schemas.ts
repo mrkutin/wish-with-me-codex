@@ -133,3 +133,50 @@ export const itemSchema: RxJsonSchema<ItemDoc> = {
   required: ['id', 'wishlist_id', 'title', 'status', 'created_at', 'updated_at', '_deleted'],
   indexes: ['wishlist_id', 'status', 'updated_at'],
 };
+
+export interface MarkDoc {
+  id: string;
+  item_id: string;
+  user_id: string;
+  quantity: number;
+  created_at: string;
+  updated_at: string;
+  _deleted: boolean;
+}
+
+export const markSchema: RxJsonSchema<MarkDoc> = {
+  version: 0,
+  primaryKey: 'id',
+  type: 'object',
+  properties: {
+    id: {
+      type: 'string',
+      maxLength: 36,
+    },
+    item_id: {
+      type: 'string',
+      maxLength: 36,
+    },
+    user_id: {
+      type: 'string',
+      maxLength: 36,
+    },
+    quantity: {
+      type: 'integer',
+      minimum: 1,
+    },
+    created_at: {
+      type: 'string',
+      format: 'date-time',
+    },
+    updated_at: {
+      type: 'string',
+      format: 'date-time',
+    },
+    _deleted: {
+      type: 'boolean',
+    },
+  },
+  required: ['id', 'item_id', 'user_id', 'quantity', 'created_at', 'updated_at', '_deleted'],
+  indexes: ['item_id', 'user_id', 'updated_at'],
+};

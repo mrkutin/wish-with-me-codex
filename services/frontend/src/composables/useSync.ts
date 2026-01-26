@@ -42,6 +42,11 @@ async function initializeSync(): Promise<void> {
       syncError.value = err.message || 'Sync error';
     });
 
+    replication.value.marks.error$.subscribe((err) => {
+      console.error('Mark sync error:', err);
+      syncError.value = err.message || 'Sync error';
+    });
+
     // Track syncing state
     replication.value.wishlists.active$.subscribe((active) => {
       isSyncing.value = active;

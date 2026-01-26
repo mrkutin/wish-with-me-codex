@@ -8,7 +8,14 @@ import { RxDBDevModePlugin } from 'rxdb/plugins/dev-mode';
 import { RxDBQueryBuilderPlugin } from 'rxdb/plugins/query-builder';
 import { RxDBUpdatePlugin } from 'rxdb/plugins/update';
 
-import { wishlistSchema, itemSchema, type WishlistDoc, type ItemDoc } from './schemas';
+import {
+  wishlistSchema,
+  itemSchema,
+  markSchema,
+  type WishlistDoc,
+  type ItemDoc,
+  type MarkDoc,
+} from './schemas';
 
 // Add plugins
 if (process.env.NODE_ENV === 'development') {
@@ -20,10 +27,12 @@ addRxPlugin(RxDBUpdatePlugin);
 // Collection types
 export type WishlistCollection = RxCollection<WishlistDoc>;
 export type ItemCollection = RxCollection<ItemDoc>;
+export type MarkCollection = RxCollection<MarkDoc>;
 
 export type WishWithMeCollections = {
   wishlists: WishlistCollection;
   items: ItemCollection;
+  marks: MarkCollection;
 };
 
 export type WishWithMeDatabase = RxDatabase<WishWithMeCollections>;
@@ -54,6 +63,9 @@ export async function getDatabase(): Promise<WishWithMeDatabase> {
     items: {
       schema: itemSchema,
     },
+    marks: {
+      schema: markSchema,
+    },
   });
 
   dbInstance = db;
@@ -77,7 +89,8 @@ export async function clearDatabase(): Promise<void> {
   if (dbInstance) {
     await dbInstance.wishlists.remove();
     await dbInstance.items.remove();
+    await dbInstance.marks.remove();
   }
 }
 
-export { type WishlistDoc, type ItemDoc } from './schemas';
+export { type WishlistDoc, type ItemDoc, type MarkDoc } from './schemas';

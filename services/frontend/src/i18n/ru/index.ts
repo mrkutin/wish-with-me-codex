@@ -200,6 +200,10 @@ export default {
     statusSynced: 'Всё синхронизировано',
     savedOffline: 'Сохранено офлайн',
     willSyncWhenOnline: 'Синхронизируется при подключении',
+    conflictResolved: 'Некоторые изменения были обновлены',
+    conflictCaption: 'На сервере найдена более новая версия',
+    createdOffline: 'Создано офлайн',
+    createdOfflineCaption: 'Синхронизируется при подключении',
   },
   pwa: {
     installTitle: 'Установить Wish With Me',

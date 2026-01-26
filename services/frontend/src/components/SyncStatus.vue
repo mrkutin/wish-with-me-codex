@@ -63,7 +63,15 @@ function handleClick() {
     @click="handleClick"
   >
     <q-badge
-      v-if="pendingCount > 0"
+      v-if="status === 'error'"
+      color="negative"
+      floating
+      rounded
+    >
+      !
+    </q-badge>
+    <q-badge
+      v-else-if="pendingCount > 0"
       color="warning"
       floating
       rounded
