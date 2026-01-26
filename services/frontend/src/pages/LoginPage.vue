@@ -183,6 +183,8 @@ async function handleLogin() {
 
   // Large desktop: two-column layout
   @media (min-width: 1200px)
+    justify-content: flex-start
+    align-items: stretch
     gap: 0
     padding: 0
 
@@ -194,6 +196,7 @@ async function handleLogin() {
     display: flex
     align-items: center
     justify-content: center
+    flex-shrink: 0
     width: 45%
     min-height: 100vh
     background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark, #4338ca) 100%)
