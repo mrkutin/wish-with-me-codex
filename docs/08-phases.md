@@ -72,20 +72,20 @@
 
 ### Deliverables
 
-- [ ] Google OAuth setup
-- [ ] Apple OAuth setup
-- [ ] Yandex ID OAuth setup
-- [ ] Sber ID OAuth setup
-- [ ] OAuth callback handling
-- [ ] Account linking (add OAuth to existing account)
-- [ ] Social login buttons UI
-- [ ] Profile with connected accounts
+- [x] Google OAuth setup (with birthday via People API)
+- [x] Yandex ID OAuth setup (with avatar and birthday)
+- [x] OAuth callback handling
+- [x] Account linking (add OAuth to existing account)
+- [x] Account unlinking (disconnect provider)
+- [x] Social login buttons UI
+- [x] Profile with connected accounts
+- [x] Avatar download from OAuth provider
 
 ### Success Criteria
 
-- User can sign up/login with any OAuth provider
-- User can link additional providers
-- User can disconnect providers (except last one)
+- [x] User can sign up/login with Google or Yandex
+- [x] User can link additional providers to existing account
+- [x] User can disconnect providers (except last one)
 
 ---
 
