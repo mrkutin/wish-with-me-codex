@@ -173,7 +173,13 @@ function handleSubmit() {
     // For URL-based items, only send the URL
     // The backend will automatically trigger resolution
     data.source_url = formData.source_url;
-    data.title = 'Loading...'; // Temporary title until resolved
+    // Use URL hostname as temporary title until resolved
+    try {
+      const urlObj = new URL(formData.source_url!);
+      data.title = urlObj.hostname;
+    } catch {
+      data.title = formData.source_url!;
+    }
   } else {
     // For manual items, send all filled fields
     data.title = formData.title;

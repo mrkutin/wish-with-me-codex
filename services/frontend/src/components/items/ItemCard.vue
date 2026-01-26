@@ -63,7 +63,7 @@
           <!-- Status Badge -->
           <div class="q-mt-sm">
             <q-badge
-              v-if="item.status === 'resolving'"
+              v-if="item.status === 'pending' || item.status === 'resolving'"
               color="info"
               class="q-px-sm"
             >
