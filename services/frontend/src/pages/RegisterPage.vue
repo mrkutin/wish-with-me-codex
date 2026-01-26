@@ -136,24 +136,7 @@ async function handleRegister() {
 
 <style scoped lang="sass">
 .auth-page
-  min-height: 100vh
-  display: flex
-  align-items: center
-  justify-content: center
-  padding: var(--space-4)
-  background: var(--bg-primary)
-
-  // Subtle gradient background
-  &::before
-    content: ''
-    position: fixed
-    inset: 0
-    background: radial-gradient(ellipse at 50% 0%, rgba(99, 102, 241, 0.05) 0%, transparent 60%)
-    pointer-events: none
-    z-index: 0
-
-  @media (min-width: 600px)
-    padding: var(--space-6)
+  width: 100%
 
 .auth-card
   position: relative
