@@ -217,7 +217,7 @@
 
     <!-- Create wishlist dialog -->
     <q-dialog v-model="showCreateDialog">
-      <q-card style="min-width: 350px">
+      <q-card class="dialog-card">
         <q-card-section>
           <div class="text-h6">{{ $t('wishlists.create') }}</div>
         </q-card-section>
@@ -267,7 +267,7 @@
 
     <!-- Edit wishlist dialog -->
     <q-dialog v-model="showEditDialog">
-      <q-card style="min-width: 350px">
+      <q-card class="dialog-card">
         <q-card-section>
           <div class="text-h6">{{ $t('wishlists.edit') }}</div>
         </q-card-section>
@@ -525,12 +525,25 @@ onMounted(() => {
 });
 </script>
 
-<style scoped>
-.wishlist-card {
-  transition: transform 0.2s;
-}
+<style scoped lang="sass">
+.wishlist-card
+  transition: transform 0.2s, box-shadow 0.2s
+  border: 1px solid var(--border-subtle)
 
-.wishlist-card:hover {
-  transform: translateY(-4px);
-}
+  &:hover
+    transform: translateY(-2px)
+    box-shadow: var(--shadow-lg)
+
+.dialog-card
+  width: 100%
+  min-width: 320px
+  max-width: 450px
+
+  @media (max-width: 599px)
+    min-width: 90vw
+    max-width: 95vw
+
+// Dark mode
+.body--dark .wishlist-card
+  border-color: var(--border-default)
 </style>

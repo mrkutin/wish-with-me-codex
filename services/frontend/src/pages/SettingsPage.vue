@@ -1,43 +1,44 @@
 <template>
-  <q-page padding>
-    <h1 class="text-h5 q-mb-md">{{ $t('profile.settings') }}</h1>
+  <q-page class="settings-page">
+    <div class="page-container">
+      <h1 class="page-title">{{ $t('profile.settings') }}</h1>
 
-    <q-card>
-      <q-card-section>
-        <div class="text-subtitle1 q-mb-md">{{ $t('profile.language') }}</div>
-        <q-select
-          v-model="currentLocale"
-          :options="localeOptions"
-          outlined
-          emit-value
-          map-options
-        />
-      </q-card-section>
-
-      <q-separator />
-
-      <q-card-section>
-        <div class="text-subtitle1 q-mb-md">{{ $t('profile.connectedAccounts') }}</div>
-
-        <div v-if="oauthError" class="text-negative q-mb-md">
-          {{ oauthError }}
+      <!-- Language Settings -->
+      <div class="settings-card">
+        <div class="settings-section">
+          <div class="section-title">{{ $t('profile.language') }}</div>
+          <q-select
+            v-model="currentLocale"
+            :options="localeOptions"
+            outlined
+            emit-value
+            map-options
+            class="form-field"
+          />
         </div>
+      </div>
 
-        <q-list separator>
-          <q-item v-for="provider in availableProviders" :key="provider">
-            <q-item-section avatar>
-              <q-icon :name="getProviderIcon(provider)" :style="{ color: getProviderColor(provider) }" />
-            </q-item-section>
-            <q-item-section>
-              <q-item-label>{{ getProviderDisplayName(provider) }}</q-item-label>
-              <q-item-label caption v-if="getConnectedAccount(provider)">
-                {{ getConnectedAccount(provider)?.email || $t('oauth.connected') }}
-              </q-item-label>
-              <q-item-label caption v-else class="text-grey">
-                {{ $t('oauth.notConnected') }}
-              </q-item-label>
-            </q-item-section>
-            <q-item-section side>
+      <!-- Connected Accounts -->
+      <div class="settings-card">
+        <div class="settings-section">
+          <div class="section-title">{{ $t('profile.connectedAccounts') }}</div>
+
+          <div v-if="oauthError" class="error-message">
+            <q-icon name="error_outline" size="20px" />
+            <span>{{ oauthError }}</span>
+          </div>
+
+          <div class="accounts-list">
+            <div v-for="provider in availableProviders" :key="provider" class="account-item">
+              <div class="account-info">
+                <q-icon :name="getProviderIcon(provider)" :style="{ color: getProviderColor(provider) }" size="24px" />
+                <div class="account-details">
+                  <div class="account-name">{{ getProviderDisplayName(provider) }}</div>
+                  <div class="account-status" :class="{ connected: isProviderConnected(provider) }">
+                    {{ getConnectedAccount(provider)?.email || (isProviderConnected(provider) ? $t('oauth.connected') : $t('oauth.notConnected')) }}
+                  </div>
+                </div>
+              </div>
               <q-btn
                 v-if="isProviderConnected(provider)"
                 flat
@@ -46,6 +47,8 @@
                 :loading="isLoading"
                 :disable="!canUnlinkAccount"
                 @click="handleUnlink(provider)"
+                no-caps
+                class="account-btn"
               />
               <q-btn
                 v-else
@@ -53,16 +56,18 @@
                 color="primary"
                 :label="$t('oauth.connect')"
                 @click="handleLink(provider)"
+                no-caps
+                class="account-btn"
               />
-            </q-item-section>
-          </q-item>
-        </q-list>
+            </div>
+          </div>
 
-        <div v-if="!canUnlinkAccount && connectedAccounts.length === 1" class="text-caption text-grey q-mt-md">
-          {{ $t('oauth.cantUnlinkLast') }}
+          <div v-if="!canUnlinkAccount && connectedAccounts.length === 1" class="hint-text">
+            {{ $t('oauth.cantUnlinkLast') }}
+          </div>
         </div>
-      </q-card-section>
-    </q-card>
+      </div>
+    </div>
   </q-page>
 </template>
 
@@ -121,3 +126,121 @@ onMounted(async () => {
   await Promise.all([fetchAvailableProviders(), fetchConnectedAccounts()]);
 });
 </script>
+
+<style scoped lang="sass">
+.settings-page
+  min-height: 100%
+  padding: var(--space-4)
+  background: var(--bg-primary)
+
+  @media (min-width: 600px)
+    padding: var(--space-6)
+
+.page-container
+  max-width: 600px
+  margin: 0 auto
+  display: flex
+  flex-direction: column
+  gap: var(--space-6)
+
+  @media (min-width: 1024px)
+    max-width: 680px
+
+  @media (min-width: 1440px)
+    max-width: 720px
+
+.page-title
+  font-size: var(--text-h3)
+  font-weight: 700
+  color: var(--text-primary)
+  margin: 0
+  letter-spacing: -0.02em
+
+  @media (min-width: 600px)
+    font-size: var(--text-h2)
+
+.settings-card
+  background: var(--bg-primary)
+  border-radius: var(--radius-xl)
+  box-shadow: var(--shadow-lg)
+  border: 1px solid var(--border-subtle)
+  overflow: hidden
+
+.settings-section
+  padding: var(--space-6)
+
+  @media (min-width: 600px)
+    padding: var(--space-8)
+
+.section-title
+  font-size: var(--text-body)
+  font-weight: 600
+  color: var(--text-primary)
+  margin-bottom: var(--space-4)
+
+.form-field
+  margin-bottom: 0
+
+.error-message
+  display: flex
+  align-items: center
+  gap: var(--space-2)
+  padding: var(--space-3) var(--space-4)
+  background: rgba(220, 38, 38, 0.1)
+  border-radius: var(--radius-md)
+  color: #DC2626
+  font-size: var(--text-body-sm)
+  margin-bottom: var(--space-4)
+
+.accounts-list
+  display: flex
+  flex-direction: column
+  gap: var(--space-3)
+
+.account-item
+  display: flex
+  align-items: center
+  justify-content: space-between
+  padding: var(--space-4)
+  background: var(--bg-secondary)
+  border-radius: var(--radius-lg)
+  gap: var(--space-3)
+
+.account-info
+  display: flex
+  align-items: center
+  gap: var(--space-3)
+  min-width: 0
+
+.account-details
+  min-width: 0
+
+.account-name
+  font-size: var(--text-body)
+  font-weight: 500
+  color: var(--text-primary)
+
+.account-status
+  font-size: var(--text-body-sm)
+  color: var(--text-tertiary)
+
+  &.connected
+    color: var(--text-secondary)
+
+.account-btn
+  flex-shrink: 0
+
+.hint-text
+  font-size: var(--text-body-sm)
+  color: var(--text-tertiary)
+  margin-top: var(--space-4)
+
+// Dark mode
+.body--dark
+  .settings-card
+    background: var(--bg-secondary)
+    border-color: var(--border-default)
+
+  .account-item
+    background: var(--bg-tertiary)
+</style>
