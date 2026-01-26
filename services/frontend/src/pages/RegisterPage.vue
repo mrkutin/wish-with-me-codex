@@ -179,12 +179,18 @@ async function handleRegister() {
 
   // Desktop: wider form
   @media (min-width: 1024px)
-    max-width: 540px
+    max-width: 560px
     padding: var(--space-10)
 
   // Large desktop: generous sizing
   @media (min-width: 1440px)
-    max-width: 600px
+    max-width: 640px
+    padding: 48px
+
+  // Very large desktop: even more generous
+  @media (min-width: 1680px)
+    max-width: 720px
+    padding: 56px
 
 .auth-header
   text-align: center
