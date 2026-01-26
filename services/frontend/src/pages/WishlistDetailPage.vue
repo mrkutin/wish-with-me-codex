@@ -329,6 +329,23 @@ function confirmDelete() {
 
 async function createItem(data: ItemCreate) {
   const wishlistId = route.params.id as string;
+
+  // Check for duplicate URL
+  if (data.source_url) {
+    const existingItem = itemStore.items.find(
+      (item) => item.source_url === data.source_url
+    );
+    if (existingItem) {
+      showAddDialog.value = false;
+      $q.notify({
+        type: 'warning',
+        message: t('items.duplicateUrl'),
+        icon: 'info',
+      });
+      return;
+    }
+  }
+
   try {
     await itemStore.createItem(wishlistId, data);
     showAddDialog.value = false;

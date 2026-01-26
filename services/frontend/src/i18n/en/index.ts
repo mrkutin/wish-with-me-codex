@@ -84,6 +84,7 @@ export default {
     deleted: 'Item deleted',
     deleteConfirm: 'Delete item?',
     deleteMessage: 'Are you sure you want to delete "{title}"?',
+    duplicateUrl: 'This item is already in your wishlist',
   },
   profile: {
     title: 'Profile',

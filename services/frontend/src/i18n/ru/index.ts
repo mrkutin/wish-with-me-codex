@@ -84,6 +84,7 @@ export default {
     deleted: 'Товар удалён',
     deleteConfirm: 'Удалить товар?',
     deleteMessage: 'Вы уверены, что хотите удалить "{title}"?',
+    duplicateUrl: 'Этот товар уже добавлен в список желаний',
   },
   profile: {
     title: 'Профиль',
