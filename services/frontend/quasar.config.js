@@ -82,7 +82,7 @@ module.exports = configure((/* ctx */) => {
     animations: 'all',
 
     pwa: {
-      workboxMode: 'InjectManifest',
+      workboxMode: 'injectManifest',
       injectPwaMetaTags: true,
       swFilename: 'sw.js',
       manifestFilename: 'manifest.json',
