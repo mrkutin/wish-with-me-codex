@@ -183,6 +183,7 @@ async function handleLogin() {
 
   // Large desktop: two-column layout
   @media (min-width: 1200px)
+    width: 100%
     justify-content: flex-start
     align-items: stretch
     gap: 0
