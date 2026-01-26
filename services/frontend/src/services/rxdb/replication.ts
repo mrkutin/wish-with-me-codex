@@ -74,7 +74,7 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
           // Filter out conflicts where we can't find the matching doc in this batch
           return response.data.conflicts
             .map((c) => {
-              const writeRow = docs.find((d) => d.newDocumentState.id === c.document_id);
+              const writeRow = docs.find((d) => d.newDocumentState?.id === c.document_id);
               if (!writeRow) return null;
               return {
                 isError: true,
@@ -145,7 +145,7 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
           // Filter out conflicts where we can't find the matching doc in this batch
           return response.data.conflicts
             .map((c) => {
-              const writeRow = docs.find((d) => d.newDocumentState.id === c.document_id);
+              const writeRow = docs.find((d) => d.newDocumentState?.id === c.document_id);
               if (!writeRow) return null;
               return {
                 isError: true,
@@ -215,7 +215,7 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
           // Filter out conflicts where we can't find the matching doc in this batch
           return response.data.conflicts
             .map((c) => {
-              const writeRow = docs.find((d) => d.newDocumentState.id === c.document_id);
+              const writeRow = docs.find((d) => d.newDocumentState?.id === c.document_id);
               if (!writeRow) return null;
               return {
                 isError: true,
