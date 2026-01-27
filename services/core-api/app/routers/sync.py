@@ -46,6 +46,7 @@ def _wishlist_to_sync_doc(wishlist: Wishlist) -> dict:
         "name": wishlist.name,
         "description": wishlist.description,
         "is_public": wishlist.is_public,
+        "icon": wishlist.icon,
         "created_at": wishlist.created_at.isoformat(),
         "updated_at": wishlist.updated_at.isoformat(),
         "_deleted": wishlist.deleted_at is not None,
@@ -319,6 +320,7 @@ async def _push_wishlists(
                         existing.name = doc["name"]
                         existing.description = doc.get("description")
                         existing.is_public = doc.get("is_public", False)
+                        existing.icon = doc.get("icon", "card_giftcard")
                     existing.updated_at = client_updated_at
                     updated_wishlist_ids.append(doc_id)
                 else:
@@ -344,6 +346,7 @@ async def _push_wishlists(
                         name=doc["name"],
                         description=doc.get("description"),
                         is_public=doc.get("is_public", False),
+                        icon=doc.get("icon", "card_giftcard"),
                         created_at=created_at,
                         updated_at=client_updated_at,
                     ).on_conflict_do_update(
@@ -352,6 +355,7 @@ async def _push_wishlists(
                             "name": doc["name"],
                             "description": doc.get("description"),
                             "is_public": doc.get("is_public", False),
+                            "icon": doc.get("icon", "card_giftcard"),
                             "updated_at": client_updated_at,
                         },
                         where=Wishlist.updated_at < client_updated_at,
