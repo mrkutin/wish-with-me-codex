@@ -1,15 +1,17 @@
 <template>
   <q-layout view="hHh lpR fFf">
-    <BackgroundDecorations />
     <q-page-container class="auth-page-container">
-      <q-page class="flex flex-center auth-page">
-        <div class="auth-container">
-          <div class="text-center q-mb-lg">
-            <div class="text-h4 text-primary">{{ $t('common.appName') }}</div>
+      <div class="page-layout-wrapper">
+        <BackgroundDecorations />
+        <q-page class="flex flex-center auth-page">
+          <div class="auth-container">
+            <div class="text-center q-mb-lg">
+              <div class="text-h4 text-primary">{{ $t('common.appName') }}</div>
+            </div>
+            <router-view />
           </div>
-          <router-view />
-        </div>
-      </q-page>
+        </q-page>
+      </div>
     </q-page-container>
   </q-layout>
 </template>
@@ -23,16 +25,21 @@ import BackgroundDecorations from '@/components/BackgroundDecorations.vue';
 .auth-page-container
   background: var(--bg-secondary)
 
+.page-layout-wrapper
+  position: relative
+  min-height: 100vh
+  background: var(--bg-secondary)
+
 .auth-page
   position: relative
-  z-index: 1
+  z-index: 10
 
 .auth-container
   width: 100%
   max-width: 420px
   padding: 16px
   position: relative
-  z-index: 1
+  z-index: 10
 
   @media (min-width: 600px)
     max-width: 500px

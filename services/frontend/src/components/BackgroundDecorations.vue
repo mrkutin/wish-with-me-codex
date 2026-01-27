@@ -25,29 +25,24 @@
 </template>
 
 <script setup lang="ts">
-// BackgroundDecorations - subtle gift/wishlist themed decorations
-// Matching the old PWA design
+// BackgroundDecorations - matching old PWA design exactly
+// Icons positioned on left and right sides with light indigo color
 </script>
 
 <style scoped lang="sass">
 .background-decorations
-  position: fixed
+  position: absolute
   inset: 0
   overflow: hidden
   pointer-events: none
-  z-index: 0
   max-width: 1800px
   margin: 0 auto
 
 .decoration
   position: absolute
-  color: var(--decoration-color)
-  opacity: 1
+  color: #EEF2FF
 
-  .q-icon
-    font-size: 96px
-
-// Left side
+// Left side - matching old PWA positions exactly
 .decoration-left-1
   left: 2rem
   top: 15%
@@ -72,7 +67,7 @@
   .q-icon
     font-size: 64px
 
-// Right side
+// Right side - matching old PWA positions exactly
 .decoration-right-1
   right: 2rem
   top: 20%
@@ -97,14 +92,8 @@
   .q-icon
     font-size: 64px
 
-// Hide decorations on smaller screens where they would overlap content
-@media (max-width: 1200px)
-  .background-decorations
-    display: none
-
-// Dark mode - slightly reduce opacity
+// Dark mode
 .body--dark
   .decoration
-    opacity: 0.5
     color: #312E81
 </style>

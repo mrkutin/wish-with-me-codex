@@ -1,8 +1,5 @@
 <template>
-  <q-layout view="lHh Lpr lFf">
-    <!-- Background decorations -->
-    <BackgroundDecorations />
-
+  <q-layout view="lHh Lpr lFf" class="main-layout">
     <!-- Skip link for keyboard navigation -->
     <a href="#main-content" class="skip-link">Skip to main content</a>
 
@@ -151,9 +148,12 @@
     </q-drawer>
 
     <q-page-container class="page-container-main">
-      <main id="main-content" class="main-content">
-        <router-view />
-      </main>
+      <div class="page-layout-wrapper">
+        <BackgroundDecorations />
+        <main id="main-content" class="main-content">
+          <router-view />
+        </main>
+      </div>
     </q-page-container>
 
     <!-- PWA install prompt -->
@@ -311,9 +311,14 @@ function isPlaceholderAvatar(avatar: string): boolean {
 .page-container-main
   background: var(--bg-secondary)
 
+.page-layout-wrapper
+  position: relative
+  min-height: 100vh
+  background: var(--bg-secondary)
+
 .main-content
   position: relative
-  z-index: 1
+  z-index: 10
 
 .skip-link
   position: absolute
