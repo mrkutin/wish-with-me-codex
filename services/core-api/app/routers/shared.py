@@ -27,7 +27,6 @@ from app.schemas.share import (
 from app.services.bookmark import BookmarkService
 from app.services.events import publish_marks_updated_to_many
 from app.services.mark import MarkService
-from app.services.notification import notify_wishlist_accessed
 from app.services.share import ShareService
 
 router = APIRouter(prefix="/api/v1/shared", tags=["shared"])
@@ -181,21 +180,11 @@ async def get_shared_wishlist(
 
     # Save/update bookmark (only for non-owners)
     if wishlist.user_id != current_user.id:
-        _, is_first_access = await bookmark_service.save_bookmark(
+        await bookmark_service.save_bookmark(
             user_id=current_user.id,
             wishlist_id=wishlist.id,
             share_token=token,
         )
-
-        # Notify owner on first access by this user
-        if is_first_access:
-            await notify_wishlist_accessed(
-                db=db,
-                owner_id=wishlist.user_id,
-                viewer_name=current_user.name,
-                wishlist_id=wishlist.id,
-                wishlist_title=wishlist.name,
-            )
 
     # Get owner info
     owner = wishlist.user

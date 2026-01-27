@@ -14,7 +14,6 @@ from app.database import Base
 if TYPE_CHECKING:
     from app.models.bookmark import SharedWishlistBookmark
     from app.models.mark import Mark
-    from app.models.notification import Notification
     from app.models.wishlist import Wishlist
     from sqlalchemy.orm import Session
 
@@ -63,9 +62,6 @@ class User(Base):
     )
     marks: Mapped[list["Mark"]] = relationship(
         "Mark", back_populates="user", cascade="all, delete-orphan"
-    )
-    notifications: Mapped[list["Notification"]] = relationship(
-        "Notification", back_populates="user", cascade="all, delete-orphan"
     )
     shared_bookmarks: Mapped[list["SharedWishlistBookmark"]] = relationship(
         "SharedWishlistBookmark", back_populates="user", cascade="all, delete-orphan"

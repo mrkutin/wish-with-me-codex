@@ -31,7 +31,6 @@ from app.routers import (
     oauth_router,
     share_router,
     shared_router,
-    notifications_router,
     sync_router,
     events_router,
 )
@@ -106,7 +105,6 @@ app.include_router(items_router)
 app.include_router(oauth_router)
 app.include_router(share_router)
 app.include_router(shared_router)
-app.include_router(notifications_router)
 app.include_router(sync_router)
 app.include_router(events_router)
 

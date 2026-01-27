@@ -37,11 +37,6 @@ from app.schemas.share import (
     MarkCreate,
     MarkResponse,
 )
-from app.schemas.notification import (
-    NotificationResponse,
-    NotificationListResponse,
-    NotificationMarkReadRequest,
-)
 
 __all__ = [
     "UserCreate",
@@ -71,7 +66,4 @@ __all__ = [
     "SharedItemResponse",
     "MarkCreate",
     "MarkResponse",
-    "NotificationResponse",
-    "NotificationListResponse",
-    "NotificationMarkReadRequest",
 ]

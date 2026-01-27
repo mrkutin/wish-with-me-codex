@@ -25,8 +25,6 @@
         <!-- Sync status indicator -->
         <SyncStatus v-if="authStore.isAuthenticated" class="toolbar-item" />
 
-        <NotificationBell v-if="authStore.isAuthenticated" class="toolbar-item" />
-
         <q-btn
           v-if="authStore.isAuthenticated"
           flat
@@ -165,7 +163,6 @@ import { ref, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { initializeSync, cleanupSync } from '@/composables/useSync';
-import NotificationBell from '@/components/NotificationBell.vue';
 import OfflineBanner from '@/components/OfflineBanner.vue';
 import SyncStatus from '@/components/SyncStatus.vue';
 import AppInstallPrompt from '@/components/AppInstallPrompt.vue';
