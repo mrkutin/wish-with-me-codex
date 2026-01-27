@@ -20,7 +20,8 @@
 
         <q-toolbar-title class="app-title">
           <router-link :to="{ name: 'home' }" class="app-title-link">
-            {{ $t('common.appName') }}
+            <q-icon name="card_giftcard" size="24px" class="app-logo-icon" />
+            <span>{{ $t('common.appName') }}</span>
           </router-link>
         </q-toolbar-title>
 
@@ -45,13 +46,13 @@
             <q-list>
               <q-item clickable v-close-popup :to="{ name: 'profile' }">
                 <q-item-section avatar>
-                  <q-icon name="person" size="20px" />
+                  <q-icon name="person" size="20px" color="primary" />
                 </q-item-section>
                 <q-item-section>{{ $t('profile.title') }}</q-item-section>
               </q-item>
               <q-item clickable v-close-popup :to="{ name: 'settings' }">
                 <q-item-section avatar>
-                  <q-icon name="settings" size="20px" />
+                  <q-icon name="settings" size="20px" color="primary" />
                 </q-item-section>
                 <q-item-section>{{ $t('profile.settings') }}</q-item-section>
               </q-item>
@@ -86,7 +87,8 @@
         <q-list class="drawer-nav">
           <q-item-label header class="drawer-header">
             <router-link :to="{ name: 'home' }" class="drawer-header-link">
-              {{ $t('common.appName') }}
+              <q-icon name="card_giftcard" size="24px" class="drawer-logo-icon" />
+              <span>{{ $t('common.appName') }}</span>
             </router-link>
           </q-item-label>
 
@@ -98,7 +100,7 @@
             active-class="nav-item--active"
           >
             <q-item-section avatar>
-              <q-icon name="list" size="24px" />
+              <q-icon name="checklist" size="24px" color="primary" />
             </q-item-section>
             <q-item-section>
               {{ $t('wishlists.title') }}
@@ -113,7 +115,7 @@
             active-class="nav-item--active"
           >
             <q-item-section avatar>
-              <q-icon name="person" size="24px" />
+              <q-icon name="person" size="24px" color="primary" />
             </q-item-section>
             <q-item-section>
               {{ $t('profile.title') }}
@@ -128,7 +130,7 @@
             active-class="nav-item--active"
           >
             <q-item-section avatar>
-              <q-icon name="settings" size="24px" />
+              <q-icon name="settings" size="24px" color="primary" />
             </q-item-section>
             <q-item-section>
               {{ $t('profile.settings') }}
@@ -235,14 +237,19 @@ function isPlaceholderAvatar(avatar: string): boolean {
   font-weight: 700
   font-size: var(--text-h4)
   letter-spacing: -0.01em
-  color: var(--text-primary)
 
 .app-title-link
-  color: inherit
+  display: flex
+  align-items: center
+  gap: var(--space-2)
+  color: var(--primary)
   text-decoration: none
 
   &:hover
     opacity: 0.8
+
+.app-logo-icon
+  color: var(--primary)
 
 .toolbar-item
   margin-right: var(--space-2)
@@ -286,15 +293,20 @@ function isPlaceholderAvatar(avatar: string): boolean {
 .drawer-header
   font-weight: 700
   font-size: var(--text-h4)
-  color: var(--text-primary)
   padding: var(--space-6) var(--space-4) var(--space-4)
 
 .drawer-header-link
-  color: inherit
+  display: flex
+  align-items: center
+  gap: var(--space-2)
+  color: var(--primary)
   text-decoration: none
 
   &:hover
     opacity: 0.8
+
+.drawer-logo-icon
+  color: var(--primary)
 
 .drawer-nav
   flex: 1

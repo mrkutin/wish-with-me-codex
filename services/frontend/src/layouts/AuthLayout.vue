@@ -7,7 +7,8 @@
           <div class="auth-container">
             <div class="text-center q-mb-lg">
               <router-link :to="{ name: 'home' }" class="auth-logo-link">
-                <div class="text-h4 text-primary">{{ $t('common.appName') }}</div>
+                <q-icon name="card_giftcard" size="28px" color="primary" />
+                <span class="text-h4 text-primary">{{ $t('common.appName') }}</span>
               </router-link>
             </div>
             <router-view />
@@ -37,6 +38,9 @@ import BackgroundDecorations from '@/components/BackgroundDecorations.vue';
   z-index: 10
 
 .auth-logo-link
+  display: inline-flex
+  align-items: center
+  gap: 8px
   text-decoration: none
 
   &:hover
