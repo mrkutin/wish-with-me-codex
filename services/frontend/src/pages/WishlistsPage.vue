@@ -526,14 +526,6 @@ onMounted(() => {
 </script>
 
 <style scoped lang="sass">
-.wishlist-card
-  transition: transform 0.2s, box-shadow 0.2s
-  border: 1px solid var(--border-subtle)
-
-  &:hover
-    transform: translateY(-2px)
-    box-shadow: var(--shadow-lg)
-
 .dialog-card
   width: 100%
   min-width: 320px
@@ -542,8 +534,4 @@ onMounted(() => {
   @media (max-width: 599px)
     min-width: 90vw
     max-width: 95vw
-
-// Dark mode
-.body--dark .wishlist-card
-  border-color: var(--border-default)
 </style>

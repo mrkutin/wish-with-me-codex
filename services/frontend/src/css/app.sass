@@ -236,23 +236,25 @@ body
   background-color: var(--bg-secondary)
   border-color: var(--border-default)
 
-// Interactive cards (matching settings-card design)
-.wishlist-card,
-.item-card
+// Wishlist cards (matching profile-card design exactly)
+.wishlist-card
   cursor: pointer
-  background: var(--bg-primary)
-  border-radius: var(--radius-xl)
-  box-shadow: var(--shadow-lg)
-  border: 1px solid var(--border-subtle)
+  background: var(--bg-primary) !important
+  border-radius: var(--radius-xl) !important
+  box-shadow: var(--shadow-lg) !important
+  border: 1px solid var(--border-subtle) !important
   overflow: hidden
-
+  // Override q-card hover effects - profile card has no hover
   &:hover
-    transform: translateY(-2px)
-    box-shadow: var(--shadow-xl)
+    transform: none !important
+    box-shadow: var(--shadow-lg) !important
+    border-color: var(--border-subtle) !important
 
-  &:active
-    transform: translateY(0)
-    box-shadow: var(--shadow-lg)
+.body--dark .wishlist-card
+  background: var(--bg-secondary) !important
+  border-color: var(--border-default) !important
+  &:hover
+    border-color: var(--border-default) !important
 
 // ============================================
 // QUASAR DIALOG OVERRIDES
