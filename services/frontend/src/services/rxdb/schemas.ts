@@ -34,7 +34,7 @@ export interface ItemDoc {
 }
 
 export const wishlistSchema: RxJsonSchema<WishlistDoc> = {
-  version: 1,
+  version: 0,
   primaryKey: 'id',
   type: 'object',
   properties: {

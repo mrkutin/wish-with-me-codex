@@ -68,17 +68,10 @@ export async function getDatabase(): Promise<WishWithMeDatabase> {
     ignoreDuplicate: true,
   });
 
-  // Create collections with migration strategies
+  // Create collections
   await db.addCollections({
     wishlists: {
       schema: wishlistSchema,
-      migrationStrategies: {
-        // Migration from version 0 to 1: add icon field
-        1: (oldDoc) => {
-          oldDoc.icon = oldDoc.icon || 'card_giftcard';
-          return oldDoc;
-        },
-      },
     },
     items: {
       schema: itemSchema,
