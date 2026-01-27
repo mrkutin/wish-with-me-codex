@@ -66,8 +66,12 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
     push: {
       async handler(docs) {
         try {
+          // Filter out docs without newDocumentState (shouldn't happen, but safety check)
+          const validDocs = docs.filter((d) => d.newDocumentState != null);
+          if (validDocs.length === 0) return [];
+
           const response = await api.post<PushResponse>('/api/v1/sync/push/wishlists', {
-            documents: docs.map((d) => d.newDocumentState),
+            documents: validDocs.map((d) => d.newDocumentState),
           });
           // Notify user about conflicts (server wins)
           notifyConflict(response.data.conflicts);
@@ -137,8 +141,12 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
     push: {
       async handler(docs) {
         try {
+          // Filter out docs without newDocumentState (shouldn't happen, but safety check)
+          const validDocs = docs.filter((d) => d.newDocumentState != null);
+          if (validDocs.length === 0) return [];
+
           const response = await api.post<PushResponse>('/api/v1/sync/push/items', {
-            documents: docs.map((d) => d.newDocumentState),
+            documents: validDocs.map((d) => d.newDocumentState),
           });
           // Notify user about conflicts (server wins)
           notifyConflict(response.data.conflicts);
@@ -207,8 +215,12 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
     push: {
       async handler(docs) {
         try {
+          // Filter out docs without newDocumentState (shouldn't happen, but safety check)
+          const validDocs = docs.filter((d) => d.newDocumentState != null);
+          if (validDocs.length === 0) return [];
+
           const response = await api.post<PushResponse>('/api/v1/sync/push/marks', {
-            documents: docs.map((d) => d.newDocumentState),
+            documents: validDocs.map((d) => d.newDocumentState),
           });
           // Notify user about conflicts (server wins)
           notifyConflict(response.data.conflicts);
