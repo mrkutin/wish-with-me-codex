@@ -17,5 +17,5 @@ import {Notify,Dialog,Loading,LocalStorage,SessionStorage,BottomSheet} from 'qua
 
 
 
-export default { config: {"brand":{"primary":"#6366f1","secondary":"#26A69A","accent":"#9C27B0","dark":"#1d1d1d","positive":"#1a9f38","negative":"#C10015","info":"#31CCEC","warning":"#F2C037"},"notify":{"position":"top","timeout":3000},"loading":{"spinnerColor":"primary"}},plugins: {Notify,Dialog,Loading,LocalStorage,SessionStorage,BottomSheet} }
+export default { config: {"brand":{"primary":"#4F46E5","secondary":"#26A69A","accent":"#9C27B0","dark":"#1d1d1d","positive":"#1a9f38","negative":"#C10015","info":"#31CCEC","warning":"#F2C037"},"notify":{"position":"top","timeout":3000},"loading":{"spinnerColor":"primary"}},plugins: {Notify,Dialog,Loading,LocalStorage,SessionStorage,BottomSheet} }
 

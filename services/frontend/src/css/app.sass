@@ -64,20 +64,23 @@
   --ease-in: cubic-bezier(0.4, 0, 1, 1)
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1)
 
-  // Light mode colors
+  // Light mode colors (matching old PWA design)
   --bg-primary: #FFFFFF
-  --bg-secondary: #F8FAFC
-  --bg-tertiary: #F1F5F9
-  --text-primary: #0F172A
-  --text-secondary: #475569
-  --text-tertiary: #94A3B8
-  --border-default: #E2E8F0
-  --border-subtle: #F1F5F9
+  --bg-secondary: #F9FAFB
+  --bg-tertiary: #F3F4F6
+  --text-primary: #111827
+  --text-secondary: #6B7280
+  --text-tertiary: #9CA3AF
+  --border-default: #E5E7EB
+  --border-subtle: rgba(229, 231, 235, 0.5)
 
-  // Primary color variants
-  --primary: #6366F1
-  --primary-dark: #4F46E5
-  --primary-light: #EEF2FF
+  // Primary color variants (indigo from old PWA)
+  --primary: #4F46E5
+  --primary-dark: #4338CA
+  --primary-light: #6366F1
+
+  // Decoration color for background icons
+  --decoration-color: #EEF2FF
 
   // Safe areas
   --safe-area-inset-top: env(safe-area-inset-top, 0px)
@@ -168,7 +171,7 @@ body
   &.q-btn--flat,
   &.q-btn--outline
     &:hover
-      background-color: rgba(99, 102, 241, 0.08)
+      background-color: rgba(79, 70, 229, 0.08)
 
   &.q-btn--outline
     border-width: 1.5px
@@ -223,10 +226,11 @@ body
   border-radius: var(--radius-lg)
   box-shadow: var(--shadow-sm)
   border: 1px solid var(--border-subtle)
-  transition: box-shadow var(--duration-fast) var(--ease-out), transform var(--duration-fast) var(--ease-out)
+  transition: box-shadow var(--duration-fast) var(--ease-out), transform var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out)
 
   &:hover
     box-shadow: var(--shadow-md)
+    border-color: rgba(79, 70, 229, 0.2)
 
 .body--dark .q-card
   background-color: var(--bg-secondary)
@@ -274,7 +278,7 @@ body
   transition: background-color var(--duration-fast)
 
   &.q-item--active
-    background-color: rgba(99, 102, 241, 0.1)
+    background-color: rgba(79, 70, 229, 0.1)
     color: var(--primary)
 
 // ============================================
@@ -359,7 +363,7 @@ body
   letter-spacing: -0.02em
   line-height: 1.2
   margin-bottom: var(--space-4)
-  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%)
+  background: linear-gradient(135deg, var(--primary-light) 0%, var(--primary) 100%)
   -webkit-background-clip: text
   -webkit-text-fill-color: transparent
   background-clip: text
@@ -452,7 +456,7 @@ body
 // UTILITY CLASSES - TEXT
 // ============================================
 .text-gradient
-  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%)
+  background: linear-gradient(135deg, var(--primary-light) 0%, var(--primary) 100%)
   -webkit-background-clip: text
   -webkit-text-fill-color: transparent
   background-clip: text

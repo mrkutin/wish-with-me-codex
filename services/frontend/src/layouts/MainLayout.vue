@@ -1,5 +1,8 @@
 <template>
   <q-layout view="lHh Lpr lFf">
+    <!-- Background decorations -->
+    <BackgroundDecorations />
+
     <!-- Skip link for keyboard navigation -->
     <a href="#main-content" class="skip-link">Skip to main content</a>
 
@@ -147,8 +150,8 @@
       </div>
     </q-drawer>
 
-    <q-page-container>
-      <main id="main-content">
+    <q-page-container class="page-container-main">
+      <main id="main-content" class="main-content">
         <router-view />
       </main>
     </q-page-container>
@@ -166,6 +169,7 @@ import { initializeSync, cleanupSync } from '@/composables/useSync';
 import OfflineBanner from '@/components/OfflineBanner.vue';
 import SyncStatus from '@/components/SyncStatus.vue';
 import AppInstallPrompt from '@/components/AppInstallPrompt.vue';
+import BackgroundDecorations from '@/components/BackgroundDecorations.vue';
 
 const authStore = useAuthStore();
 const router = useRouter();
@@ -240,7 +244,7 @@ function isPlaceholderAvatar(avatar: string): boolean {
     background: var(--bg-tertiary)
 
 .user-avatar
-  background: var(--primary-light)
+  background: rgba(79, 70, 229, 0.1)
   color: var(--primary)
   border: none
   box-shadow: none
@@ -290,7 +294,7 @@ function isPlaceholderAvatar(avatar: string): boolean {
     color: var(--text-primary)
 
   &--active
-    background: rgba(99, 102, 241, 0.1)
+    background: rgba(79, 70, 229, 0.1)
     color: var(--primary)
 
     .q-icon
@@ -303,6 +307,13 @@ function isPlaceholderAvatar(avatar: string): boolean {
 .logout-item
   &:hover
     background: rgba(220, 38, 38, 0.08)
+
+.page-container-main
+  background: var(--bg-secondary)
+
+.main-content
+  position: relative
+  z-index: 1
 
 .skip-link
   position: absolute
@@ -332,5 +343,5 @@ function isPlaceholderAvatar(avatar: string): boolean {
     background: var(--bg-secondary)
 
   .user-avatar
-    background: rgba(99, 102, 241, 0.2)
+    background: rgba(79, 70, 229, 0.2)
 </style>
