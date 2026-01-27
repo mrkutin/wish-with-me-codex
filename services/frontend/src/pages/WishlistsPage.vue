@@ -526,13 +526,45 @@ onMounted(() => {
 </script>
 
 <style scoped lang="sass">
+// Page title with ribbon underline decoration
+.text-h5
+  position: relative
+  display: inline-block
+
+  &::after
+    content: ''
+    position: absolute
+    bottom: -4px
+    left: 0
+    width: 50px
+    height: 3px
+    background: linear-gradient(90deg, var(--gift-coral-400), var(--gift-gold-400))
+    border-radius: 2px
+
 .wishlist-card
   transition: transform 0.2s, box-shadow 0.2s
   border: 1px solid var(--border-subtle)
+  position: relative
+  overflow: hidden
+
+  // Subtle shimmer on hover
+  &::before
+    content: ''
+    position: absolute
+    top: 0
+    left: -100%
+    width: 50%
+    height: 100%
+    background: linear-gradient(90deg, transparent, rgba(251, 191, 36, 0.06), transparent)
+    transition: left 0.5s ease
+    pointer-events: none
 
   &:hover
     transform: translateY(-2px)
     box-shadow: var(--shadow-lg)
+
+    &::before
+      left: 100%
 
 .dialog-card
   width: 100%
@@ -546,4 +578,7 @@ onMounted(() => {
 // Dark mode
 .body--dark .wishlist-card
   border-color: var(--border-default)
+
+  &::before
+    background: linear-gradient(90deg, transparent, rgba(251, 191, 36, 0.03), transparent)
 </style>

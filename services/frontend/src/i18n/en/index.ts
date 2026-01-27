@@ -140,6 +140,7 @@ export default {
   sharing: {
     share: 'Share',
     shareWishlist: 'Share Wishlist',
+    sharedWishlist: 'Shared Wishlist',
     createLink: 'Create Link',
     linkType: 'Link type',
     linkTypeMark: 'Can mark items',

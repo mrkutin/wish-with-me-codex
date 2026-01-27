@@ -1,5 +1,9 @@
 <template>
   <q-layout view="lHh Lpr lFf">
+    <!-- Gift-themed background and decorations -->
+    <AppBackground />
+    <CornerDecorations />
+
     <!-- Skip link for keyboard navigation -->
     <a href="#main-content" class="skip-link">Skip to main content</a>
 
@@ -166,6 +170,8 @@ import { initializeSync, cleanupSync } from '@/composables/useSync';
 import OfflineBanner from '@/components/OfflineBanner.vue';
 import SyncStatus from '@/components/SyncStatus.vue';
 import AppInstallPrompt from '@/components/AppInstallPrompt.vue';
+import AppBackground from '@/components/AppBackground.vue';
+import CornerDecorations from '@/components/CornerDecorations.vue';
 
 const authStore = useAuthStore();
 const router = useRouter();

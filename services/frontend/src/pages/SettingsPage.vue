@@ -165,6 +165,18 @@ onMounted(async () => {
   box-shadow: var(--shadow-lg)
   border: 1px solid var(--border-subtle)
   overflow: hidden
+  position: relative
+
+  // Gradient top border decoration
+  &::before
+    content: ''
+    position: absolute
+    top: 0
+    left: 0
+    right: 0
+    height: 3px
+    background: linear-gradient(90deg, var(--gift-coral-400) 0%, var(--gift-gold-400) 50%, var(--gift-coral-400) 100%)
+    opacity: 0.6
 
 .settings-section
   padding: var(--space-6)
