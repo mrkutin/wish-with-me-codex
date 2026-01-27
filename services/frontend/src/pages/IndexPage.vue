@@ -26,11 +26,11 @@
               <div class="phone-wishlist">
                 <div class="wishlist-card-mini">
                   <q-icon name="checklist" size="20px" color="primary" />
-                  <span>Birthday Wishlist</span>
+                  <span>{{ $t('home.phoneBirthdayWishlist') }}</span>
                 </div>
                 <div class="wishlist-card-mini">
                   <q-icon name="celebration" size="20px" color="primary" />
-                  <span>New Year Gifts</span>
+                  <span>{{ $t('home.phoneNewYearGifts') }}</span>
                 </div>
               </div>
             </div>
@@ -59,7 +59,7 @@
                 <q-icon name="add_circle" size="48px" color="primary" />
               </div>
             </div>
-            <div class="step-badge">{{ $t('common.create').toUpperCase() }} 1</div>
+            <div class="step-badge">{{ $t('home.step') }} 1</div>
             <h3 class="step-title">{{ $t('home.step1Title') }}</h3>
             <p class="step-desc">{{ $t('home.step1Desc') }}</p>
           </div>
@@ -69,7 +69,7 @@
                 <q-icon name="share" size="48px" color="primary" />
               </div>
             </div>
-            <div class="step-badge">{{ $t('common.create').toUpperCase() }} 2</div>
+            <div class="step-badge">{{ $t('home.step') }} 2</div>
             <h3 class="step-title">{{ $t('home.step2Title') }}</h3>
             <p class="step-desc">{{ $t('home.step2Desc') }}</p>
           </div>
@@ -79,7 +79,7 @@
                 <q-icon name="celebration" size="48px" color="primary" />
               </div>
             </div>
-            <div class="step-badge">{{ $t('common.create').toUpperCase() }} 3</div>
+            <div class="step-badge">{{ $t('home.step') }} 3</div>
             <h3 class="step-title">{{ $t('home.step3Title') }}</h3>
             <p class="step-desc">{{ $t('home.step3Desc') }}</p>
           </div>
@@ -122,15 +122,15 @@
           <div class="chat-bubbles">
             <div class="chat-bubble chat-question">
               <q-icon name="help_outline" size="20px" />
-              <span>What to give?</span>
+              <span>{{ $t('home.chatQuestion') }}</span>
             </div>
             <div class="chat-bubble chat-answer">
               <q-icon name="link" size="20px" />
-              <span>Here's my wishlist!</span>
+              <span>{{ $t('home.chatAnswer') }}</span>
             </div>
             <div class="chat-bubble chat-happy">
               <q-icon name="favorite" size="20px" />
-              <span>Perfect!</span>
+              <span>{{ $t('home.chatHappy') }}</span>
             </div>
           </div>
         </div>
@@ -156,19 +156,19 @@
         <div class="wishlists-showcase">
           <div class="showcase-card">
             <div class="showcase-emoji">&#127873;</div>
-            <span>Birthday</span>
+            <span>{{ $t('home.showcaseBirthday') }}</span>
           </div>
           <div class="showcase-card">
             <div class="showcase-emoji">&#127876;</div>
-            <span>New Year</span>
+            <span>{{ $t('home.showcaseNewYear') }}</span>
           </div>
           <div class="showcase-card">
             <div class="showcase-emoji">&#127968;</div>
-            <span>Housewarming</span>
+            <span>{{ $t('home.showcaseHousewarming') }}</span>
           </div>
           <div class="showcase-card">
             <div class="showcase-emoji">&#128144;</div>
-            <span>Wedding</span>
+            <span>{{ $t('home.showcaseWedding') }}</span>
           </div>
         </div>
       </div>

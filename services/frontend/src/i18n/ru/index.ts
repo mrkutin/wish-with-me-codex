@@ -18,6 +18,20 @@ export default {
     benefit3Title: 'Собери все желания в одном месте',
     benefit3Desc: 'Больше не придётся вспоминать, куда ты сохранил желаемое. Создавай неограниченное количество списков!',
     finalCta: 'Создать список желаний',
+    // Phone mockup
+    phoneBirthdayWishlist: 'Список на день рождения',
+    phoneNewYearGifts: 'Подарки на Новый год',
+    // Step badges
+    step: 'ШАГ',
+    // Chat bubbles
+    chatQuestion: 'Что подарить?',
+    chatAnswer: 'Вот мой вишлист!',
+    chatHappy: 'Отлично!',
+    // Showcase cards
+    showcaseBirthday: 'День рождения',
+    showcaseNewYear: 'Новый год',
+    showcaseHousewarming: 'Новоселье',
+    showcaseWedding: 'Свадьба',
   },
   common: {
     appName: 'Wish With Me',

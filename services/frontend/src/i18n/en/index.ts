@@ -18,6 +18,20 @@ export default {
     benefit3Title: 'Keep all your wishes in one place',
     benefit3Desc: 'No more forgetting where you saved that thing. Create unlimited wishlists!',
     finalCta: 'Create your wishlist',
+    // Phone mockup
+    phoneBirthdayWishlist: 'Birthday Wishlist',
+    phoneNewYearGifts: 'New Year Gifts',
+    // Step badges
+    step: 'STEP',
+    // Chat bubbles
+    chatQuestion: 'What to give?',
+    chatAnswer: "Here's my wishlist!",
+    chatHappy: 'Perfect!',
+    // Showcase cards
+    showcaseBirthday: 'Birthday',
+    showcaseNewYear: 'New Year',
+    showcaseHousewarming: 'Housewarming',
+    showcaseWedding: 'Wedding',
   },
   common: {
     appName: 'Wish With Me',
