@@ -1,6 +1,5 @@
 <template>
   <div class="auth-page">
-    <AuthDecorations />
     <div class="auth-card">
       <!-- Header -->
       <div class="auth-header">
@@ -84,7 +83,6 @@ import { useAuthStore } from '@/stores/auth';
 import { useI18n } from 'vue-i18n';
 import { LocalStorage } from 'quasar';
 import SocialLoginButtons from '@/components/SocialLoginButtons.vue';
-import AuthDecorations from '@/components/AuthDecorations.vue';
 
 const PENDING_SHARE_TOKEN_KEY = 'pending_share_token';
 

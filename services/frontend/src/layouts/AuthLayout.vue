@@ -1,8 +1,5 @@
 <template>
   <q-layout view="hHh lpR fFf">
-    <!-- Gift-themed background -->
-    <AppBackground />
-
     <q-page-container>
       <q-page class="flex flex-center">
         <div class="auth-container">
@@ -17,7 +14,7 @@
 </template>
 
 <script setup lang="ts">
-import AppBackground from '@/components/AppBackground.vue';
+// Auth layout - centered content for login/register pages
 </script>
 
 <style lang="sass" scoped>

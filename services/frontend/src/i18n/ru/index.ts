@@ -140,7 +140,6 @@ export default {
   sharing: {
     share: 'Поделиться',
     shareWishlist: 'Поделиться вишлистом',
-    sharedWishlist: 'Общий вишлист',
     createLink: 'Создать ссылку',
     linkType: 'Тип ссылки',
     linkTypeMark: 'Можно отмечать',

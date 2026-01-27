@@ -1,17 +1,5 @@
 <template>
-  <q-page padding class="shared-wishlist-page">
-    <!-- Gift-themed banner for shared wishlist -->
-    <div class="shared-banner" aria-hidden="true">
-      <svg class="gift-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <rect x="3" y="11" width="18" height="11" rx="2" stroke="currentColor" stroke-width="1.5"/>
-        <rect x="1" y="7" width="22" height="5" rx="1" stroke="currentColor" stroke-width="1.5"/>
-        <path d="M12 7V22" stroke="currentColor" stroke-width="1.5"/>
-        <path d="M12 7C12 7 12 4 9 4C6 4 6 7 9 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-        <path d="M12 7C12 7 12 4 15 4C18 4 18 7 15 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-      </svg>
-      <span class="banner-text">{{ $t('sharing.sharedWishlist') }}</span>
-    </div>
-
+  <q-page padding>
     <q-pull-to-refresh @refresh="handleRefresh">
     <!-- Loading skeleton -->
     <div v-if="isLoading">
@@ -309,40 +297,3 @@ onUnmounted(() => {
   window.removeEventListener('sse:marks-updated', handleMarksUpdated);
 });
 </script>
-
-<style scoped lang="sass">
-.shared-wishlist-page
-  position: relative
-
-.shared-banner
-  display: flex
-  align-items: center
-  justify-content: center
-  gap: var(--space-2)
-  padding: var(--space-3) var(--space-4)
-  margin: calc(-1 * var(--space-4)) calc(-1 * var(--space-4)) var(--space-4) calc(-1 * var(--space-4))
-  background: linear-gradient(135deg, var(--gift-coral-50) 0%, var(--gift-peach-50) 50%, var(--gift-coral-50) 100%)
-  border-bottom: 2px solid var(--gift-coral-100)
-
-.gift-icon
-  width: 24px
-  height: 24px
-  color: var(--gift-coral-400)
-
-.banner-text
-  font-size: var(--text-body-sm)
-  font-weight: 500
-  color: var(--gift-coral-500)
-
-// Dark mode
-.body--dark
-  .shared-banner
-    background: linear-gradient(135deg, rgba(251, 113, 133, 0.08) 0%, rgba(251, 191, 36, 0.05) 50%, rgba(251, 113, 133, 0.08) 100%)
-    border-bottom-color: rgba(251, 113, 133, 0.15)
-
-  .gift-icon
-    color: var(--gift-coral-400)
-
-  .banner-text
-    color: var(--gift-coral-400)
-</style>
