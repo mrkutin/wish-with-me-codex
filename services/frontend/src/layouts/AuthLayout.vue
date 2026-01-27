@@ -6,7 +6,9 @@
         <q-page class="flex flex-center auth-page">
           <div class="auth-container">
             <div class="text-center q-mb-lg">
-              <div class="text-h4 text-primary">{{ $t('common.appName') }}</div>
+              <router-link :to="{ name: 'index' }" class="auth-logo-link">
+                <div class="text-h4 text-primary">{{ $t('common.appName') }}</div>
+              </router-link>
             </div>
             <router-view />
           </div>
@@ -33,6 +35,12 @@ import BackgroundDecorations from '@/components/BackgroundDecorations.vue';
 .auth-page
   position: relative
   z-index: 10
+
+.auth-logo-link
+  text-decoration: none
+
+  &:hover
+    opacity: 0.8
 
 .auth-container
   width: 100%

@@ -19,7 +19,9 @@
         />
 
         <q-toolbar-title class="app-title">
-          {{ $t('common.appName') }}
+          <router-link :to="{ name: 'index' }" class="app-title-link">
+            {{ $t('common.appName') }}
+          </router-link>
         </q-toolbar-title>
 
         <!-- Sync status indicator -->
@@ -83,7 +85,9 @@
       <div class="drawer-content">
         <q-list class="drawer-nav">
           <q-item-label header class="drawer-header">
-            {{ $t('common.appName') }}
+            <router-link :to="{ name: 'index' }" class="drawer-header-link">
+              {{ $t('common.appName') }}
+            </router-link>
           </q-item-label>
 
           <q-item
@@ -233,6 +237,13 @@ function isPlaceholderAvatar(avatar: string): boolean {
   letter-spacing: -0.01em
   color: var(--text-primary)
 
+.app-title-link
+  color: inherit
+  text-decoration: none
+
+  &:hover
+    opacity: 0.8
+
 .toolbar-item
   margin-right: var(--space-2)
 
@@ -277,6 +288,13 @@ function isPlaceholderAvatar(avatar: string): boolean {
   font-size: var(--text-h4)
   color: var(--text-primary)
   padding: var(--space-6) var(--space-4) var(--space-4)
+
+.drawer-header-link
+  color: inherit
+  text-decoration: none
+
+  &:hover
+    opacity: 0.8
 
 .drawer-nav
   flex: 1
