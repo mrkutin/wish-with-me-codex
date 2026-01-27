@@ -519,6 +519,7 @@ const authStore = useAuthStore();
 
 // Wishlists showcase
 .wishlists-showcase
+  grid-column: 1 / -1
   display: flex
   flex-wrap: wrap
   gap: var(--space-4)
