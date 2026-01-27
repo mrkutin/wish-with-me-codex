@@ -19,7 +19,7 @@
         />
 
         <q-toolbar-title class="app-title">
-          <router-link :to="{ name: 'index' }" class="app-title-link">
+          <router-link :to="{ name: 'home' }" class="app-title-link">
             {{ $t('common.appName') }}
           </router-link>
         </q-toolbar-title>
@@ -85,7 +85,7 @@
       <div class="drawer-content">
         <q-list class="drawer-nav">
           <q-item-label header class="drawer-header">
-            <router-link :to="{ name: 'index' }" class="drawer-header-link">
+            <router-link :to="{ name: 'home' }" class="drawer-header-link">
               {{ $t('common.appName') }}
             </router-link>
           </q-item-label>

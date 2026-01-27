@@ -6,7 +6,7 @@
         <q-page class="flex flex-center auth-page">
           <div class="auth-container">
             <div class="text-center q-mb-lg">
-              <router-link :to="{ name: 'index' }" class="auth-logo-link">
+              <router-link :to="{ name: 'home' }" class="auth-logo-link">
                 <div class="text-h4 text-primary">{{ $t('common.appName') }}</div>
               </router-link>
             </div>
