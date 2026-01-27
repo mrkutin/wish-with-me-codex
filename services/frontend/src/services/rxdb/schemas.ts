@@ -10,6 +10,7 @@ export interface WishlistDoc {
   name: string;
   description: string | null;
   is_public: boolean;
+  icon: string;
   created_at: string;
   updated_at: string;
   _deleted: boolean;
@@ -55,6 +56,11 @@ export const wishlistSchema: RxJsonSchema<WishlistDoc> = {
     },
     is_public: {
       type: 'boolean',
+    },
+    icon: {
+      type: 'string',
+      maxLength: 50,
+      default: 'card_giftcard',
     },
     created_at: {
       type: 'string',

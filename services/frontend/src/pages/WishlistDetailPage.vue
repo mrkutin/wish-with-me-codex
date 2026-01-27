@@ -35,8 +35,9 @@
     <div v-else-if="wishlistStore.currentWishlist">
       <!-- Header -->
       <div class="row items-center justify-between q-mb-md">
-        <div class="col">
+        <div class="col row items-center no-wrap">
           <q-btn flat dense icon="arrow_back" aria-label="Go back" @click="goBack" class="q-mr-md" />
+          <q-icon :name="wishlistStore.currentWishlist.icon || 'card_giftcard'" size="28px" color="primary" class="q-mr-sm" />
           <span class="text-h5">{{ wishlistStore.currentWishlist.name }}</span>
         </div>
         <div>

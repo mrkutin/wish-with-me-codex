@@ -63,7 +63,10 @@
               <q-card class="wishlist-card cursor-pointer" @click="openWishlist(wishlist.id)">
                 <q-card-section>
                   <div class="row items-start justify-between">
-                    <div class="text-h6">{{ wishlist.name }}</div>
+                    <div class="row items-center no-wrap">
+                      <q-icon :name="wishlist.icon || 'card_giftcard'" size="24px" color="primary" class="q-mr-sm" />
+                      <div class="text-h6">{{ wishlist.name }}</div>
+                    </div>
                     <q-btn
                       flat
                       dense
@@ -135,7 +138,10 @@
             <q-card class="wishlist-card cursor-pointer" @click="openSharedWishlist(bookmark.share_token)">
               <q-card-section>
                 <div class="row items-start justify-between">
-                  <div class="text-h6">{{ bookmark.wishlist.title }}</div>
+                  <div class="row items-center no-wrap">
+                    <q-icon :name="bookmark.wishlist.icon || 'card_giftcard'" size="24px" color="primary" class="q-mr-sm" />
+                    <div class="text-h6">{{ bookmark.wishlist.title }}</div>
+                  </div>
                   <q-btn
                     flat
                     dense
@@ -204,6 +210,24 @@
             rows="3"
             class="q-mt-md"
           />
+
+          <!-- Icon picker -->
+          <div class="q-mt-md">
+            <div class="text-caption q-mb-sm">{{ $t('wishlists.chooseIcon') }}</div>
+            <div class="row q-gutter-sm">
+              <q-btn
+                v-for="icon in iconOptions"
+                :key="icon.value"
+                :icon="icon.value"
+                :color="newWishlist.icon === icon.value ? 'primary' : 'grey-5'"
+                round
+                flat
+                size="md"
+                @click="newWishlist.icon = icon.value"
+              />
+            </div>
+          </div>
+
           <q-checkbox
             v-model="newWishlist.is_public"
             :label="$t('wishlists.isPublic')"
@@ -253,6 +277,24 @@
             rows="3"
             class="q-mt-md"
           />
+
+          <!-- Icon picker -->
+          <div class="q-mt-md">
+            <div class="text-caption q-mb-sm">{{ $t('wishlists.chooseIcon') }}</div>
+            <div class="row q-gutter-sm">
+              <q-btn
+                v-for="icon in iconOptions"
+                :key="icon.value"
+                :icon="icon.value"
+                :color="editingWishlist.icon === icon.value ? 'primary' : 'grey-5'"
+                round
+                flat
+                size="md"
+                @click="editingWishlist.icon = icon.value"
+              />
+            </div>
+          </div>
+
           <q-checkbox
             v-model="editingWishlist.is_public"
             :label="$t('wishlists.isPublic')"
@@ -300,16 +342,33 @@ const sharingWishlist = ref<Wishlist | null>(null);
 const sharedBookmarks = ref<SharedWishlistBookmark[]>([]);
 const isLoadingBookmarks = ref(false);
 
+const iconOptions = [
+  { value: 'card_giftcard', label: 'Gift' },
+  { value: 'checklist', label: 'Checklist' },
+  { value: 'celebration', label: 'Celebration' },
+  { value: 'cake', label: 'Birthday' },
+  { value: 'favorite', label: 'Favorite' },
+  { value: 'star', label: 'Star' },
+  { value: 'redeem', label: 'Redeem' },
+  { value: 'shopping_bag', label: 'Shopping' },
+  { value: 'home', label: 'Home' },
+  { value: 'flight', label: 'Travel' },
+  { value: 'child_care', label: 'Kids' },
+  { value: 'pets', label: 'Pets' },
+];
+
 const newWishlist = reactive({
   name: '',
   description: '',
   is_public: false,
+  icon: 'card_giftcard',
 });
 const editingWishlist = reactive({
   id: '',
   name: '',
   description: '',
   is_public: false,
+  icon: 'card_giftcard',
 });
 
 async function fetchBookmarks() {
@@ -342,11 +401,13 @@ async function createWishlist() {
       name: newWishlist.name,
       description: newWishlist.description || null,
       is_public: newWishlist.is_public,
+      icon: newWishlist.icon,
     });
     showCreateDialog.value = false;
     newWishlist.name = '';
     newWishlist.description = '';
     newWishlist.is_public = false;
+    newWishlist.icon = 'card_giftcard';
     $q.notify({
       type: 'positive',
       message: t('wishlists.created'),
@@ -364,6 +425,7 @@ function editWishlist(wishlist: Wishlist) {
   editingWishlist.name = wishlist.name;
   editingWishlist.description = wishlist.description || '';
   editingWishlist.is_public = wishlist.is_public;
+  editingWishlist.icon = wishlist.icon || 'card_giftcard';
   showEditDialog.value = true;
 }
 
@@ -373,6 +435,7 @@ async function updateWishlist() {
       name: editingWishlist.name,
       description: editingWishlist.description || null,
       is_public: editingWishlist.is_public,
+      icon: editingWishlist.icon,
     });
     showEditDialog.value = false;
     $q.notify({

@@ -60,6 +60,7 @@ class WishlistService:
             name=data.name,
             description=data.description,
             is_public=data.is_public,
+            icon=data.icon,
         )
         self.db.add(wishlist)
         await self.db.flush()

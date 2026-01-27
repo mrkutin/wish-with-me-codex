@@ -61,6 +61,7 @@ async def list_bookmarks(
                 id=wishlist.id,
                 title=wishlist.name,
                 description=wishlist.description,
+                icon=wishlist.icon,
                 owner=OwnerPublicProfile(
                     id=owner.id,
                     name=owner.name,
@@ -233,6 +234,7 @@ async def get_shared_wishlist(
             id=wishlist.id,
             title=wishlist.name,
             description=wishlist.description,
+            icon=wishlist.icon,
             owner=owner_profile,
             item_count=item_count,
         ),

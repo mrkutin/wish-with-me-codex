@@ -69,6 +69,7 @@ class SharedWishlistInfo(BaseModel):
     id: UUID
     title: str
     description: str | None
+    icon: str = "card_giftcard"
     owner: OwnerPublicProfile
     item_count: int
 

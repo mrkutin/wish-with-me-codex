@@ -100,6 +100,7 @@ export default {
     removeBookmarkConfirm: 'Удалить общий вишлист?',
     removeBookmarkMessage: 'Вы уверены, что хотите удалить "{name}" из ваших общих вишлистов?',
     bookmarkRemoved: 'Вишлист удалён из вашего списка',
+    chooseIcon: 'Выберите иконку',
   },
   items: {
     title: 'Товары',

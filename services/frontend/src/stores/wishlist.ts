@@ -42,6 +42,7 @@ export const useWishlistStore = defineStore('wishlist', () => {
       name: doc.name,
       description: doc.description,
       is_public: doc.is_public,
+      icon: doc.icon || 'card_giftcard',
       created_at: doc.created_at,
       updated_at: doc.updated_at,
     };
@@ -141,6 +142,7 @@ export const useWishlistStore = defineStore('wishlist', () => {
         name: data.name,
         description: data.description || null,
         is_public: data.is_public || false,
+        icon: data.icon || 'card_giftcard',
         created_at: now,
         updated_at: now,
         _deleted: false,
