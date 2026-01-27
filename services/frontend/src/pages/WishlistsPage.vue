@@ -58,7 +58,7 @@
         </div>
 
         <!-- Wishlist grid -->
-        <div v-else class="row q-col-gutter-lg wishlist-grid">
+        <div v-else class="row q-col-gutter-md">
           <div
             v-for="wishlist in wishlistStore.wishlists"
             :key="wishlist.id"
@@ -160,7 +160,7 @@
         </div>
 
         <!-- Shared wishlists grid -->
-        <div v-else class="row q-col-gutter-lg wishlist-grid">
+        <div v-else class="row q-col-gutter-md">
           <div
             v-for="bookmark in sharedBookmarks"
             :key="bookmark.id"
@@ -526,20 +526,6 @@ onMounted(() => {
 </script>
 
 <style scoped lang="sass">
-// Allow shadows to render fully
-.wishlist-grid
-  overflow: visible
-  padding: 8px
-  margin: -8px
-
-// Ensure q-slide-item doesn't clip shadows
-:deep(.q-slide-item)
-  overflow: visible
-
-// Tab panels must allow overflow
-:deep(.q-tab-panel)
-  overflow: visible
-
 .dialog-card
   width: 100%
   min-width: 320px
