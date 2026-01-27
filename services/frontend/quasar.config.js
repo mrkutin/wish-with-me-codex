@@ -88,9 +88,9 @@ module.exports = configure((/* ctx */) => {
       manifestFilename: 'manifest.json',
       useCredentialsForManifestTag: false,
       manifest: {
-        name: 'Wish With Me',
-        short_name: 'WishWithMe',
-        description: 'Create and share wishlists with friends',
+        name: 'Wish With Me — Create & Share Wishlists',
+        short_name: 'Wish With Me',
+        description: 'Create wishlists, share with friends, get perfect gifts! Free wishlist app that works offline.',
         display: 'standalone',
         orientation: 'portrait',
         background_color: '#ffffff',
