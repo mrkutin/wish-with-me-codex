@@ -31,25 +31,9 @@
     <!-- My Wishlists Tab -->
     <q-tab-panels v-model="activeTab" animated>
       <q-tab-panel name="my" class="q-pa-none">
-        <!-- Loading skeleton -->
-        <div v-if="wishlistStore.isLoading && wishlistStore.wishlists.length === 0" class="row q-col-gutter-md">
-          <div v-for="n in 3" :key="n" class="col-12 col-sm-6 col-md-4">
-            <q-card>
-              <q-card-section>
-                <q-skeleton type="text" width="60%" class="text-h6" />
-                <q-skeleton type="text" width="100%" class="q-mt-sm" />
-                <q-skeleton type="text" width="80%" />
-              </q-card-section>
-              <q-card-section>
-                <q-skeleton type="text" width="40%" />
-              </q-card-section>
-            </q-card>
-          </div>
-        </div>
-
         <!-- Empty state -->
         <div
-          v-else-if="wishlistStore.wishlists.length === 0"
+          v-if="wishlistStore.wishlists.length === 0"
           class="flex flex-center column q-pa-xl"
         >
           <q-icon name="list" size="64px" color="grey-5" />
@@ -131,27 +115,9 @@
 
       <!-- Shared With Me Tab -->
       <q-tab-panel name="shared" class="q-pa-none">
-        <!-- Loading skeleton -->
-        <div v-if="isLoadingBookmarks" class="row q-col-gutter-md">
-          <div v-for="n in 3" :key="n" class="col-12 col-sm-6 col-md-4">
-            <q-card>
-              <q-card-section>
-                <q-skeleton type="text" width="60%" class="text-h6" />
-                <div class="row items-center q-mt-sm">
-                  <q-skeleton type="QAvatar" size="24px" class="q-mr-sm" />
-                  <q-skeleton type="text" width="40%" />
-                </div>
-              </q-card-section>
-              <q-card-section>
-                <q-skeleton type="text" width="30%" />
-              </q-card-section>
-            </q-card>
-          </div>
-        </div>
-
         <!-- Empty state -->
         <div
-          v-else-if="sharedBookmarks.length === 0"
+          v-if="sharedBookmarks.length === 0"
           class="flex flex-center column q-pa-xl"
         >
           <q-icon name="people" size="64px" color="grey-5" />
