@@ -84,7 +84,7 @@ const authStore = useAuthStore();
 <style scoped lang="sass">
 .index-page
   min-height: 100vh
-  background: var(--bg-primary)
+  background: transparent
 
 .hero-section
   position: relative

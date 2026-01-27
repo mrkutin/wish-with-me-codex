@@ -131,7 +131,7 @@ onMounted(async () => {
 .settings-page
   min-height: 100%
   padding: var(--space-4)
-  background: var(--bg-primary)
+  background: transparent
 
   @media (min-width: 600px)
     padding: var(--space-6)
