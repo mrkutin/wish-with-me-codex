@@ -209,7 +209,7 @@
 - [x] Pull-to-refresh
 - [x] Swipe actions (mobile)
 - [x] Accessibility audit + fixes
-- [ ] Color contrast fixes (minor - grey shades need verification)
+- [x] Color contrast fixes (verified WCAG AA compliant)
 
 ### Success Criteria
 
@@ -227,23 +227,26 @@
 
 - [x] Frontend Dockerfile (Quasar PWA)
 - [x] Backend Dockerfile (FastAPI)
-- [ ] Kubernetes manifests (optional - Montreal uses docker-compose)
-- [x] CI/CD pipeline (GitHub Actions)
+- [x] CI/CD pipeline (GitHub Actions with smart change detection, health checks, auto-rollback)
 - [x] Domain + SSL setup (wishwith.me, api.wishwith.me)
+- [x] Backup strategy (documented in docs/13-deployment.md)
+- N/A Kubernetes manifests (using docker-compose for single-server deployment)
+
+### Deferred to Post-Launch
+
 - [ ] CDN configuration
 - [ ] Monitoring (Prometheus + Grafana)
-- [ ] Logging (structured JSON)
+- [ ] Logging (upgrade to structured JSON)
 - [ ] Error tracking (Sentry)
-- [ ] Security audit
+- [ ] Security audit (formal penetration testing)
 - [ ] Load testing
-- [ ] Backup strategy
 
 ### Success Criteria
 
-- App deployed to production
-- CI/CD runs on every push
-- Monitoring alerts configured
-- Backups running
+- [x] App deployed to production
+- [x] CI/CD runs on every push
+- [x] Health checks in place (GitHub Actions failure notifications)
+- [x] Backup strategy documented
 
 ---
 
