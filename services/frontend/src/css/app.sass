@@ -236,18 +236,23 @@ body
   background-color: var(--bg-secondary)
   border-color: var(--border-default)
 
-// Interactive cards
+// Interactive cards (matching settings-card design)
 .wishlist-card,
 .item-card
   cursor: pointer
+  background: var(--bg-primary)
+  border-radius: var(--radius-xl)
+  box-shadow: var(--shadow-lg)
+  border: 1px solid var(--border-subtle)
+  overflow: hidden
 
   &:hover
     transform: translateY(-2px)
-    box-shadow: var(--shadow-lg)
+    box-shadow: var(--shadow-xl)
 
   &:active
     transform: translateY(0)
-    box-shadow: var(--shadow-md)
+    box-shadow: var(--shadow-lg)
 
 // ============================================
 // QUASAR DIALOG OVERRIDES
