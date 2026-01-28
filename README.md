@@ -29,7 +29,9 @@ Access services at:
 
 ### Production Deployment
 
-**Production Server: Montreal (158.69.203.3)**
+**Split Server Architecture:**
+- **Ubuntu Server (176.106.144.182)**: Main app (nginx, frontend, core-api x2, postgres, redis)
+- **Montreal Server (158.69.203.3)**: Item resolver (nginx, item-resolver x2)
 
 Deployment happens **automatically** when you push to `main`:
 
@@ -38,15 +40,19 @@ git push origin main
 ```
 
 GitHub Actions will:
-1. Deploy to Montreal server (**158.69.203.3**)
+1. Deploy to appropriate server(s) based on changed files
 2. Detect which services changed
-3. Rebuild only changed services on Montreal
-4. Run health checks on Montreal
+3. Rebuild only changed services
+4. Run health checks
 5. Automatically rollback on failure
 
-**Always test on Montreal after deployment:**
+**Check deployment status:**
 ```bash
-ssh montreal "cd /home/ubuntu/wish-with-me-codex && docker-compose logs -f"
+# Ubuntu server (main app)
+ssh ubuntu@176.106.144.182 "cd /home/ubuntu/wish-with-me-codex && docker-compose -f docker-compose.ubuntu.yml ps"
+
+# Montreal server (item-resolver)
+ssh ubuntu@158.69.203.3 "cd /home/ubuntu/wish-with-me-codex && docker-compose -f docker-compose.montreal.yml ps"
 ```
 
 See [docs/13-deployment.md](./docs/13-deployment.md) for details.
@@ -54,33 +60,36 @@ See [docs/13-deployment.md](./docs/13-deployment.md) for details.
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────┐
-│  Internet                                       │
-└─────────────────┬───────────────────────────────┘
-                  │
-            Nginx (443/80)
-                  │
-      ┌───────────┼───────────┐
-      │           │           │
-  Frontend    Core API    Item Resolver
-   (Vue)      (FastAPI)   (FastAPI+Playwright)
-              │           │
-              ├───────────┘
-              │
-        ┌─────┴─────┐
-   PostgreSQL     Redis
+                    Internet
+                        │
+    ┌───────────────────┼───────────────────┐
+    │                   │                   │
+Ubuntu Server (176.106.144.182)    Montreal Server (158.69.203.3)
+    │                                       │
+Nginx (443/80) ip_hash             Nginx (8001) least_conn
+    │                                       │
+┌───┼───┬──────────────┐            ┌───────┼───────┐
+│       │              │            │       │       │
+Frontend Core-API-1  Core-API-2    IR-1   IR-2
+(Vue)   (FastAPI)    (FastAPI)  (Playwright) (Playwright)
+            │            │
+            └──────┬─────┘
+                   │
+            ┌──────┴──────┐
+       PostgreSQL      Redis
+                    (SSE pub/sub)
 ```
 
 ### Services
 
-| Service | Description | Tech Stack |
-|---------|-------------|------------|
-| **Frontend** | Offline-first PWA | Vue 3 + Quasar + RxDB |
-| **Core API** | REST API + Auth | FastAPI + SQLAlchemy |
-| **Item Resolver** | URL metadata extraction | FastAPI + Playwright |
-| **PostgreSQL** | Primary database | PostgreSQL 16 |
-| **Redis** | Cache + sessions | Redis 7 |
-| **Nginx** | Reverse proxy (prod) | Nginx Alpine |
+| Service | Instances | Server | Description |
+|---------|-----------|--------|-------------|
+| **Frontend** | 1 | Ubuntu | Offline-first PWA (Vue 3 + Quasar + RxDB) |
+| **Core API** | 2 | Ubuntu | REST API + Auth (FastAPI + SQLAlchemy) |
+| **Item Resolver** | 2 | Montreal | URL metadata extraction (FastAPI + Playwright) |
+| **PostgreSQL** | 1 | Ubuntu | Primary database (PostgreSQL 16) |
+| **Redis** | 1 | Ubuntu | Cache, sessions, SSE pub/sub (Redis 7) |
+| **Nginx** | 2 | Both | Load balancer, reverse proxy (Nginx Alpine) |
 
 ## Project Structure
 
@@ -215,11 +224,16 @@ mypy .
 ### Logs
 
 ```bash
-# All services
+# All services (local development)
 docker-compose logs -f
 
-# Specific service
-docker logs wishwithme-core-api --tail=100 -f
+# Production - Ubuntu server
+docker logs wishwithme-core-api-1 --tail=100 -f
+docker logs wishwithme-core-api-2 --tail=100 -f
+
+# Production - Montreal server
+docker logs wishwithme-item-resolver-1 --tail=100 -f
+docker logs wishwithme-item-resolver-2 --tail=100 -f
 ```
 
 ### Metrics
@@ -259,11 +273,11 @@ docker-compose exec core-api alembic downgrade -1
 ### Debug Commands
 
 ```bash
-# Enter container shell
-docker exec -it wishwithme-core-api bash
+# Enter container shell (use core-api-1 or core-api-2)
+docker exec -it wishwithme-core-api-1 bash
 
 # Check container health
-docker inspect --format='{{json .State.Health}}' wishwithme-core-api | jq
+docker inspect --format='{{json .State.Health}}' wishwithme-core-api-1 | jq
 
 # View network
 docker network inspect wishwithme-network
@@ -276,18 +290,21 @@ docker system prune -a
 
 ### GitHub Actions Workflows
 
-- **deploy.yml**: Unified deployment workflow
-  - Auto-detects changed services
-  - Deploys only what changed
-  - Runs health checks
+- **deploy-ubuntu.yml**: Deploys frontend, core-api to Ubuntu server (176.106.144.182)
+- **deploy-montreal.yml**: Deploys item-resolver to Montreal server (158.69.203.3)
+
+Both workflows:
+  - Auto-detect changed services
+  - Deploy only what changed
+  - Run health checks
   - Auto-rollback on failure
 
-### Required GitHub Secret
+### Required GitHub Secrets
 
-Only 1 secret needed:
-- `SSH_PRIVATE_KEY`: Ed25519 key for server access
+- `SSH_PRIVATE_KEY_UBUNTU`: Ed25519 key for Ubuntu server access
+- `SSH_PRIVATE_KEY`: Ed25519 key for Montreal server access
 
-All other secrets stored in `.env` on server.
+All other secrets stored in `.env` on each server.
 
 ### Manual Deployment
 

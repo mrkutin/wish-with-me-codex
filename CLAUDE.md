@@ -101,7 +101,8 @@ Once review is approved:
 3. **CRITICAL**: Test on production servers:
    - SSH to Ubuntu: `ssh ubuntu@176.106.144.182` (for frontend, core-api)
    - SSH to Montreal: `ssh ubuntu@158.69.203.3` (for item-resolver)
-   - Check logs: `docker logs wishwithme-core-api --tail=100`
+   - Check logs: `docker logs wishwithme-core-api-1 --tail=100` and `docker logs wishwithme-core-api-2 --tail=100`
+   - Check item-resolver: `docker logs wishwithme-item-resolver-1 --tail=100` and `docker logs wishwithme-item-resolver-2 --tail=100`
    - Verify functionality works as expected
    - **IMPORTANT**: Test everything yourself before saying it's done. Use curl, API calls, and log checks to verify functionality actually works end-to-end.
 4. If tests fail, return to Step 4 (FIX)
@@ -198,15 +199,17 @@ When writing tests:
 **Ubuntu Server (Main Application):**
 - **IP Address**: 176.106.144.182
 - **User**: ubuntu
-- **Domain**: wishwith.me
-- **Services**: nginx, frontend, core-api, postgres, redis
+- **Domain**: wishwith.me, api.wishwith.me
+- **Services**: nginx (load balancer), frontend, core-api-1, core-api-2, postgres, redis
+- **Load Balancing**: nginx uses `ip_hash` for SSE sticky sessions
 - **Docker Compose**: `docker-compose.ubuntu.yml`
 
 **Montreal Server (Item Resolver Only):**
 - **IP Address**: 158.69.203.3
 - **User**: ubuntu
-- **Access**: Via IP only (no domain)
-- **Services**: item-resolver
+- **Access**: Via IP only (no domain), port 8001
+- **Services**: nginx (load balancer), item-resolver-1, item-resolver-2
+- **Load Balancing**: nginx uses `least_conn` for distributing requests
 - **Docker Compose**: `docker-compose.montreal.yml`
 
 ### Testing Location (ALWAYS)
@@ -216,7 +219,7 @@ When writing tests:
 - SSH: `ssh ubuntu@176.106.144.182`
 - Navigate: `cd /home/ubuntu/wish-with-me-codex`
 - Check logs: `docker-compose -f docker-compose.ubuntu.yml logs -f`
-- Check service: `docker logs wishwithme-core-api --tail=100`
+- Check service: `docker logs wishwithme-core-api-1 --tail=100` or `docker logs wishwithme-core-api-2 --tail=100`
 - Verify status: `docker-compose -f docker-compose.ubuntu.yml ps`
 - Test health: `curl -sf https://wishwith.me/health`
 
@@ -239,9 +242,12 @@ When writing tests:
    - Manual: `gh workflow run deploy-montreal.yml`
 
 **Split Architecture:**
-- `docker-compose.ubuntu.yml` - Main app (frontend, core-api, postgres, redis, nginx)
-- `docker-compose.montreal.yml` - Item resolver only
+- `docker-compose.ubuntu.yml` - Main app (frontend, core-api-1, core-api-2, postgres, redis, nginx)
+- `docker-compose.montreal.yml` - Item resolver (nginx, item-resolver-1, item-resolver-2)
 - Core API connects to item-resolver via: `http://158.69.203.3:8001`
+- SSE uses Redis pub/sub for cross-instance communication
+- nginx uses `ip_hash` for SSE sticky sessions on Ubuntu
+- nginx uses `least_conn` for item-resolver on Montreal
 - Services on Ubuntu use shared network: `wishwithme-network`
 
 See `docs/13-deployment.md` for full deployment documentation.

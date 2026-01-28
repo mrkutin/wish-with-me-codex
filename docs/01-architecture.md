@@ -48,24 +48,35 @@ C4Container
         ContainerDb(idb, "RxDB", "IndexedDB + Reactive", "Offline data with reactive queries and replication")
     }
 
-    Container_Boundary(backend_boundary, "Backend Services") {
-        Container(api, "Core API", "Python, FastAPI", "REST API for all business logic")
-        Container(resolver, "Item Resolver", "Python, FastAPI, Playwright", "Resolves marketplace URLs to item data")
+    Container_Boundary(ubuntu_boundary, "Ubuntu Server (176.106.144.182)") {
+        Container(nginx_ubuntu, "Nginx", "Load Balancer", "HTTPS termination, ip_hash for SSE sticky sessions")
+        Container(api1, "Core API 1", "Python, FastAPI", "REST API instance 1")
+        Container(api2, "Core API 2", "Python, FastAPI", "REST API instance 2")
+        ContainerDb(postgres, "PostgreSQL", "PostgreSQL 16", "Primary data store")
+        ContainerDb(redis, "Redis", "Redis 7", "Sessions, caching, SSE pub/sub")
     }
 
-    Container_Boundary(data_boundary, "Data Layer") {
-        ContainerDb(postgres, "PostgreSQL", "PostgreSQL 16", "Primary data store")
-        ContainerDb(redis, "Redis", "Redis 7", "Sessions, caching, rate limiting")
+    Container_Boundary(montreal_boundary, "Montreal Server (158.69.203.3)") {
+        Container(nginx_montreal, "Nginx", "Load Balancer", "least_conn load balancing on port 8001")
+        Container(resolver1, "Item Resolver 1", "Python, FastAPI, Playwright", "URL resolver instance 1")
+        Container(resolver2, "Item Resolver 2", "Python, FastAPI, Playwright", "URL resolver instance 2")
     }
 
     Rel(user, pwa, "Uses", "HTTPS")
     Rel(pwa, sw, "Registers")
     Rel(sw, idb, "Reads/Writes")
     Rel(pwa, idb, "Reads/Writes")
-    Rel(pwa, api, "API calls", "HTTPS/REST")
-    Rel(api, postgres, "Reads/Writes", "SQL")
-    Rel(api, redis, "Sessions/Cache", "Redis Protocol")
-    Rel(api, resolver, "Resolves URLs", "HTTPS/REST")
+    Rel(pwa, nginx_ubuntu, "API calls", "HTTPS/REST")
+    Rel(nginx_ubuntu, api1, "Load balanced", "HTTP")
+    Rel(nginx_ubuntu, api2, "Load balanced", "HTTP")
+    Rel(api1, postgres, "Reads/Writes", "SQL")
+    Rel(api2, postgres, "Reads/Writes", "SQL")
+    Rel(api1, redis, "Sessions/Cache/Pub-Sub", "Redis Protocol")
+    Rel(api2, redis, "Sessions/Cache/Pub-Sub", "Redis Protocol")
+    Rel(api1, nginx_montreal, "Resolves URLs", "HTTP")
+    Rel(api2, nginx_montreal, "Resolves URLs", "HTTP")
+    Rel(nginx_montreal, resolver1, "Load balanced", "HTTP")
+    Rel(nginx_montreal, resolver2, "Load balanced", "HTTP")
 ```
 
 ### 1.3 Component Interaction Flow
@@ -181,5 +192,6 @@ sequenceDiagram
 - JWT token blocklist (for logout/revocation)
 - Session storage for OAuth state
 - Rate limiting
+- SSE event pub/sub (enables real-time updates across multiple core-api instances)
 - In-app notification pub/sub
 - Caching (item resolution results)

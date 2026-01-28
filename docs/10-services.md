@@ -12,6 +12,11 @@ The Item Resolver is a microservice that extracts product information from marke
 
 **Location**: `/services/item-resolver/`
 
+**Deployment**: Montreal server (158.69.203.3)
+- 2 instances load balanced by nginx using `least_conn`
+- Exposed on port 8001
+- Each instance has 1 CPU and 2GB memory limit
+
 **Stack**:
 - Python 3.12
 - FastAPI
@@ -172,6 +177,7 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 - JWT token blocklist (for logout/revocation)
 - Rate limiting counters
 - Session storage
+- SSE event pub/sub (enables real-time updates across multiple core-api instances)
 - Temporary data cache
 
 ### 2.2 Key Patterns
@@ -182,6 +188,7 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 | `rate:{ip}:{endpoint}` | Rate limit counters | 1 min |
 | `session:{session_id}` | User sessions | 30 days |
 | `resolve:{url_hash}` | Cached item resolutions | 24 hours |
+| `sse:events:{user_id}` | SSE event pub/sub channel | N/A (pub/sub) |
 
 ### 2.3 Configuration
 
@@ -290,8 +297,72 @@ alembic downgrade -1
 
 ## 4. Service Dependencies
 
+### 4.1 Production Architecture (Split Servers)
+
+**Ubuntu Server (docker-compose.ubuntu.yml)**:
 ```yaml
-# docker-compose.yml
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    # Uses ip_hash for SSE sticky sessions
+
+  core-api-1:
+    build: ./services/core-api
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://user:pass@postgres:5432/wishwithme
+      - REDIS_URL=redis://redis:6379/0
+      - ITEM_RESOLVER_URL=http://158.69.203.3:8001  # Montreal server
+
+  core-api-2:
+    build: ./services/core-api
+    # Same config as core-api-1
+
+  frontend:
+    build: ./services/frontend
+
+  postgres:
+    image: postgres:16-alpine
+
+  redis:
+    image: redis:7-alpine
+```
+
+**Montreal Server (docker-compose.montreal.yml)**:
+```yaml
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8001:8001"
+    # Uses least_conn for load balancing
+
+  item-resolver-1:
+    build: ./services/item-resolver
+    environment:
+      - RU_BEARER_TOKEN=${RU_BEARER_TOKEN}
+      - LLM_MODE=live
+      - LLM_BASE_URL=${LLM_BASE_URL}
+      - LLM_API_KEY=${LLM_API_KEY}
+      - LLM_MODEL=gpt-4o-mini
+    shm_size: '1gb'
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+
+  item-resolver-2:
+    build: ./services/item-resolver
+    # Same config as item-resolver-1
+```
+
+### 4.2 Local Development (docker-compose.yml)
+
+```yaml
+# docker-compose.yml - for local development (all services on one machine)
 
 version: '3.8'
 

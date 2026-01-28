@@ -1,18 +1,30 @@
-# Unified Docker Compose CI/CD Architecture
+# Split Server Docker Compose CI/CD Architecture
 
-## Production Server
+## Production Servers
 
-**PRODUCTION SERVER IS ALWAYS MONTREAL:**
-- **Hostname**: 158.69.203.3
-- **SSH Alias**: montreal
+**Application is deployed across TWO servers:**
+
+### Ubuntu Server (Main Application)
+- **IP Address**: 176.106.144.182
 - **User**: ubuntu
 - **Path**: /home/ubuntu/wish-with-me-codex
-- **Deployment**: Automatic on push to `main` branch
-- **Testing**: Always test on this server after deployment
+- **Domain**: wishwith.me, api.wishwith.me
+- **Services**: nginx (load balancer), frontend, core-api-1, core-api-2, postgres, redis
+- **Docker Compose**: `docker-compose.ubuntu.yml`
+- **Deployment**: Automatic via `deploy-ubuntu.yml` workflow
+
+### Montreal Server (Item Resolver)
+- **IP Address**: 158.69.203.3
+- **User**: ubuntu
+- **Path**: /home/ubuntu/wish-with-me-codex
+- **Access**: Via IP only (port 8001)
+- **Services**: nginx (load balancer), item-resolver-1, item-resolver-2
+- **Docker Compose**: `docker-compose.montreal.yml`
+- **Deployment**: Automatic via `deploy-montreal.yml` workflow
 
 ## Overview
 
-This document describes the unified docker-compose based CI/CD architecture implemented for Wish With Me, which deploys automatically to the Montreal production server.
+This document describes the split docker-compose based CI/CD architecture implemented for Wish With Me, which deploys automatically to both production servers based on which files changed.
 
 ## Problems Solved
 
@@ -24,66 +36,69 @@ This document describes the unified docker-compose based CI/CD architecture impl
 5. **Port Exposure**: All services exposed ports in production
 6. **No Reverse Proxy**: Direct access to services
 
-### After
-1. **Unified Configuration**: Single docker-compose.yml for all services
-2. **Internal Network**: All services on same bridge network
-3. **Minimal Secrets**: Only 1 GitHub secret (SSH_PRIVATE_KEY)
-4. **Automated Coordination**: One workflow auto-detects changes
-5. **Production Isolation**: No exposed ports except nginx
-6. **Nginx Reverse Proxy**: Production-grade routing layer
+### After (Current Architecture)
+1. **Split Server Architecture**: Two servers (Ubuntu + Montreal), each with its own docker-compose
+2. **Load Balanced Services**: 2 core-api instances + 2 item-resolver instances
+3. **Minimal Secrets**: Only 2 GitHub secrets (SSH keys for each server)
+4. **Split Workflows**: Two workflows deploy to appropriate server based on changes
+5. **Production Isolation**: No exposed ports except nginx on each server
+6. **Redis Pub/Sub**: SSE events work across multiple core-api instances
 
 ## Architecture Diagram
 
 ```
-┌────────────────────────────────────────────────────────┐
-│                     Internet                           │
-└───────────────────────┬────────────────────────────────┘
-                        │
-                  Port 443/80
-                        │
-                 ┌──────▼──────┐
-                 │    Nginx    │  Reverse Proxy
-                 │  (Production)│  SSL Termination
-                 └──────┬──────┘  Rate Limiting
-                        │
-        ┌───────────────┼───────────────┐
-        │               │               │
-  ┌─────▼─────┐   ┌────▼────┐   ┌──────▼──────┐
-  │ Frontend  │   │Core API │   │Item Resolver│
-  │  (Vue 3)  │   │(FastAPI)│   │  (FastAPI)  │
-  │  Port 80  │   │Port 8000│   │  Port 8000  │
-  └───────────┘   └────┬────┘   └──────┬──────┘
-                       │                │
-                  ┌────┴────┐      ┌────┴────┐
-                  │         │      │         │
-             ┌────▼───┐ ┌───▼────┐│         │
-             │Postgres│ │ Redis  ││         │
-             │Port 5432│ │Port 6379│         │
-             └─────────┘ └────────┘          │
-                                              │
-                    All on wishwithme-network │
-                                              │
-└─────────────────────────────────────────────┘
+                         Internet
+                             │
+         ┌───────────────────┼───────────────────┐
+         │                   │                   │
+Ubuntu Server (176.106.144.182)       Montreal Server (158.69.203.3)
+         │                                       │
+   Nginx (443/80)                         Nginx (8001)
+   ip_hash for SSE                        least_conn
+         │                                       │
+    ┌────┴────┬────────────────┐         ┌──────┴──────┐
+    │         │                │         │             │
+Frontend  Core-API-1      Core-API-2   IR-1         IR-2
+ (Vue)    (FastAPI)       (FastAPI)  (Playwright) (Playwright)
+              │                │
+              └────────┬───────┘
+                       │
+              ┌────────┴────────┐
+              │                 │
+         PostgreSQL          Redis
+         (5432)         (6379, SSE pub/sub)
+              │                 │
+              └─────────────────┘
+                 wishwithme-network
+
+Key Features:
+- 2 core-api instances load balanced by nginx (ip_hash for SSE sticky sessions)
+- 2 item-resolver instances load balanced by nginx (least_conn)
+- SSE uses Redis pub/sub for cross-instance event delivery
+- Core API connects to Item Resolver via http://158.69.203.3:8001
 ```
 
 ## File Structure
 
 ```
 wish-with-me-codex/
-├── docker-compose.yml           # Base configuration (dev + prod)
-├── docker-compose.prod.yml      # Production overrides
+├── docker-compose.yml           # Local development configuration
+├── docker-compose.ubuntu.yml    # Ubuntu server (main app) production
+├── docker-compose.montreal.yml  # Montreal server (item-resolver) production
 ├── .env.example                 # Environment template
 ├── .env                         # Production secrets (not in git)
 │
 ├── nginx/
-│   ├── nginx.conf               # Nginx configuration
-│   ├── ssl/                     # SSL certificates
+│   ├── nginx.conf               # Nginx config for Ubuntu server
+│   ├── nginx.montreal.conf      # Nginx config for Montreal server
+│   ├── ssl/                     # SSL certificates (Ubuntu only)
 │   │   ├── fullchain.pem        # Let's Encrypt cert
 │   │   └── privkey.pem          # Private key
 │   └── README.md                # SSL setup guide
 │
 ├── .github/workflows/
-│   └── deploy.yml               # Unified deployment workflow
+│   ├── deploy-ubuntu.yml        # Deploys to Ubuntu (frontend, core-api)
+│   └── deploy-montreal.yml      # Deploys to Montreal (item-resolver)
 │
 ├── services/
 │   ├── frontend/
@@ -318,16 +333,21 @@ docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ### Logging
 
 ```bash
-# All services
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs -f
+# Ubuntu server - all services
+docker-compose -f docker-compose.ubuntu.yml logs -f
 
-# Specific service
-docker logs wishwithme-core-api --tail=100 -f
+# Ubuntu server - specific service (use core-api-1 or core-api-2)
+docker logs wishwithme-core-api-1 --tail=100 -f
+docker logs wishwithme-core-api-2 --tail=100 -f
 
-# Nginx access logs
+# Montreal server - item-resolver
+docker logs wishwithme-item-resolver-1 --tail=100 -f
+docker logs wishwithme-item-resolver-2 --tail=100 -f
+
+# Nginx access logs (Ubuntu)
 docker exec wishwithme-nginx tail -f /var/log/nginx/access.log
 
-# Nginx error logs
+# Nginx error logs (Ubuntu)
 docker exec wishwithme-nginx tail -f /var/log/nginx/error.log
 ```
 

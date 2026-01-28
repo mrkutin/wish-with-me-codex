@@ -12,16 +12,18 @@
 - **IP Address**: 176.106.144.182
 - **User**: ubuntu
 - **Location**: /home/ubuntu/wish-with-me-codex
-- **Domain**: wishwith.me (points to this server)
-- **Services**: nginx, frontend, core-api, postgres, redis
+- **Domain**: wishwith.me, api.wishwith.me (points to this server)
+- **Services**: nginx (load balancer), frontend, core-api-1, core-api-2, postgres, redis
+- **Load Balancing**: nginx uses `ip_hash` for SSE sticky sessions
 - **SSH Key Secret**: `SSH_PRIVATE_KEY_UBUNTU`
 
 ### Montreal Server (Item Resolver Only)
 - **IP Address**: 158.69.203.3
 - **User**: ubuntu
 - **Location**: /home/ubuntu/wish-with-me-codex
-- **Access**: Via IP only (no domain)
-- **Services**: item-resolver
+- **Access**: Via IP only (no domain), port 8001
+- **Services**: nginx (load balancer on port 8001), item-resolver-1, item-resolver-2
+- **Load Balancing**: nginx uses `least_conn` for distributing requests
 - **SSH Key Secret**: `SSH_PRIVATE_KEY`
 
 **DEPLOYMENT IS ALWAYS:**
@@ -41,8 +43,8 @@ The application uses separate docker-compose files for each server:
 
 | Server | Docker Compose File | Services |
 |--------|---------------------|----------|
-| Ubuntu (176.106.144.182) | `docker-compose.ubuntu.yml` | nginx, frontend, core-api, postgres, redis |
-| Montreal (158.69.203.3) | `docker-compose.montreal.yml` | item-resolver |
+| Ubuntu (176.106.144.182) | `docker-compose.ubuntu.yml` | nginx, frontend, core-api-1, core-api-2, postgres, redis |
+| Montreal (158.69.203.3) | `docker-compose.montreal.yml` | nginx, item-resolver-1, item-resolver-2 |
 
 **Key Change**: Core API connects to item-resolver via Montreal's external IP (`http://158.69.203.3:8001`) instead of internal Docker network.
 
@@ -69,14 +71,15 @@ gh run watch
 
 ### 1.3 Components
 
-| Component | Container | Server | External Access |
-|-----------|-----------|--------|-----------------|
-| Nginx (reverse proxy) | `wishwithme-nginx` | Ubuntu | 80, 443 (wishwith.me) |
+| Component | Container(s) | Server | External Access |
+|-----------|--------------|--------|-----------------|
+| Nginx (reverse proxy) | `wishwithme-nginx` | Ubuntu | 80, 443 (wishwith.me, api.wishwith.me) |
 | Frontend (Quasar PWA) | `wishwithme-frontend` | Ubuntu | Via nginx |
-| Core API (FastAPI) | `wishwithme-core-api` | Ubuntu | Via nginx (api.wishwith.me) |
+| Core API (FastAPI) | `wishwithme-core-api-1`, `wishwithme-core-api-2` | Ubuntu | Via nginx (api.wishwith.me), load balanced |
 | PostgreSQL | `wishwithme-postgres` | Ubuntu | Internal only |
 | Redis | `wishwithme-redis` | Ubuntu | Internal only |
-| Item Resolver | `wishwithme-item-resolver` | Montreal | 8001 (IP access) |
+| Nginx (load balancer) | `wishwithme-nginx` | Montreal | 8001 (IP access) |
+| Item Resolver | `wishwithme-item-resolver-1`, `wishwithme-item-resolver-2` | Montreal | Via nginx on port 8001 |
 
 ### 1.4 Service Communication
 
@@ -84,20 +87,29 @@ gh run watch
 Internet
     ↓
 Ubuntu Server (176.106.144.182)               Montreal Server (158.69.203.3)
-┌────────────────────────────────┐       ┌─────────────────────────────┐
-│ Nginx (443/80)                 │       │                             │
-│     ↓                          │       │                             │
-│ ┌─────────┬──────────────┐     │       │   Item Resolver:8001        │
-│ │         │              │     │       │   (accessible via IP)       │
-│ Frontend  Core API:8000  │     │       │                             │
-│           │              │     │       └─────────────────────────────┘
-│           ↓              │     │                    ↑
-│       Postgres:5432      │     │                    │
-│           │              │     │                    │
-│       Redis:6379         │     │    HTTP calls to   │
-│           │              │─────┼────────────────────┘
-│           └──────────────┘     │    158.69.203.3:8001
-└────────────────────────────────┘
+┌──────────────────────────────────────┐  ┌─────────────────────────────────────┐
+│ Nginx (443/80) - ip_hash LB          │  │ Nginx (8001) - least_conn LB        │
+│     ↓                                │  │     ↓                               │
+│ ┌─────────┬───────────────────────┐  │  │ ┌─────────────┬─────────────────┐   │
+│ │         │                       │  │  │ │             │                 │   │
+│ │Frontend │   Core API (2x)       │  │  │ │ Item        │ Item            │   │
+│ │         │   ┌─────────────────┐ │  │  │ │ Resolver-1  │ Resolver-2      │   │
+│ │         │   │ core-api-1     ├─┼──┼──┼─┤             │                 │   │
+│ │         │   │ core-api-2     │ │  │  │ │ (Playwright)│ (Playwright)    │   │
+│ │         │   └────────┬────────┘ │  │  │ └─────────────┴─────────────────┘   │
+│ │         │            │          │  │  └─────────────────────────────────────┘
+│ │         │            ↓          │  │
+│ │         │   Redis:6379 (pub/sub)│  │
+│ │         │            │          │  │
+│ │         │            ↓          │  │
+│ │         │   Postgres:5432       │  │
+│ └─────────┴───────────────────────┘  │
+└──────────────────────────────────────┘
+
+Key Features:
+- SSE uses Redis pub/sub for cross-instance communication
+- nginx ip_hash ensures SSE connections stick to same core-api instance
+- nginx least_conn distributes item-resolver requests evenly
 ```
 
 ---
@@ -116,8 +128,9 @@ cd /home/ubuntu/wish-with-me-codex
 # Check all service logs
 docker-compose -f docker-compose.ubuntu.yml logs -f
 
-# Check specific service
-docker logs wishwithme-core-api --tail=100
+# Check specific service (note: 2 core-api instances)
+docker logs wishwithme-core-api-1 --tail=100
+docker logs wishwithme-core-api-2 --tail=100
 docker logs wishwithme-frontend --tail=100
 docker logs wishwithme-nginx --tail=100
 
@@ -137,8 +150,10 @@ cd /home/ubuntu/wish-with-me-codex
 # Check item-resolver logs
 docker-compose -f docker-compose.montreal.yml logs -f
 
-# Check service
-docker logs wishwithme-item-resolver --tail=100
+# Check specific services (note: 2 item-resolver instances + nginx)
+docker logs wishwithme-nginx --tail=100
+docker logs wishwithme-item-resolver-1 --tail=100
+docker logs wishwithme-item-resolver-2 --tail=100
 
 # Check service status
 docker-compose -f docker-compose.montreal.yml ps
@@ -348,11 +363,11 @@ docker-compose -f docker-compose.ubuntu.yml ps
 # View logs
 docker-compose -f docker-compose.ubuntu.yml logs -f
 
-# Restart service
-docker-compose -f docker-compose.ubuntu.yml restart core-api
+# Restart services (restarts both core-api instances)
+docker-compose -f docker-compose.ubuntu.yml restart core-api-1 core-api-2
 
 # Run database migrations
-docker-compose -f docker-compose.ubuntu.yml exec core-api alembic upgrade head
+docker-compose -f docker-compose.ubuntu.yml exec core-api-1 alembic upgrade head
 
 # Access database
 docker-compose -f docker-compose.ubuntu.yml exec postgres psql -U wishwithme wishwithme
@@ -366,8 +381,8 @@ docker-compose -f docker-compose.montreal.yml ps
 # View logs
 docker-compose -f docker-compose.montreal.yml logs -f
 
-# Restart item-resolver
-docker-compose -f docker-compose.montreal.yml restart item-resolver
+# Restart item-resolver instances
+docker-compose -f docker-compose.montreal.yml restart item-resolver-1 item-resolver-2
 ```
 
 ---
@@ -384,10 +399,10 @@ ssh ubuntu@176.106.144.182
 cd /home/ubuntu/wish-with-me-codex
 
 # Apply migrations
-docker-compose -f docker-compose.ubuntu.yml exec core-api alembic upgrade head
+docker-compose -f docker-compose.ubuntu.yml exec core-api-1 alembic upgrade head
 
 # Rollback migration
-docker-compose -f docker-compose.ubuntu.yml exec core-api alembic downgrade -1
+docker-compose -f docker-compose.ubuntu.yml exec core-api-1 alembic downgrade -1
 ```
 
 ### 6.2 Backups
@@ -440,11 +455,11 @@ curl -H "Authorization: Bearer $RU_BEARER_TOKEN" http://158.69.203.3:8001/health
 ### 7.4 Debug Mode
 
 ```bash
-# View container details
-docker inspect wishwithme-core-api
+# View container details (use either core-api instance)
+docker inspect wishwithme-core-api-1
 
 # Enter container shell
-docker exec -it wishwithme-core-api bash
+docker exec -it wishwithme-core-api-1 bash
 
 # View real-time resource usage
 docker stats
@@ -572,7 +587,7 @@ nano .env  # Configure all secrets
 docker-compose -f docker-compose.ubuntu.yml up -d --build
 
 # Run database migrations
-docker-compose -f docker-compose.ubuntu.yml exec core-api alembic upgrade head
+docker-compose -f docker-compose.ubuntu.yml exec core-api-1 alembic upgrade head
 ```
 
 ---

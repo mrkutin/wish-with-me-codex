@@ -1,23 +1,23 @@
-# Migration Guide: Unified Docker Compose Architecture
+# Migration Guide: Split Server Docker Compose Architecture
 
-This guide helps you migrate from the old per-service docker-compose setup to the new unified architecture.
+This guide helps you migrate from the old single-server setup to the new split-server architecture with load balancing.
 
 ## What Changed
 
 ### Before (Old Architecture)
 - Separate docker-compose.yml in each service directory
-- External `wishwithme` network created manually
-- Each service deployed independently via separate workflows
-- Many GitHub secrets required
-- Services expose ports directly
+- Single server deployment
+- Single instance of each service
+- No load balancing
+- SSE limited to single instance
 
-### After (New Architecture)
-- Single docker-compose.yml at project root
-- All services defined in one place
-- Unified deployment workflow
-- Only 1 GitHub secret required (SSH_PRIVATE_KEY)
-- Production uses nginx reverse proxy
-- No exposed ports in production (except nginx)
+### After (Current Architecture)
+- Split servers: Ubuntu (main app) + Montreal (item-resolver)
+- 2 core-api instances on Ubuntu, load balanced by nginx (ip_hash)
+- 2 item-resolver instances on Montreal, load balanced by nginx (least_conn)
+- SSE uses Redis pub/sub for cross-instance event delivery
+- 2 GitHub secrets required (SSH keys for each server)
+- nginx reverse proxy on both servers
 
 ## Migration Steps
 
@@ -46,10 +46,12 @@ docker ps > container_states_before.txt
 # Stop all running containers
 cd /home/ubuntu/wish-with-me-codex
 
-# Stop each service
+# Stop each service (note: now there are 2 instances of core-api and item-resolver)
 docker stop wishwithme-frontend || true
-docker stop wishwithme-core-api || true
-docker stop wishwithme-item-resolver || true
+docker stop wishwithme-core-api-1 || true
+docker stop wishwithme-core-api-2 || true
+docker stop wishwithme-item-resolver-1 || true
+docker stop wishwithme-item-resolver-2 || true
 
 # Note: Don't stop postgres and redis yet - we'll migrate them
 ```
@@ -134,12 +136,15 @@ docker run --rm -v wishwithme-redis-data:/from -v /opt/wishwithme/data/redis:/to
 ### Step 6: Remove Old Containers and Network
 
 ```bash
-# Remove old containers
+# Remove old containers (note: 2 instances for core-api and item-resolver)
 docker rm -f wishwithme-frontend || true
-docker rm -f wishwithme-core-api || true
-docker rm -f wishwithme-item-resolver || true
+docker rm -f wishwithme-core-api-1 || true
+docker rm -f wishwithme-core-api-2 || true
+docker rm -f wishwithme-item-resolver-1 || true
+docker rm -f wishwithme-item-resolver-2 || true
 docker rm -f wishwithme-postgres || true
 docker rm -f wishwithme-redis || true
+docker rm -f wishwithme-nginx || true
 
 # Remove old external network if it exists
 docker network rm wishwithme || true
@@ -150,50 +155,83 @@ docker image prune -f
 
 ### Step 7: Start New Architecture
 
+**On Ubuntu Server (176.106.144.182):**
 ```bash
 cd /home/ubuntu/wish-with-me-codex
 
 # Build all services
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml build
+docker-compose -f docker-compose.ubuntu.yml build
 
 # Start all services
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+docker-compose -f docker-compose.ubuntu.yml up -d
 
 # Wait for services to be ready
 sleep 30
 
-# Run migrations
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec core-api alembic upgrade head
+# Run migrations (use core-api-1)
+docker-compose -f docker-compose.ubuntu.yml exec core-api-1 alembic upgrade head
 
 # Check status
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml ps
+docker-compose -f docker-compose.ubuntu.yml ps
+```
+
+**On Montreal Server (158.69.203.3):**
+```bash
+cd /home/ubuntu/wish-with-me-codex
+
+# Build item-resolver
+docker-compose -f docker-compose.montreal.yml build
+
+# Start services
+docker-compose -f docker-compose.montreal.yml up -d
+
+# Check status
+docker-compose -f docker-compose.montreal.yml ps
 ```
 
 ### Step 8: Verify Everything Works
 
+**On Ubuntu Server:**
 ```bash
 # Check logs
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs
+docker-compose -f docker-compose.ubuntu.yml logs
 
-# Test health endpoints
-docker exec wishwithme-core-api python -c "import httpx; httpx.get('http://localhost:8000/live')"
-
-source .env
-docker exec wishwithme-item-resolver python -c "import httpx; httpx.get('http://localhost:8000/healthz', headers={'Authorization': 'Bearer ${RU_BEARER_TOKEN}'})"
+# Test health endpoints (both core-api instances)
+docker exec wishwithme-core-api-1 python -c "import httpx; httpx.get('http://localhost:8000/live')"
+docker exec wishwithme-core-api-2 python -c "import httpx; httpx.get('http://localhost:8000/live')"
 
 docker exec wishwithme-frontend wget --no-verbose --tries=1 --spider http://localhost/
 
 # Test database connection
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec postgres psql -U wishwithme wishwithme -c "SELECT COUNT(*) FROM users;"
+docker-compose -f docker-compose.ubuntu.yml exec postgres psql -U wishwithme wishwithme -c "SELECT COUNT(*) FROM users;"
+
+# Test external health endpoint
+curl -sf https://wishwith.me/health
 ```
 
-### Step 9: Update GitHub Actions Secret
+**On Montreal Server:**
+```bash
+# Check logs
+docker-compose -f docker-compose.montreal.yml logs
 
-The new workflow only needs 1 secret instead of many.
+# Test health endpoints (both item-resolver instances)
+source .env
+docker exec wishwithme-item-resolver-1 python -c "import httpx; httpx.get('http://localhost:8000/healthz', headers={'Authorization': 'Bearer ${RU_BEARER_TOKEN}'})"
+docker exec wishwithme-item-resolver-2 python -c "import httpx; httpx.get('http://localhost:8000/healthz', headers={'Authorization': 'Bearer ${RU_BEARER_TOKEN}'})"
+
+# Test external health endpoint
+curl -sf -H "Authorization: Bearer $RU_BEARER_TOKEN" http://158.69.203.3:8001/healthz
+```
+
+### Step 9: Update GitHub Actions Secrets
+
+The new split workflow needs 2 SSH keys:
 
 1. Go to GitHub repository → Settings → Secrets and variables → Actions
-2. Keep only `SSH_PRIVATE_KEY`
-3. Remove old secrets (they're now in .env on server):
+2. Set up:
+   - `SSH_PRIVATE_KEY_UBUNTU`: Ed25519 key for Ubuntu server (176.106.144.182)
+   - `SSH_PRIVATE_KEY`: Ed25519 key for Montreal server (158.69.203.3)
+3. Remove old secrets (they're now in .env on each server):
    - DATABASE_URL
    - REDIS_URL
    - JWT_SECRET_KEY
@@ -273,10 +311,16 @@ cd services/core-api
 docker-compose up -d
 ```
 
-**New way:**
+**New way (Ubuntu server):**
 ```bash
 cd /home/ubuntu/wish-with-me-codex
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+docker-compose -f docker-compose.ubuntu.yml up -d
+```
+
+**New way (Montreal server):**
+```bash
+cd /home/ubuntu/wish-with-me-codex
+docker-compose -f docker-compose.montreal.yml up -d
 ```
 
 ### Environment Variables
@@ -298,10 +342,11 @@ docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 - Manual coordination needed
 
 **New way:**
-- One unified workflow
+- Two workflows (deploy-ubuntu.yml, deploy-montreal.yml)
 - Auto-detects changed services
 - Only rebuilds what changed
-- Single SSH_PRIVATE_KEY secret
+- Two SSH keys (SSH_PRIVATE_KEY_UBUNTU, SSH_PRIVATE_KEY)
+- Services are load balanced (2 instances each)
 
 ## Troubleshooting
 
@@ -361,14 +406,14 @@ After migration, verify:
 
 ## Benefits of New Architecture
 
-1. **Simplified Deployment**: Push once, deploy all changed services
-2. **Reduced Secrets**: Only 1 GitHub secret instead of 15+
-3. **Better Isolation**: Production ports not exposed
-4. **Easier Development**: `docker-compose up` starts everything
-5. **Automatic Rollback**: Failed deployments auto-rollback
-6. **Resource Limits**: Production has proper CPU/memory limits
-7. **Unified Configuration**: All settings in one .env file
-8. **Production-Ready**: Nginx reverse proxy with SSL
+1. **High Availability**: 2 instances of core-api and item-resolver
+2. **Load Balancing**: nginx distributes requests across instances
+3. **SSE Scaling**: Redis pub/sub enables SSE across multiple instances
+4. **Better Isolation**: Production ports not exposed, services load balanced
+5. **Easier Development**: `docker-compose up` starts everything locally
+6. **Automatic Rollback**: Failed deployments auto-rollback
+7. **Resource Limits**: Production has proper CPU/memory limits per instance
+8. **Split Architecture**: Item resolver isolated on Montreal server
 
 ## Getting Help
 

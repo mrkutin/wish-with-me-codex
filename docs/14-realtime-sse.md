@@ -101,9 +101,9 @@ class EventChannelManager:
     """
     Manages SSE event channels for connected users.
 
-    For single-instance deployment (Montreal), uses in-memory queues.
+    Uses Redis pub/sub for multi-instance deployment (2 core-api instances).
     Supports multiple connections per user (multiple devices/tabs).
-    For multi-instance, would need Redis pub/sub (future enhancement).
+    nginx ip_hash ensures sticky sessions for SSE connections.
     """
 
     def __init__(self):
@@ -664,21 +664,36 @@ const { isConnected: sseConnected } = useRealtimeSync();
 
 ## 5. Nginx Configuration
 
-SSE requires disabling buffering. Update nginx config:
+SSE requires disabling buffering and sticky sessions for multi-instance setup:
 
 ```nginx
-# /etc/nginx/sites-available/wishwithme
+# /nginx/nginx.conf (Ubuntu server)
 
+# Upstream with ip_hash for SSE sticky sessions
+upstream core-api {
+    ip_hash;  # Ensures same client always hits same instance
+    server core-api-1:8000;
+    server core-api-2:8000;
+}
+
+# SSE endpoint configuration
 location /api/v1/events/stream {
-    proxy_pass http://core-api:8000;
+    proxy_pass http://core-api;
     proxy_http_version 1.1;
     proxy_set_header Connection '';
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_buffering off;
     proxy_cache off;
     proxy_read_timeout 86400s;  # 24 hours
     chunked_transfer_encoding off;
 }
 ```
+
+**Key points**:
+- `ip_hash` ensures SSE connections stick to the same core-api instance
+- `proxy_buffering off` is critical for SSE to work
+- `proxy_read_timeout 86400s` allows long-lived connections
 
 ---
 
@@ -780,35 +795,44 @@ curl -N -H "Cookie: session=..." https://api.wishwith.me/api/v1/events/stream
 
 ## 8. Scaling Considerations
 
-### Current (Single Instance - Montreal)
+### Current Architecture (Multi-Instance with Redis Pub/Sub)
 
-In-memory `EventChannelManager` works fine:
-- One FastAPI instance
-- All users connect to same instance
-- Events delivered directly via memory queue
+The system now runs 2 core-api instances on the Ubuntu server (176.106.144.182), load balanced by nginx:
 
-### Future (Multi-Instance)
+**Configuration**:
+- nginx uses `ip_hash` directive for SSE sticky sessions
+- Redis pub/sub enables event delivery across instances
+- Each core-api instance subscribes to user-specific Redis channels
 
-When scaling to multiple backend instances:
+**How it works**:
+1. User connects to SSE endpoint via nginx
+2. nginx routes to one core-api instance (sticky via ip_hash)
+3. When an event occurs (item resolved, sync push, etc.), it's published to Redis
+4. All core-api instances receive the event via Redis subscription
+5. The instance with the user's connection delivers the event
 
-1. **Redis Pub/Sub**
 ```python
-# Replace in-memory queue with Redis pub/sub
-import aioredis
+# Redis pub/sub implementation (simplified)
+import redis.asyncio as redis
 
 class RedisEventChannelManager:
     async def publish(self, user_id: UUID, event: ServerEvent):
-        await redis.publish(f"events:{user_id}", event.format())
+        # Publish to Redis - all instances receive this
+        await redis.publish(f"sse:events:{user_id}", event.format())
 
     async def subscribe(self, user_id: UUID):
+        # Subscribe to Redis channel for this user
         pubsub = redis.pubsub()
-        await pubsub.subscribe(f"events:{user_id}")
+        await pubsub.subscribe(f"sse:events:{user_id}")
         async for message in pubsub.listen():
-            yield message
+            if message["type"] == "message":
+                yield message["data"]
 ```
 
-2. **Sticky Sessions**
-Alternative: Use load balancer sticky sessions so user always hits same instance.
+**Benefits**:
+- Horizontal scaling without losing real-time updates
+- No single point of failure for SSE
+- Users on different instances still receive events from any source
 
 ---
 
@@ -834,9 +858,10 @@ Alternative: Use load balancer sticky sessions so user always hits same instance
 - [x] RxDB premium log suppression (console.warn filter)
 
 ### Infrastructure
-- [x] Nginx SSE configuration
-- [x] Test on Montreal server
-- [x] Verified multi-device SSE connections work simultaneously
+- [x] Nginx SSE configuration with ip_hash for sticky sessions
+- [x] Redis pub/sub for cross-instance event delivery
+- [x] 2 core-api instances on Ubuntu server
+- [x] Verified multi-device SSE connections work simultaneously across instances
 
 ### Documentation
 - [x] Update `docs/08-phases.md` with Phase 6 items
