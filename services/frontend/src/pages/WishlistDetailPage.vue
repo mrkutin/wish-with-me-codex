@@ -81,7 +81,7 @@
 
       <!-- Items section -->
       <div class="q-mt-lg">
-        <div class="row items-center justify-between q-mb-md">
+        <div class="row items-center justify-between q-mb-lg">
           <h2 class="text-h6 q-ma-none">{{ $t('items.title') }}</h2>
           <q-btn
             color="primary"
