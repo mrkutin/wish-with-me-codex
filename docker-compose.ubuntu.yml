@@ -22,7 +22,9 @@ services:
     depends_on:
       frontend:
         condition: service_healthy
-      core-api:
+      core-api-1:
+        condition: service_healthy
+      core-api-2:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
@@ -67,12 +69,52 @@ services:
     networks:
       - wishwithme
 
-  # Core API (FastAPI)
-  core-api:
+  # Core API Instance 1 (FastAPI)
+  core-api-1:
     build:
       context: ./services/core-api
       dockerfile: Dockerfile
-    container_name: wishwithme-core-api
+    container_name: wishwithme-core-api-1
+    restart: unless-stopped
+    environment:
+      # Database
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://wishwithme:postgres@postgres:5432/wishwithme}
+      # Redis
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      # Security - MUST be set in production
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-INSECURE_DEV_ONLY_REPLACE_IN_PRODUCTION_MIN_32_CHARS}
+      - DEBUG=false
+      # CORS
+      - CORS_ALLOW_ALL=false
+      # Item Resolver - points to Montreal server (configurable via .env)
+      - ITEM_RESOLVER_URL=${ITEM_RESOLVER_URL:-http://158.69.203.3:8001}
+      - ITEM_RESOLVER_TOKEN=${RU_BEARER_TOKEN:-ru_secret}
+      # OAuth - Google
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      # OAuth - Yandex
+      - YANDEX_CLIENT_ID=${YANDEX_CLIENT_ID:-}
+      - YANDEX_CLIENT_SECRET=${YANDEX_CLIENT_SECRET:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O-", "--timeout=5", "http://localhost:8000/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - wishwithme
+
+  # Core API Instance 2 (FastAPI)
+  core-api-2:
+    build:
+      context: ./services/core-api
+      dockerfile: Dockerfile
+    container_name: wishwithme-core-api-2
     restart: unless-stopped
     environment:
       # Database
@@ -118,7 +160,7 @@ services:
     container_name: wishwithme-frontend
     restart: unless-stopped
     depends_on:
-      core-api:
+      core-api-1:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O-", "http://127.0.0.1/"]

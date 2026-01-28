@@ -1,7 +1,7 @@
 name: Deploy to Ubuntu (Main App)
 
 # This workflow deploys the main application to Ubuntu server (176.106.144.182)
-# Services: nginx, frontend, core-api, postgres, redis
+# Services: nginx, frontend, core-api-1, core-api-2, postgres, redis
 # Domain: wishwith.me
 #
 # Trigger: Automatic on push to main, or manual via workflow_dispatch
@@ -160,7 +160,7 @@ jobs:
             fi
 
             if [ "${{ needs.detect-changes.outputs.core-api }}" == "true" ]; then
-              REBUILD_SERVICES="$REBUILD_SERVICES core-api"
+              REBUILD_SERVICES="$REBUILD_SERVICES core-api-1 core-api-2"
             fi
 
             # If infrastructure changed, rebuild nginx
@@ -183,9 +183,9 @@ jobs:
                 sleep 5
 
                 # Check if alembic versions directory exists
-                if docker compose -f docker-compose.ubuntu.yml run --rm core-api test -d alembic/versions; then
+                if docker compose -f docker-compose.ubuntu.yml run --rm core-api-1 test -d alembic/versions; then
                   echo "Running alembic migrations..."
-                  if ! docker compose -f docker-compose.ubuntu.yml run --rm core-api alembic upgrade head; then
+                  if ! docker compose -f docker-compose.ubuntu.yml run --rm core-api-1 alembic upgrade head; then
                     echo "ERROR: Database migration failed!"
                     exit 1
                   fi
@@ -226,10 +226,12 @@ jobs:
             # Check that containers are running
             docker compose -f docker-compose.ubuntu.yml ps
 
-            # Test core-api health endpoint (internal)
+            # Test core-api health endpoints (internal)
             if [ "${{ needs.detect-changes.outputs.core-api }}" == "true" ]; then
-              echo "Checking core-api health..."
-              docker exec wishwithme-core-api python -c "import httpx; httpx.get('http://localhost:8000/live', timeout=5)" && echo "✓ Core API is healthy" || (echo "✗ Core API health check failed" && exit 1)
+              echo "Checking core-api-1 health..."
+              docker exec wishwithme-core-api-1 python -c "import httpx; httpx.get('http://localhost:8000/live', timeout=5)" && echo "✓ Core API 1 is healthy" || (echo "✗ Core API 1 health check failed" && exit 1)
+              echo "Checking core-api-2 health..."
+              docker exec wishwithme-core-api-2 python -c "import httpx; httpx.get('http://localhost:8000/live', timeout=5)" && echo "✓ Core API 2 is healthy" || (echo "✗ Core API 2 health check failed" && exit 1)
             fi
 
             # Test frontend (internal) - use IPv4 explicitly
@@ -330,7 +332,7 @@ jobs:
             fi
 
             if [ "${{ needs.detect-changes.outputs.core-api }}" == "true" ]; then
-              REBUILD_SERVICES="$REBUILD_SERVICES core-api"
+              REBUILD_SERVICES="$REBUILD_SERVICES core-api-1 core-api-2"
             fi
 
             if [ "${{ needs.detect-changes.outputs.infrastructure }}" == "true" ]; then

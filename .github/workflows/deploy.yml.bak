@@ -1,0 +1,366 @@
+name: Deploy to Production
+
+# This workflow deploys to Montreal server (158.69.203.3) AUTOMATICALLY
+# when changes are pushed to the main branch.
+#
+# Production Server: montreal (158.69.203.3)
+# Location: /home/ubuntu/wish-with-me-codex
+# Trigger: Automatic on push to main, or manual via workflow_dispatch
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'services/**'
+      - 'docker-compose.yml'
+      - 'docker-compose.prod.yml'
+      - 'nginx/**'
+  workflow_dispatch:
+
+env:
+  SERVER_HOST: 158.69.203.3  # Montreal production server
+  SERVER_USER: ubuntu
+  DEPLOY_PATH: /home/ubuntu/wish-with-me-codex
+
+jobs:
+  detect-changes:
+    name: Detect Changed Services
+    runs-on: ubuntu-latest
+    outputs:
+      frontend: ${{ steps.changes.outputs.frontend }}
+      core-api: ${{ steps.changes.outputs.core-api }}
+      item-resolver: ${{ steps.changes.outputs.item-resolver }}
+      infrastructure: ${{ steps.changes.outputs.infrastructure }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect changes
+        id: changes
+        run: |
+          # Get list of changed files
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            # Manual trigger - deploy everything
+            echo "frontend=true" >> $GITHUB_OUTPUT
+            echo "core-api=true" >> $GITHUB_OUTPUT
+            echo "item-resolver=true" >> $GITHUB_OUTPUT
+            echo "infrastructure=true" >> $GITHUB_OUTPUT
+          else
+            # Auto trigger - detect changes
+            CHANGED_FILES=$(git diff --name-only HEAD^ HEAD)
+
+            echo "Changed files:"
+            echo "$CHANGED_FILES"
+
+            # Check each service
+            if echo "$CHANGED_FILES" | grep -q "services/frontend/"; then
+              echo "frontend=true" >> $GITHUB_OUTPUT
+            else
+              echo "frontend=false" >> $GITHUB_OUTPUT
+            fi
+
+            if echo "$CHANGED_FILES" | grep -q "services/core-api/"; then
+              echo "core-api=true" >> $GITHUB_OUTPUT
+            else
+              echo "core-api=false" >> $GITHUB_OUTPUT
+            fi
+
+            if echo "$CHANGED_FILES" | grep -q "services/item-resolver/"; then
+              echo "item-resolver=true" >> $GITHUB_OUTPUT
+            else
+              echo "item-resolver=false" >> $GITHUB_OUTPUT
+            fi
+
+            # Check infrastructure files
+            if echo "$CHANGED_FILES" | grep -qE "(docker-compose\.|nginx/)"; then
+              echo "infrastructure=true" >> $GITHUB_OUTPUT
+            else
+              echo "infrastructure=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+  deploy:
+    name: Deploy Services
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    # Only run if at least one service or infrastructure changed
+    if: |
+      needs.detect-changes.outputs.frontend == 'true' ||
+      needs.detect-changes.outputs.core-api == 'true' ||
+      needs.detect-changes.outputs.item-resolver == 'true' ||
+      needs.detect-changes.outputs.infrastructure == 'true'
+
+    steps:
+      - name: Setup SSH key
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          name: id_ed25519
+          known_hosts: unnecessary
+
+      - name: Add server to known_hosts
+        run: |
+          ssh-keyscan -H ${{ env.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Display deployment plan
+        run: |
+          echo "=== Deployment Plan ==="
+          echo "Frontend: ${{ needs.detect-changes.outputs.frontend }}"
+          echo "Core API: ${{ needs.detect-changes.outputs.core-api }}"
+          echo "Item Resolver: ${{ needs.detect-changes.outputs.item-resolver }}"
+          echo "Infrastructure: ${{ needs.detect-changes.outputs.infrastructure }}"
+
+      - name: Pull latest code
+        run: |
+          ssh ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} << 'ENDSSH'
+            set -e
+            cd ${{ env.DEPLOY_PATH }}
+
+            echo "=== Pulling latest code ==="
+
+            # Store current commit as last known-good for rollback
+            CURRENT_COMMIT=$(git rev-parse HEAD)
+            echo "$CURRENT_COMMIT" > .last-known-good-commit
+            echo "Saved rollback point: $CURRENT_COMMIT"
+
+            git fetch origin
+            git reset --hard origin/main
+
+            echo "Current commit: $(git log -1 --oneline)"
+          ENDSSH
+
+      - name: Deploy services
+        run: |
+          ssh ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} << 'ENDSSH'
+            set -e
+            cd ${{ env.DEPLOY_PATH }}
+
+            # Ensure .env file exists
+            if [ ! -f .env ]; then
+              echo "ERROR: .env file not found!"
+              echo "Please create .env file on server with production secrets"
+              exit 1
+            fi
+
+            # Fix network label mismatch (from docker-compose v1 to v2 migration)
+            if docker network inspect wishwithme-network >/dev/null 2>&1; then
+              echo "=== Checking Docker network compatibility ==="
+              NETWORK_LABEL=$(docker network inspect wishwithme-network --format '{{index .Labels "com.docker.compose.network"}}' 2>/dev/null || echo "")
+              if [ "$NETWORK_LABEL" != "wishwithme" ] && [ -n "$NETWORK_LABEL" ]; then
+                echo "Network label mismatch detected (label: '$NETWORK_LABEL'), recreating network..."
+                # Stop and remove all containers connected to this network using docker directly
+                # (docker-compose won't work due to the network label issue)
+                for container in $(docker network inspect wishwithme-network -f '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null); do
+                  echo "Stopping container: $container"
+                  docker stop "$container" 2>/dev/null || true
+                  docker rm "$container" 2>/dev/null || true
+                done
+                # Now remove the network
+                docker network rm wishwithme-network || true
+                echo "Network removed, will be recreated on next up"
+              fi
+            fi
+
+            # Build only changed services
+            REBUILD_SERVICES=""
+
+            if [ "${{ needs.detect-changes.outputs.frontend }}" == "true" ]; then
+              REBUILD_SERVICES="$REBUILD_SERVICES frontend"
+            fi
+
+            if [ "${{ needs.detect-changes.outputs.core-api }}" == "true" ]; then
+              REBUILD_SERVICES="$REBUILD_SERVICES core-api"
+            fi
+
+            if [ "${{ needs.detect-changes.outputs.item-resolver }}" == "true" ]; then
+              REBUILD_SERVICES="$REBUILD_SERVICES item-resolver"
+            fi
+
+            # If infrastructure changed, rebuild nginx
+            if [ "${{ needs.detect-changes.outputs.infrastructure }}" == "true" ]; then
+              REBUILD_SERVICES="$REBUILD_SERVICES nginx"
+            fi
+
+            echo "=== Building services: $REBUILD_SERVICES ==="
+
+            if [ -n "$REBUILD_SERVICES" ]; then
+              # Build the changed services
+              docker-compose -f docker-compose.yml -f docker-compose.prod.yml build $REBUILD_SERVICES
+
+              # Run database migrations if core-api changed
+              if [ "${{ needs.detect-changes.outputs.core-api }}" == "true" ]; then
+                echo "=== Running database migrations ==="
+
+                # Check if alembic versions directory exists
+                if docker-compose -f docker-compose.yml -f docker-compose.prod.yml run --rm core-api test -d alembic/versions; then
+                  echo "Running alembic migrations..."
+                  if ! docker-compose -f docker-compose.yml -f docker-compose.prod.yml run --rm core-api alembic upgrade head; then
+                    echo "ERROR: Database migration failed!"
+                    exit 1
+                  fi
+                  echo "Migrations completed successfully"
+                else
+                  echo "No alembic migrations directory found, skipping migrations"
+                fi
+              fi
+
+              # Restart the changed services
+              echo "=== Restarting services: $REBUILD_SERVICES ==="
+              docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps $REBUILD_SERVICES
+            else
+              echo "No services to rebuild"
+            fi
+
+            # Cleanup old images
+            echo "=== Cleaning up old images ==="
+            docker image prune -f
+          ENDSSH
+
+      - name: Wait for services to start
+        run: |
+          echo "Waiting 20 seconds for services to start..."
+          sleep 20
+
+      - name: Health check
+        run: |
+          ssh ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} << 'ENDSSH'
+            set -e
+            cd ${{ env.DEPLOY_PATH }}
+
+            echo "=== Health Check ==="
+
+            # Check that containers are running
+            docker-compose -f docker-compose.yml -f docker-compose.prod.yml ps
+
+            # Test core-api health endpoint (internal)
+            if [ "${{ needs.detect-changes.outputs.core-api }}" == "true" ]; then
+              echo "Checking core-api health..."
+              docker exec wishwithme-core-api python -c "import httpx; httpx.get('http://localhost:8000/live', timeout=5)" && echo "✓ Core API is healthy" || (echo "✗ Core API health check failed" && exit 1)
+            fi
+
+            # Test item-resolver health endpoint (internal)
+            if [ "${{ needs.detect-changes.outputs.item-resolver }}" == "true" ]; then
+              echo "Checking item-resolver health..."
+              source .env
+              docker exec wishwithme-item-resolver python -c "import httpx; httpx.get('http://localhost:8000/healthz', headers={'Authorization': 'Bearer ${RU_BEARER_TOKEN}'}, timeout=5)" && echo "✓ Item Resolver is healthy" || (echo "✗ Item Resolver health check failed" && exit 1)
+            fi
+
+            # Test frontend (internal) - use IPv4 explicitly
+            if [ "${{ needs.detect-changes.outputs.frontend }}" == "true" ]; then
+              echo "Checking frontend..."
+              docker exec wishwithme-frontend wget --no-verbose --tries=1 --spider http://127.0.0.1/ && echo "✓ Frontend is healthy" || (echo "✗ Frontend health check failed" && exit 1)
+            fi
+
+            echo "=== All health checks passed ==="
+          ENDSSH
+
+      - name: Verify external access
+        if: needs.detect-changes.outputs.infrastructure == 'true'
+        continue-on-error: true  # Don't fail deployment if nginx/external access isn't available
+        run: |
+          echo "Testing external access through nginx..."
+          echo "Note: This check is informational - nginx may not be configured yet"
+
+          # Test HTTP endpoint (allow curl failures gracefully)
+          HTTP_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 http://${{ env.SERVER_HOST }}/health 2>/dev/null || echo "000")
+          if [ "$HTTP_RESPONSE" == "200" ] || [ "$HTTP_RESPONSE" == "301" ]; then
+            echo "✓ HTTP endpoint responding (status: $HTTP_RESPONSE)"
+          elif [ "$HTTP_RESPONSE" == "000" ]; then
+            echo "⚠ External access not available (nginx may not be running or SSL not configured)"
+          else
+            echo "⚠ HTTP endpoint returned unexpected status: $HTTP_RESPONSE"
+          fi
+
+      - name: Deployment summary
+        if: always()
+        run: |
+          ssh ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} << 'ENDSSH'
+            cd ${{ env.DEPLOY_PATH }}
+
+            echo "=== Deployment Summary ==="
+            echo "Deployed commit: $(git log -1 --oneline)"
+            echo ""
+            echo "Running containers:"
+            docker-compose -f docker-compose.yml -f docker-compose.prod.yml ps
+          ENDSSH
+
+  rollback:
+    name: Rollback on Failure
+    needs: [detect-changes, deploy]
+    runs-on: ubuntu-latest
+    if: failure()
+
+    steps:
+      - name: Setup SSH key
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          name: id_ed25519
+          known_hosts: unnecessary
+
+      - name: Add server to known_hosts
+        run: |
+          ssh-keyscan -H ${{ env.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Rollback deployment
+        run: |
+          ssh ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} << 'ENDSSH'
+            set -e
+            cd ${{ env.DEPLOY_PATH }}
+
+            echo "=== DEPLOYMENT FAILED - ROLLING BACK ==="
+
+            # Fix network label mismatch if present
+            if docker network inspect wishwithme-network >/dev/null 2>&1; then
+              NETWORK_LABEL=$(docker network inspect wishwithme-network --format '{{index .Labels "com.docker.compose.network"}}' 2>/dev/null || echo "")
+              if [ "$NETWORK_LABEL" != "wishwithme" ] && [ -n "$NETWORK_LABEL" ]; then
+                echo "Network label mismatch detected (label: '$NETWORK_LABEL'), recreating network..."
+                for container in $(docker network inspect wishwithme-network -f '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null); do
+                  echo "Stopping container: $container"
+                  docker stop "$container" 2>/dev/null || true
+                  docker rm "$container" 2>/dev/null || true
+                done
+                docker network rm wishwithme-network || true
+              fi
+            fi
+
+            # Check if we have a saved rollback point
+            if [ -f .last-known-good-commit ]; then
+              ROLLBACK_COMMIT=$(cat .last-known-good-commit)
+              echo "Rolling back to last known-good commit: $ROLLBACK_COMMIT"
+              git reset --hard "$ROLLBACK_COMMIT"
+            else
+              echo "WARNING: No rollback point found, using HEAD~1"
+              git reset --hard HEAD~1
+            fi
+
+            echo "Rolled back to commit: $(git log -1 --oneline)"
+
+            # Rebuild and restart failed services
+            REBUILD_SERVICES=""
+
+            if [ "${{ needs.detect-changes.outputs.frontend }}" == "true" ]; then
+              REBUILD_SERVICES="$REBUILD_SERVICES frontend"
+            fi
+
+            if [ "${{ needs.detect-changes.outputs.core-api }}" == "true" ]; then
+              REBUILD_SERVICES="$REBUILD_SERVICES core-api"
+            fi
+
+            if [ "${{ needs.detect-changes.outputs.item-resolver }}" == "true" ]; then
+              REBUILD_SERVICES="$REBUILD_SERVICES item-resolver"
+            fi
+
+            if [ "${{ needs.detect-changes.outputs.infrastructure }}" == "true" ]; then
+              REBUILD_SERVICES="$REBUILD_SERVICES nginx"
+            fi
+
+            echo "Rebuilding previous versions: $REBUILD_SERVICES"
+            docker-compose -f docker-compose.yml -f docker-compose.prod.yml build $REBUILD_SERVICES
+            docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps $REBUILD_SERVICES
+
+            echo "=== Rollback complete ==="
+            echo "Restored to commit: $(git log -1 --oneline)"
+          ENDSSH
