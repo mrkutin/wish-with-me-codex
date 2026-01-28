@@ -1,8 +1,7 @@
 """Server-Sent Events (SSE) channel manager for real-time updates.
 
-Manages SSE connections per user and publishes events when data changes.
-For single-instance deployment (Montreal), uses in-memory queues.
-For multi-instance scaling, would need Redis pub/sub (future enhancement).
+Uses Redis pub/sub for cross-instance communication in multi-instance deployments.
+Each instance maintains local SSE connections and subscribes to Redis for events.
 """
 
 import asyncio
@@ -12,7 +11,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
+from app.redis import get_redis
+
 logger = logging.getLogger(__name__)
+
+# Redis channel for SSE events
+SSE_CHANNEL = "sse:events"
 
 
 @dataclass
@@ -26,11 +30,28 @@ class ServerEvent:
         """Format as SSE message."""
         return f"event: {self.event}\ndata: {json.dumps(self.data)}\n\n"
 
+    def to_redis(self, user_id: UUID) -> str:
+        """Serialize for Redis pub/sub."""
+        return json.dumps({
+            "user_id": str(user_id),
+            "event": self.event,
+            "data": self.data,
+        })
+
+    @classmethod
+    def from_redis(cls, message: str) -> tuple[UUID, "ServerEvent"]:
+        """Deserialize from Redis pub/sub."""
+        parsed = json.loads(message)
+        return UUID(parsed["user_id"]), cls(
+            event=parsed["event"],
+            data=parsed["data"],
+        )
+
 
 class EventChannelManager:
     """Manages SSE event channels for connected users.
 
-    For single-instance deployment, uses in-memory queues.
+    Uses Redis pub/sub for cross-instance communication.
     Supports multiple connections per user (multiple devices).
     """
 
@@ -38,6 +59,50 @@ class EventChannelManager:
         # user_id -> {connection_id -> queue}
         self._channels: dict[UUID, dict[str, asyncio.Queue[ServerEvent | None]]] = {}
         self._lock = asyncio.Lock()
+        self._subscriber_task: asyncio.Task | None = None
+        self._pubsub = None
+
+    async def start_subscriber(self) -> None:
+        """Start Redis subscriber for cross-instance events."""
+        if self._subscriber_task is not None:
+            return
+
+        async def subscribe_loop():
+            try:
+                redis = await get_redis()
+                self._pubsub = redis.pubsub()
+                await self._pubsub.subscribe(SSE_CHANNEL)
+                logger.info(f"SSE: Started Redis subscriber on channel {SSE_CHANNEL}")
+
+                async for message in self._pubsub.listen():
+                    if message["type"] == "message":
+                        try:
+                            user_id, event = ServerEvent.from_redis(message["data"])
+                            await self._deliver_local(user_id, event)
+                        except Exception as e:
+                            logger.exception(f"SSE: Failed to process Redis message: {e}")
+            except asyncio.CancelledError:
+                logger.info("SSE: Redis subscriber cancelled")
+                raise
+            except Exception as e:
+                logger.exception(f"SSE: Redis subscriber error: {e}")
+
+        self._subscriber_task = asyncio.create_task(subscribe_loop())
+
+    async def stop_subscriber(self) -> None:
+        """Stop Redis subscriber."""
+        if self._subscriber_task:
+            self._subscriber_task.cancel()
+            try:
+                await self._subscriber_task
+            except asyncio.CancelledError:
+                pass
+            self._subscriber_task = None
+
+        if self._pubsub:
+            await self._pubsub.unsubscribe(SSE_CHANNEL)
+            await self._pubsub.close()
+            self._pubsub = None
 
     async def connect(self, user_id: UUID) -> tuple[str, asyncio.Queue[ServerEvent | None]]:
         """Register a new connection for user.
@@ -45,6 +110,9 @@ class EventChannelManager:
         Returns (connection_id, queue) tuple.
         Supports multiple connections per user (multiple devices).
         """
+        # Ensure subscriber is running
+        await self.start_subscriber()
+
         async with self._lock:
             connection_id = str(uuid4())
             queue: asyncio.Queue[ServerEvent | None] = asyncio.Queue(maxsize=100)
@@ -82,11 +150,8 @@ class EventChannelManager:
                     f"SSE: Connection {connection_id[:8]} not found for user {user_id}"
                 )
 
-    async def publish(self, user_id: UUID, event: ServerEvent) -> bool:
-        """Send event to all connections for a specific user.
-
-        Returns True if at least one connection received the event.
-        """
+    async def _deliver_local(self, user_id: UUID, event: ServerEvent) -> bool:
+        """Deliver event to local connections only (called from Redis subscriber)."""
         user_connections = self._channels.get(user_id)
         if not user_connections:
             return False
@@ -96,30 +161,46 @@ class EventChannelManager:
             try:
                 queue.put_nowait(event)
                 delivered = True
+                logger.debug(f"SSE: Delivered {event.event} to user {user_id} conn {conn_id[:8]}")
             except asyncio.QueueFull:
                 logger.warning(
                     f"Event queue full for user {user_id} conn {conn_id[:8]}, dropping event"
                 )
         return delivered
 
-    async def publish_to_many(self, user_ids: list[UUID], event: ServerEvent) -> int:
-        """Send event to multiple users.
+    async def publish(self, user_id: UUID, event: ServerEvent) -> bool:
+        """Publish event via Redis for cross-instance delivery.
 
-        Returns count of users who received the event.
+        Returns True if published successfully.
         """
-        delivered = 0
+        try:
+            redis = await get_redis()
+            await redis.publish(SSE_CHANNEL, event.to_redis(user_id))
+            logger.debug(f"SSE: Published {event.event} for user {user_id} to Redis")
+            return True
+        except Exception as e:
+            logger.exception(f"SSE: Failed to publish to Redis: {e}")
+            # Fallback to local delivery
+            return await self._deliver_local(user_id, event)
+
+    async def publish_to_many(self, user_ids: list[UUID], event: ServerEvent) -> int:
+        """Publish event to multiple users via Redis.
+
+        Returns count of publish attempts (not guaranteed deliveries).
+        """
+        published = 0
         for user_id in user_ids:
             if await self.publish(user_id, event):
-                delivered += 1
-        return delivered
+                published += 1
+        return published
 
     def is_connected(self, user_id: UUID) -> bool:
-        """Check if user has at least one active SSE connection."""
+        """Check if user has at least one active SSE connection on this instance."""
         return user_id in self._channels and len(self._channels[user_id]) > 0
 
     @property
     def connection_count(self) -> int:
-        """Total number of active connections across all users."""
+        """Total number of active connections on this instance."""
         return sum(len(conns) for conns in self._channels.values())
 
 
@@ -154,7 +235,7 @@ async def publish_item_resolved(
     is_connected = event_manager.is_connected(user_id)
     logger.info(
         f"Publishing items:resolved event: user={user_id}, "
-        f"item={item_id}, status={status}, connected={is_connected}"
+        f"item={item_id}, status={status}, local_connected={is_connected}"
     )
     result = await event_manager.publish(
         user_id,
@@ -168,11 +249,6 @@ async def publish_item_resolved(
             },
         ),
     )
-    if not result:
-        logger.warning(
-            f"Failed to deliver items:resolved event: user={user_id}, "
-            f"item={item_id} - user not connected to SSE"
-        )
     return result
 
 
@@ -201,22 +277,20 @@ async def publish_marks_updated(user_id: UUID, item_id: UUID) -> bool:
 async def publish_marks_updated_to_many(user_ids: list[UUID], item_id: UUID) -> int:
     """Notify multiple users that marks on an item changed.
 
-    Returns count of users who received the event.
+    Returns count of publish attempts.
     """
     logger.info(
         f"Publishing marks:updated for item={item_id} to {len(user_ids)} users: "
         f"{[str(uid) for uid in user_ids]}"
     )
-    connected_users = [uid for uid in user_ids if event_manager.is_connected(uid)]
-    logger.info(f"Connected users: {[str(uid) for uid in connected_users]}")
 
     event = ServerEvent(
         event="marks:updated",
         data={"item_id": str(item_id)},
     )
-    delivered = await event_manager.publish_to_many(user_ids, event)
-    logger.info(f"Delivered marks:updated to {delivered} users")
-    return delivered
+    published = await event_manager.publish_to_many(user_ids, event)
+    logger.info(f"Published marks:updated to Redis for {published} users")
+    return published
 
 
 def create_ping_event() -> ServerEvent:

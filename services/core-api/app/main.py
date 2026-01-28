@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.redis import close_redis
+from app.services.events import event_manager
 from app.routers import (
     auth_router,
     health_router,
@@ -42,6 +43,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Startup
     yield
     # Shutdown
+    await event_manager.stop_subscriber()
     await close_redis()
 
 
