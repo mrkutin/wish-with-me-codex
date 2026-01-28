@@ -157,9 +157,21 @@ def create_app(*, fetcher_mode: str | None = None) -> FastAPI:
                     except asyncio.TimeoutError as exc:
                         raise timeout(f"Page load timed out: {payload.url}") from exc
 
+                    # Check for challenge pages but be lenient if there's actual content
                     if looks_like_interstitial_or_challenge(page_title, html):
-                        logger.warning("Page appears blocked or shows challenge: %s", payload.url)
-                        raise blocked_or_unavailable(f"Page blocked or requires verification: {payload.url}")
+                        # Check if there's actually substantial content despite challenge indicators
+                        # Some sites leave challenge traces in the HTML even after loading real content
+                        body_text_len = len(html) if html else 0
+                        has_product_indicators = any(ind in html.lower() for ind in [
+                            'price', 'цена', 'корзин', 'cart', 'buy', 'купить', 'добавить',
+                            'product', 'товар', '₽', 'руб', 'rub'
+                        ]) if html else False
+
+                        if body_text_len < 5000 and not has_product_indicators:
+                            logger.warning("Page appears blocked or shows challenge: %s (html_len=%d)", payload.url, body_text_len)
+                            raise blocked_or_unavailable(f"Page blocked or requires verification: {payload.url}")
+                        else:
+                            logger.info("Challenge indicators found but page has content, proceeding: %s (html_len=%d)", payload.url, body_text_len)
 
                     async with measure_time(stats, "page_screenshot"):
                         page_shot = await page.screenshot(full_page=False, type="jpeg", quality=75)

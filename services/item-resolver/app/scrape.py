@@ -253,44 +253,132 @@ async def wait_for_dom_stable(page, *, samples: int, interval_ms: int, timeout_m
         await asyncio.sleep(interval_ms / 1000.0)
 
 
+def _challenge_title_patterns() -> list[str]:
+    """
+    Patterns that indicate a challenge/interstitial page in the title.
+    These should clear automatically when the challenge passes.
+    """
+    return [
+        "captcha",
+        "verify",
+        "access denied",
+        "forbidden",
+        "robot",
+        "checking",
+        "security check",
+        "bot detection",
+        "anti-bot",
+        "antibot",
+        "challenge",
+        # Russian patterns
+        "проверка",
+        "доступ ограничен",
+        "подтвердите",
+    ]
+
+
 async def wait_for_challenge_to_clear(page, *, timeout_ms: int) -> bool:
     """
     Best-effort: wait for common interstitials to clear.
-    Copied/adapted from repo `run.py`.
+    Waits for either:
+    1. Ozon-specific API response (indicates page loaded)
+    2. Title to NOT contain any challenge-related keywords
+    3. Product content to appear (price, add-to-cart button, h1 product title)
     """
+    import asyncio
+
+    loop = asyncio.get_running_loop()
+    start = loop.time()
+    timeout_s = timeout_ms / 1000.0
+
+    # Build regex pattern for challenge titles
+    patterns = _challenge_title_patterns()
+    pattern_regex = "|".join(patterns)
+
+    # Try Ozon-specific API first (fast path)
     try:
         resp = await page.wait_for_response(
             lambda r: (
                 "/web/api/v1/settings" in (getattr(r, "url", "") or "")
                 and int(getattr(r, "status", 0) or 0) == 200
             ),
-            timeout=timeout_ms,
+            timeout=min(5000, timeout_ms),  # Short timeout for this specific check
         )
         _ = resp
+        # Give extra time for page to render after API response
+        await asyncio.sleep(1.0)
         return True
     except Exception:
         pass
 
-    try:
-        await page.wait_for_function(
-            "() => document.title && !/checking\\s+device/i.test(document.title)",
-            timeout=timeout_ms,
-        )
-        return True
-    except Exception:
-        return False
+    # Wait for title to clear of challenge keywords OR product content to appear
+    while loop.time() - start < timeout_s:
+        try:
+            # Check if title is clean (no challenge keywords)
+            title_clean = await page.evaluate(
+                f"""() => {{
+                    const title = (document.title || '').toLowerCase();
+                    const pattern = /{pattern_regex}/i;
+                    return !pattern.test(title);
+                }}"""
+            )
+
+            # Check if product content is visible (any of these indicates real page)
+            has_product_content = await page.evaluate(
+                """() => {
+                    // Check for price patterns (numbers with currency)
+                    const text = document.body?.innerText || '';
+                    const hasPrice = /[\\d\\s]+[₽$€]|[₽$€][\\d\\s]+|\\d+\\.\\d{2}/.test(text);
+
+                    // Check for add-to-cart type buttons
+                    const hasCartBtn = !!document.querySelector(
+                        '[data-widget*="cart"], [class*="cart"], [class*="buy"], ' +
+                        'button[class*="add"], [data-qa*="cart"], [data-testid*="cart"]'
+                    );
+
+                    // Check for substantial content (more than just a challenge page)
+                    const hasSubstantialContent = text.length > 500;
+
+                    return (hasPrice && hasSubstantialContent) || hasCartBtn;
+                }"""
+            )
+
+            if title_clean and has_product_content:
+                return True
+
+            # If title is clean but no product content yet, wait a bit more
+            if title_clean:
+                # Give it a bit more time for content to load
+                await asyncio.sleep(0.5)
+                # Re-check for product content
+                has_product_content = await page.evaluate(
+                    """() => {
+                        const text = document.body?.innerText || '';
+                        return text.length > 500;
+                    }"""
+                )
+                if has_product_content:
+                    return True
+
+        except Exception:
+            pass
+
+        await asyncio.sleep(0.3)
+
+    return False
 
 
 @dataclass(frozen=True)
 class PageCaptureConfig:
     wait_until: str = "domcontentloaded"
     timeout_ms: int = 60_000
-    settle_ms: int = 2_000
-    max_extra_wait_ms: int = 25_000
-    network_quiet_ms: int = 1_200
+    settle_ms: int = 3_000  # Increased from 2s for sites with delayed JS
+    max_extra_wait_ms: int = 30_000  # Increased from 25s
+    network_quiet_ms: int = 1_500  # Increased from 1.2s
     dom_sample_interval_ms: int = 500
     dom_stable_samples: int = 3
     challenge_extra_wait_ms: int = 120_000
+    post_challenge_settle_ms: int = 3_000  # Extra settle after challenge clears
 
 
 async def capture_page_source(page, url: str, *, cfg: PageCaptureConfig) -> tuple[str, str, str]:
@@ -326,7 +414,21 @@ async def capture_page_source(page, url: str, *, cfg: PageCaptureConfig) -> tupl
         title = ""
 
     if looks_like_interstitial_or_challenge(title, html):
-        await wait_for_challenge_to_clear(page, timeout_ms=cfg.challenge_extra_wait_ms)
+        challenge_cleared = await wait_for_challenge_to_clear(page, timeout_ms=cfg.challenge_extra_wait_ms)
+
+        # Extra settle time after challenge clears for page to fully render
+        if challenge_cleared and cfg.post_challenge_settle_ms > 0:
+            await asyncio.sleep(cfg.post_challenge_settle_ms / 1000.0)
+
+        # Wait for network and DOM to stabilize again after challenge
+        await wait_for_network_quiet(page, quiet_ms=cfg.network_quiet_ms, timeout_ms=10_000)
+        await wait_for_dom_stable(
+            page,
+            samples=cfg.dom_stable_samples,
+            interval_ms=cfg.dom_sample_interval_ms,
+            timeout_ms=10_000,
+        )
+
         final_url = page.url
         html = await page.content()
         try:
