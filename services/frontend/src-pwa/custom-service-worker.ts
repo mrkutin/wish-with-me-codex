@@ -53,6 +53,12 @@ registerRoute(
   new NetworkOnly()
 );
 
+// SSE endpoint - Network Only (streaming connection, must not be cached)
+registerRoute(
+  ({ url }) => url.pathname.includes('/events/stream'),
+  new NetworkOnly()
+);
+
 // Static assets - Cache First
 registerRoute(
   ({ request, url }) =>
