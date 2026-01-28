@@ -108,17 +108,14 @@ export function useRealtimeSync() {
         // Close the connection to stop auto-reconnect with stale token
         disconnect();
 
-        // Try to refresh token before reconnecting (handles 401 errors)
-        // EventSource doesn't provide HTTP status, so refresh on any error
-        try {
-          console.log('[SSE] Attempting token refresh before reconnect...');
-          await authStore.refreshToken();
-          console.log('[SSE] Token refreshed successfully');
-        } catch {
-          console.warn('[SSE] Token refresh failed');
+        // Only try to reconnect if still authenticated
+        // If refresh token is invalid, the auth system will log out the user
+        if (!authStore.isAuthenticated) {
+          console.log('[SSE] Not authenticated, skipping reconnect');
+          return;
         }
 
-        // Schedule reconnect with fresh token
+        // Schedule reconnect (token will be refreshed by axios interceptor if needed)
         scheduleReconnect();
       };
 
