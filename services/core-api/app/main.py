@@ -60,7 +60,7 @@ app.add_middleware(
     allow_origins=["*"] if settings.cors_allow_all else settings.cors_origins,
     allow_credentials=not settings.cors_allow_all,  # credentials not allowed with wildcard
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["*"],  # Allow all headers for browser compatibility
 )
 
 
