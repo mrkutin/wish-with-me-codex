@@ -9,6 +9,7 @@ import { ref, watch, onMounted, onUnmounted } from 'vue';
 import { useOnline } from '@vueuse/core';
 import { useAuthStore } from '@/stores/auth';
 import { getReplicationState } from '@/services/rxdb/replication';
+import { getApiBaseUrl } from '@/boot/axios';
 
 interface SSEEventData {
   id?: string;
@@ -77,7 +78,8 @@ export function useRealtimeSync() {
     disconnect();
 
     // Build SSE URL with token as query parameter
-    const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
+    // Use the same API base URL as axios to ensure consistency
+    const baseUrl = getApiBaseUrl();
     const sseUrl = `${baseUrl}/api/v1/events/stream?token=${encodeURIComponent(token)}`;
 
     try {
@@ -89,7 +91,7 @@ export function useRealtimeSync() {
         reconnectAttempts.value = 0;
       };
 
-      eventSource.onerror = (error) => {
+      eventSource.onerror = async (error) => {
         // Only log errors when online (offline errors are expected and noisy)
         if (isOnline.value) {
           console.error('[SSE] Error:', error);
@@ -103,10 +105,21 @@ export function useRealtimeSync() {
           return;
         }
 
-        // EventSource auto-reconnects for some errors, but if closed we need manual reconnect
-        if (eventSource?.readyState === EventSource.CLOSED) {
-          scheduleReconnect();
+        // Close the connection to stop auto-reconnect with stale token
+        disconnect();
+
+        // Try to refresh token before reconnecting (handles 401 errors)
+        // EventSource doesn't provide HTTP status, so refresh on any error
+        try {
+          console.log('[SSE] Attempting token refresh before reconnect...');
+          await authStore.refreshToken();
+          console.log('[SSE] Token refreshed successfully');
+        } catch {
+          console.warn('[SSE] Token refresh failed');
         }
+
+        // Schedule reconnect with fresh token
+        scheduleReconnect();
       };
 
       // Handle item updates
