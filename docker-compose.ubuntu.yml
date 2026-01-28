@@ -135,14 +135,14 @@ volumes:
     driver_opts:
       type: none
       o: bind
-      device: /opt/wishwithme/data/postgres
+      device: /home/mrkutin/wishwithme-data/postgres
 
   redis_data:
     driver: local
     driver_opts:
       type: none
       o: bind
-      device: /opt/wishwithme/data/redis
+      device: /home/mrkutin/wishwithme-data/redis
 
 networks:
   wishwithme:

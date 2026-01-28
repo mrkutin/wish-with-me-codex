@@ -13,14 +13,14 @@ on:
     paths:
       - 'services/frontend/**'
       - 'services/core-api/**'
-      - 'docker-compose.ubuntu.yml'
+      - 'docker compose.ubuntu.yml'
       - 'nginx/**'
   workflow_dispatch:
 
 env:
   SERVER_HOST: 176.106.144.182  # Ubuntu server
-  SERVER_USER: ubuntu
-  DEPLOY_PATH: /home/ubuntu/wish-with-me-codex
+  SERVER_USER: mrkutin
+  DEPLOY_PATH: /home/mrkutin/wish-with-me-codex
 
 jobs:
   detect-changes:
@@ -65,7 +65,7 @@ jobs:
             fi
 
             # Check infrastructure files
-            if echo "$CHANGED_FILES" | grep -qE "(docker-compose\.ubuntu\.yml|nginx/)"; then
+            if echo "$CHANGED_FILES" | grep -qE "(docker compose\.ubuntu\.yml|nginx/)"; then
               echo "infrastructure=true" >> $GITHUB_OUTPUT
             else
               echo "infrastructure=false" >> $GITHUB_OUTPUT
@@ -134,11 +134,10 @@ jobs:
             fi
 
             # Ensure data directories exist
-            sudo mkdir -p /opt/wishwithme/data/postgres
-            sudo mkdir -p /opt/wishwithme/data/redis
-            sudo chown -R ubuntu:ubuntu /opt/wishwithme
+            mkdir -p /home/mrkutin/wishwithme-data/postgres
+            mkdir -p /home/mrkutin/wishwithme-data/redis
 
-            # Fix network label mismatch (from docker-compose v1 to v2 migration)
+            # Fix network label mismatch (from docker compose v1 to v2 migration)
             if docker network inspect wishwithme-network >/dev/null 2>&1; then
               echo "=== Checking Docker network compatibility ==="
               NETWORK_LABEL=$(docker network inspect wishwithme-network --format '{{index .Labels "com.docker.compose.network"}}' 2>/dev/null || echo "")
@@ -174,20 +173,20 @@ jobs:
 
             if [ -n "$REBUILD_SERVICES" ]; then
               # Build the changed services
-              docker-compose -f docker-compose.ubuntu.yml build $REBUILD_SERVICES
+              docker compose -f docker compose.ubuntu.yml build $REBUILD_SERVICES
 
               # Run database migrations if core-api changed
               if [ "${{ needs.detect-changes.outputs.core-api }}" == "true" ]; then
                 echo "=== Running database migrations ==="
 
                 # First ensure postgres is running
-                docker-compose -f docker-compose.ubuntu.yml up -d postgres
+                docker compose -f docker compose.ubuntu.yml up -d postgres
                 sleep 5
 
                 # Check if alembic versions directory exists
-                if docker-compose -f docker-compose.ubuntu.yml run --rm core-api test -d alembic/versions; then
+                if docker compose -f docker compose.ubuntu.yml run --rm core-api test -d alembic/versions; then
                   echo "Running alembic migrations..."
-                  if ! docker-compose -f docker-compose.ubuntu.yml run --rm core-api alembic upgrade head; then
+                  if ! docker compose -f docker compose.ubuntu.yml run --rm core-api alembic upgrade head; then
                     echo "ERROR: Database migration failed!"
                     exit 1
                   fi
@@ -199,13 +198,13 @@ jobs:
 
               # Restart the changed services
               echo "=== Restarting services: $REBUILD_SERVICES ==="
-              docker-compose -f docker-compose.ubuntu.yml up -d --no-deps $REBUILD_SERVICES
+              docker compose -f docker compose.ubuntu.yml up -d --no-deps $REBUILD_SERVICES
             else
               echo "No services to rebuild"
             fi
 
             # Ensure all services are up
-            docker-compose -f docker-compose.ubuntu.yml up -d
+            docker compose -f docker compose.ubuntu.yml up -d
 
             # Cleanup old images
             echo "=== Cleaning up old images ==="
@@ -226,7 +225,7 @@ jobs:
             echo "=== Health Check ==="
 
             # Check that containers are running
-            docker-compose -f docker-compose.ubuntu.yml ps
+            docker compose -f docker compose.ubuntu.yml ps
 
             # Test core-api health endpoint (internal)
             if [ "${{ needs.detect-changes.outputs.core-api }}" == "true" ]; then
@@ -270,7 +269,7 @@ jobs:
             echo "Deployed commit: $(git log -1 --oneline)"
             echo ""
             echo "Running containers:"
-            docker-compose -f docker-compose.ubuntu.yml ps
+            docker compose -f docker compose.ubuntu.yml ps
           ENDSSH
 
   rollback:
@@ -341,8 +340,8 @@ jobs:
             fi
 
             echo "Rebuilding previous versions: $REBUILD_SERVICES"
-            docker-compose -f docker-compose.ubuntu.yml build $REBUILD_SERVICES
-            docker-compose -f docker-compose.ubuntu.yml up -d --no-deps $REBUILD_SERVICES
+            docker compose -f docker compose.ubuntu.yml build $REBUILD_SERVICES
+            docker compose -f docker compose.ubuntu.yml up -d --no-deps $REBUILD_SERVICES
 
             echo "=== Rollback complete ==="
             echo "Restored to commit: $(git log -1 --oneline)"
