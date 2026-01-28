@@ -98,8 +98,9 @@ Once review is approved:
 2. Run linting/type checks:
    - Frontend: `npm run lint`
    - Backend: `ruff check .`
-3. **CRITICAL**: Test on Montreal production server:
-   - SSH to Montreal: `ssh montreal`
+3. **CRITICAL**: Test on production servers:
+   - SSH to Ubuntu: `ssh ubuntu@176.106.144.182` (for frontend, core-api)
+   - SSH to Montreal: `ssh ubuntu@158.69.203.3` (for item-resolver)
    - Check logs: `docker logs wishwithme-core-api --tail=100`
    - Verify functionality works as expected
    - **IMPORTANT**: Test everything yourself before saying it's done. Use curl, API calls, and log checks to verify functionality actually works end-to-end.
@@ -191,39 +192,57 @@ When writing tests:
 
 ## Testing & Deployment
 
-### Production Server (ALWAYS)
-**Production server is ALWAYS Montreal:**
-- **Server**: `ssh montreal`
-- **Hostname**: 158.69.203.3
+### Split Server Architecture
+**Application is deployed across TWO servers:**
+
+**Ubuntu Server (Main Application):**
+- **IP Address**: 176.106.144.182
 - **User**: ubuntu
-- **Path**: /home/ubuntu/wish-with-me-codex
+- **Domain**: wishwith.me
+- **Services**: nginx, frontend, core-api, postgres, redis
+- **Docker Compose**: `docker-compose.ubuntu.yml`
+
+**Montreal Server (Item Resolver Only):**
+- **IP Address**: 158.69.203.3
+- **User**: ubuntu
+- **Access**: Via IP only (no domain)
+- **Services**: item-resolver
+- **Docker Compose**: `docker-compose.montreal.yml`
 
 ### Testing Location (ALWAYS)
-**ALWAYS test on the Montreal production server:**
-- **Never rely solely on local testing** - production environment is the source of truth
-- Server: `ssh montreal` (158.69.203.3)
+**Test on the appropriate production server:**
+
+**Ubuntu Server (main app):**
+- SSH: `ssh ubuntu@176.106.144.182`
 - Navigate: `cd /home/ubuntu/wish-with-me-codex`
-- Check logs: `docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs -f`
-- Check specific service: `docker logs wishwithme-core-api --tail=100`
-- Verify status: `docker-compose -f docker-compose.yml -f docker-compose.prod.yml ps`
-- Test health: `curl -sf http://localhost:8000/healthz`
+- Check logs: `docker-compose -f docker-compose.ubuntu.yml logs -f`
+- Check service: `docker logs wishwithme-core-api --tail=100`
+- Verify status: `docker-compose -f docker-compose.ubuntu.yml ps`
+- Test health: `curl -sf https://wishwith.me/health`
+
+**Montreal Server (item-resolver):**
+- SSH: `ssh ubuntu@158.69.203.3`
+- Navigate: `cd /home/ubuntu/wish-with-me-codex`
+- Check logs: `docker-compose -f docker-compose.montreal.yml logs -f`
+- Verify status: `docker-compose -f docker-compose.montreal.yml ps`
+- Test health: `curl -sf -H "Authorization: Bearer $RU_BEARER_TOKEN" http://158.69.203.3:8001/healthz`
 
 ### Deployment Method (ALWAYS AUTOMATIC)
-**Deployment to Montreal happens AUTOMATICALLY on push to main:**
-1. Push changes to GitHub `main` branch → **Automatic deployment to Montreal starts**
-2. GitHub Actions connects to Montreal server (158.69.203.3)
-3. Detects which services changed (frontend, core-api, item-resolver)
-4. Rebuilds only changed services on Montreal
-5. Runs health checks on Montreal
-6. Automatic rollback on Montreal if deployment fails
-7. Manual trigger (all services): `gh workflow run deploy.yml`
+**Deployment happens AUTOMATICALLY on push to main via TWO workflows:**
 
-**Unified Architecture:**
-- Single `docker-compose.yml` at project root for all services
-- Production overrides in `docker-compose.prod.yml`
-- All services on shared network: `wishwithme-network`
-- Services reference each other by container name
-- Deployed to: **Montreal server (158.69.203.3)**
+1. **deploy-ubuntu.yml** - Deploys frontend, core-api to Ubuntu (176.106.144.182)
+   - Triggers on: `services/frontend/**`, `services/core-api/**`, `docker-compose.ubuntu.yml`, `nginx/**`
+   - Manual: `gh workflow run deploy-ubuntu.yml`
+
+2. **deploy-montreal.yml** - Deploys item-resolver to Montreal (158.69.203.3)
+   - Triggers on: `services/item-resolver/**`, `docker-compose.montreal.yml`
+   - Manual: `gh workflow run deploy-montreal.yml`
+
+**Split Architecture:**
+- `docker-compose.ubuntu.yml` - Main app (frontend, core-api, postgres, redis, nginx)
+- `docker-compose.montreal.yml` - Item resolver only
+- Core API connects to item-resolver via: `http://158.69.203.3:8001`
+- Services on Ubuntu use shared network: `wishwithme-network`
 
 See `docs/13-deployment.md` for full deployment documentation.
 
@@ -240,9 +259,10 @@ When the user requests:
 | "fix review issues" | Address feedback, then re-review |
 | "run tests" | Execute appropriate test suite |
 | "check phase progress" | Read `docs/08-phases.md` and report status |
-| "deploy" | Push to GitHub main (triggers unified deployment workflow) |
-| "check logs" | SSH to Montreal: `docker-compose logs -f` or `docker logs wishwithme-<service>` |
-| "check status" | SSH to Montreal: `docker-compose ps` to see all services |
+| "deploy" | Push to GitHub main (triggers split deployment workflows) |
+| "check logs ubuntu" | SSH to Ubuntu: `docker-compose -f docker-compose.ubuntu.yml logs -f` |
+| "check logs montreal" | SSH to Montreal: `docker-compose -f docker-compose.montreal.yml logs -f` |
+| "check status" | SSH to both servers and run `docker-compose ps` |
 
 ---
 

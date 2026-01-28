@@ -1,0 +1,150 @@
+version: '3.8'
+
+# Ubuntu Server (10.10.10.31) - Main Application
+# Hosts: nginx, frontend, core-api, postgres, redis
+# Domain: wishwith.me (points to this server)
+#
+# Usage: docker-compose -f docker-compose.ubuntu.yml up -d
+
+services:
+  # Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: wishwithme-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./nginx/certbot:/var/www/certbot:ro
+    depends_on:
+      frontend:
+        condition: service_healthy
+      core-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - wishwithme
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: wishwithme-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-wishwithme}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-wishwithme}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wishwithme} -d ${POSTGRES_DB:-wishwithme}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - wishwithme
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: wishwithme-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - wishwithme
+
+  # Core API (FastAPI)
+  core-api:
+    build:
+      context: ./services/core-api
+      dockerfile: Dockerfile
+    container_name: wishwithme-core-api
+    restart: unless-stopped
+    environment:
+      # Database
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://wishwithme:postgres@postgres:5432/wishwithme}
+      # Redis
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      # Security - MUST be set in production
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-INSECURE_DEV_ONLY_REPLACE_IN_PRODUCTION_MIN_32_CHARS}
+      - DEBUG=false
+      # CORS
+      - CORS_ALLOW_ALL=false
+      # Item Resolver - points to Montreal server (configurable via .env)
+      - ITEM_RESOLVER_URL=${ITEM_RESOLVER_URL:-http://158.69.203.3:8001}
+      - ITEM_RESOLVER_TOKEN=${RU_BEARER_TOKEN:-ru_secret}
+      # OAuth - Google
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      # OAuth - Yandex
+      - YANDEX_CLIENT_ID=${YANDEX_CLIENT_ID:-}
+      - YANDEX_CLIENT_SECRET=${YANDEX_CLIENT_SECRET:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O-", "--timeout=5", "http://localhost:8000/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - wishwithme
+
+  # Frontend (Vue + Quasar PWA)
+  frontend:
+    build:
+      context: ./services/frontend
+      dockerfile: Dockerfile
+      args:
+        # Production API URL - using dedicated API subdomain
+        API_URL: https://api.wishwith.me
+    container_name: wishwithme-frontend
+    restart: unless-stopped
+    depends_on:
+      core-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O-", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - wishwithme
+
+volumes:
+  postgres_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/wishwithme/data/postgres
+
+  redis_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/wishwithme/data/redis
+
+networks:
+  wishwithme:
+    name: wishwithme-network
+    driver: bridge

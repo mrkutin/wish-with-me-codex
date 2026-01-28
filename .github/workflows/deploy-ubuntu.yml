@@ -1,10 +1,9 @@
-name: Deploy to Production
+name: Deploy to Ubuntu (Main App)
 
-# This workflow deploys to Montreal server (158.69.203.3) AUTOMATICALLY
-# when changes are pushed to the main branch.
+# This workflow deploys the main application to Ubuntu server (176.106.144.182)
+# Services: nginx, frontend, core-api, postgres, redis
+# Domain: wishwith.me
 #
-# Production Server: montreal (158.69.203.3)
-# Location: /home/ubuntu/wish-with-me-codex
 # Trigger: Automatic on push to main, or manual via workflow_dispatch
 
 on:
@@ -12,14 +11,14 @@ on:
     branches:
       - main
     paths:
-      - 'services/**'
-      - 'docker-compose.yml'
-      - 'docker-compose.prod.yml'
+      - 'services/frontend/**'
+      - 'services/core-api/**'
+      - 'docker-compose.ubuntu.yml'
       - 'nginx/**'
   workflow_dispatch:
 
 env:
-  SERVER_HOST: 158.69.203.3  # Montreal production server
+  SERVER_HOST: 176.106.144.182  # Ubuntu server
   SERVER_USER: ubuntu
   DEPLOY_PATH: /home/ubuntu/wish-with-me-codex
 
@@ -30,7 +29,6 @@ jobs:
     outputs:
       frontend: ${{ steps.changes.outputs.frontend }}
       core-api: ${{ steps.changes.outputs.core-api }}
-      item-resolver: ${{ steps.changes.outputs.item-resolver }}
       infrastructure: ${{ steps.changes.outputs.infrastructure }}
     steps:
       - uses: actions/checkout@v4
@@ -45,7 +43,6 @@ jobs:
             # Manual trigger - deploy everything
             echo "frontend=true" >> $GITHUB_OUTPUT
             echo "core-api=true" >> $GITHUB_OUTPUT
-            echo "item-resolver=true" >> $GITHUB_OUTPUT
             echo "infrastructure=true" >> $GITHUB_OUTPUT
           else
             # Auto trigger - detect changes
@@ -67,14 +64,8 @@ jobs:
               echo "core-api=false" >> $GITHUB_OUTPUT
             fi
 
-            if echo "$CHANGED_FILES" | grep -q "services/item-resolver/"; then
-              echo "item-resolver=true" >> $GITHUB_OUTPUT
-            else
-              echo "item-resolver=false" >> $GITHUB_OUTPUT
-            fi
-
             # Check infrastructure files
-            if echo "$CHANGED_FILES" | grep -qE "(docker-compose\.|nginx/)"; then
+            if echo "$CHANGED_FILES" | grep -qE "(docker-compose\.ubuntu\.yml|nginx/)"; then
               echo "infrastructure=true" >> $GITHUB_OUTPUT
             else
               echo "infrastructure=false" >> $GITHUB_OUTPUT
@@ -82,21 +73,20 @@ jobs:
           fi
 
   deploy:
-    name: Deploy Services
+    name: Deploy to Ubuntu Server
     needs: detect-changes
     runs-on: ubuntu-latest
     # Only run if at least one service or infrastructure changed
     if: |
       needs.detect-changes.outputs.frontend == 'true' ||
       needs.detect-changes.outputs.core-api == 'true' ||
-      needs.detect-changes.outputs.item-resolver == 'true' ||
       needs.detect-changes.outputs.infrastructure == 'true'
 
     steps:
       - name: Setup SSH key
         uses: shimataro/ssh-key-action@v2
         with:
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          key: ${{ secrets.SSH_PRIVATE_KEY_UBUNTU }}
           name: id_ed25519
           known_hosts: unnecessary
 
@@ -106,10 +96,9 @@ jobs:
 
       - name: Display deployment plan
         run: |
-          echo "=== Deployment Plan ==="
+          echo "=== Deployment Plan (Ubuntu Server) ==="
           echo "Frontend: ${{ needs.detect-changes.outputs.frontend }}"
           echo "Core API: ${{ needs.detect-changes.outputs.core-api }}"
-          echo "Item Resolver: ${{ needs.detect-changes.outputs.item-resolver }}"
           echo "Infrastructure: ${{ needs.detect-changes.outputs.infrastructure }}"
 
       - name: Pull latest code
@@ -144,20 +133,22 @@ jobs:
               exit 1
             fi
 
+            # Ensure data directories exist
+            sudo mkdir -p /opt/wishwithme/data/postgres
+            sudo mkdir -p /opt/wishwithme/data/redis
+            sudo chown -R ubuntu:ubuntu /opt/wishwithme
+
             # Fix network label mismatch (from docker-compose v1 to v2 migration)
             if docker network inspect wishwithme-network >/dev/null 2>&1; then
               echo "=== Checking Docker network compatibility ==="
               NETWORK_LABEL=$(docker network inspect wishwithme-network --format '{{index .Labels "com.docker.compose.network"}}' 2>/dev/null || echo "")
               if [ "$NETWORK_LABEL" != "wishwithme" ] && [ -n "$NETWORK_LABEL" ]; then
                 echo "Network label mismatch detected (label: '$NETWORK_LABEL'), recreating network..."
-                # Stop and remove all containers connected to this network using docker directly
-                # (docker-compose won't work due to the network label issue)
                 for container in $(docker network inspect wishwithme-network -f '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null); do
                   echo "Stopping container: $container"
                   docker stop "$container" 2>/dev/null || true
                   docker rm "$container" 2>/dev/null || true
                 done
-                # Now remove the network
                 docker network rm wishwithme-network || true
                 echo "Network removed, will be recreated on next up"
               fi
@@ -174,10 +165,6 @@ jobs:
               REBUILD_SERVICES="$REBUILD_SERVICES core-api"
             fi
 
-            if [ "${{ needs.detect-changes.outputs.item-resolver }}" == "true" ]; then
-              REBUILD_SERVICES="$REBUILD_SERVICES item-resolver"
-            fi
-
             # If infrastructure changed, rebuild nginx
             if [ "${{ needs.detect-changes.outputs.infrastructure }}" == "true" ]; then
               REBUILD_SERVICES="$REBUILD_SERVICES nginx"
@@ -187,16 +174,20 @@ jobs:
 
             if [ -n "$REBUILD_SERVICES" ]; then
               # Build the changed services
-              docker-compose -f docker-compose.yml -f docker-compose.prod.yml build $REBUILD_SERVICES
+              docker-compose -f docker-compose.ubuntu.yml build $REBUILD_SERVICES
 
               # Run database migrations if core-api changed
               if [ "${{ needs.detect-changes.outputs.core-api }}" == "true" ]; then
                 echo "=== Running database migrations ==="
 
+                # First ensure postgres is running
+                docker-compose -f docker-compose.ubuntu.yml up -d postgres
+                sleep 5
+
                 # Check if alembic versions directory exists
-                if docker-compose -f docker-compose.yml -f docker-compose.prod.yml run --rm core-api test -d alembic/versions; then
+                if docker-compose -f docker-compose.ubuntu.yml run --rm core-api test -d alembic/versions; then
                   echo "Running alembic migrations..."
-                  if ! docker-compose -f docker-compose.yml -f docker-compose.prod.yml run --rm core-api alembic upgrade head; then
+                  if ! docker-compose -f docker-compose.ubuntu.yml run --rm core-api alembic upgrade head; then
                     echo "ERROR: Database migration failed!"
                     exit 1
                   fi
@@ -208,10 +199,13 @@ jobs:
 
               # Restart the changed services
               echo "=== Restarting services: $REBUILD_SERVICES ==="
-              docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps $REBUILD_SERVICES
+              docker-compose -f docker-compose.ubuntu.yml up -d --no-deps $REBUILD_SERVICES
             else
               echo "No services to rebuild"
             fi
+
+            # Ensure all services are up
+            docker-compose -f docker-compose.ubuntu.yml up -d
 
             # Cleanup old images
             echo "=== Cleaning up old images ==="
@@ -232,19 +226,12 @@ jobs:
             echo "=== Health Check ==="
 
             # Check that containers are running
-            docker-compose -f docker-compose.yml -f docker-compose.prod.yml ps
+            docker-compose -f docker-compose.ubuntu.yml ps
 
             # Test core-api health endpoint (internal)
             if [ "${{ needs.detect-changes.outputs.core-api }}" == "true" ]; then
               echo "Checking core-api health..."
               docker exec wishwithme-core-api python -c "import httpx; httpx.get('http://localhost:8000/live', timeout=5)" && echo "✓ Core API is healthy" || (echo "✗ Core API health check failed" && exit 1)
-            fi
-
-            # Test item-resolver health endpoint (internal)
-            if [ "${{ needs.detect-changes.outputs.item-resolver }}" == "true" ]; then
-              echo "Checking item-resolver health..."
-              source .env
-              docker exec wishwithme-item-resolver python -c "import httpx; httpx.get('http://localhost:8000/healthz', headers={'Authorization': 'Bearer ${RU_BEARER_TOKEN}'}, timeout=5)" && echo "✓ Item Resolver is healthy" || (echo "✗ Item Resolver health check failed" && exit 1)
             fi
 
             # Test frontend (internal) - use IPv4 explicitly
@@ -279,11 +266,11 @@ jobs:
           ssh ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} << 'ENDSSH'
             cd ${{ env.DEPLOY_PATH }}
 
-            echo "=== Deployment Summary ==="
+            echo "=== Deployment Summary (Ubuntu) ==="
             echo "Deployed commit: $(git log -1 --oneline)"
             echo ""
             echo "Running containers:"
-            docker-compose -f docker-compose.yml -f docker-compose.prod.yml ps
+            docker-compose -f docker-compose.ubuntu.yml ps
           ENDSSH
 
   rollback:
@@ -296,7 +283,7 @@ jobs:
       - name: Setup SSH key
         uses: shimataro/ssh-key-action@v2
         with:
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          key: ${{ secrets.SSH_PRIVATE_KEY_UBUNTU }}
           name: id_ed25519
           known_hosts: unnecessary
 
@@ -349,17 +336,13 @@ jobs:
               REBUILD_SERVICES="$REBUILD_SERVICES core-api"
             fi
 
-            if [ "${{ needs.detect-changes.outputs.item-resolver }}" == "true" ]; then
-              REBUILD_SERVICES="$REBUILD_SERVICES item-resolver"
-            fi
-
             if [ "${{ needs.detect-changes.outputs.infrastructure }}" == "true" ]; then
               REBUILD_SERVICES="$REBUILD_SERVICES nginx"
             fi
 
             echo "Rebuilding previous versions: $REBUILD_SERVICES"
-            docker-compose -f docker-compose.yml -f docker-compose.prod.yml build $REBUILD_SERVICES
-            docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps $REBUILD_SERVICES
+            docker-compose -f docker-compose.ubuntu.yml build $REBUILD_SERVICES
+            docker-compose -f docker-compose.ubuntu.yml up -d --no-deps $REBUILD_SERVICES
 
             echo "=== Rollback complete ==="
             echo "Restored to commit: $(git log -1 --oneline)"

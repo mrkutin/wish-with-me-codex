@@ -1,0 +1,240 @@
+name: Deploy to Montreal (Item Resolver)
+
+# This workflow deploys item-resolver to Montreal server (158.69.203.3)
+# Services: item-resolver only
+# Access: Via IP address (158.69.203.3:8001)
+#
+# Trigger: Automatic on push to main, or manual via workflow_dispatch
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'services/item-resolver/**'
+      - 'docker-compose.montreal.yml'
+  workflow_dispatch:
+
+env:
+  SERVER_HOST: 158.69.203.3  # Montreal server
+  SERVER_USER: ubuntu
+  DEPLOY_PATH: /home/ubuntu/wish-with-me-codex
+
+jobs:
+  detect-changes:
+    name: Detect Changed Services
+    runs-on: ubuntu-latest
+    outputs:
+      item-resolver: ${{ steps.changes.outputs.item-resolver }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect changes
+        id: changes
+        run: |
+          # Get list of changed files
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            # Manual trigger - deploy everything
+            echo "item-resolver=true" >> $GITHUB_OUTPUT
+          else
+            # Auto trigger - detect changes
+            CHANGED_FILES=$(git diff --name-only HEAD^ HEAD)
+
+            echo "Changed files:"
+            echo "$CHANGED_FILES"
+
+            # Check item-resolver
+            if echo "$CHANGED_FILES" | grep -qE "(services/item-resolver/|docker-compose\.montreal\.yml)"; then
+              echo "item-resolver=true" >> $GITHUB_OUTPUT
+            else
+              echo "item-resolver=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+  deploy:
+    name: Deploy to Montreal Server
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    # Only run if item-resolver changed
+    if: needs.detect-changes.outputs.item-resolver == 'true'
+
+    steps:
+      - name: Setup SSH key
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          name: id_ed25519
+          known_hosts: unnecessary
+
+      - name: Add server to known_hosts
+        run: |
+          ssh-keyscan -H ${{ env.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Display deployment plan
+        run: |
+          echo "=== Deployment Plan (Montreal Server) ==="
+          echo "Item Resolver: ${{ needs.detect-changes.outputs.item-resolver }}"
+
+      - name: Pull latest code
+        run: |
+          ssh ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} << 'ENDSSH'
+            set -e
+            cd ${{ env.DEPLOY_PATH }}
+
+            echo "=== Pulling latest code ==="
+
+            # Store current commit as last known-good for rollback
+            CURRENT_COMMIT=$(git rev-parse HEAD)
+            echo "$CURRENT_COMMIT" > .last-known-good-commit-montreal
+            echo "Saved rollback point: $CURRENT_COMMIT"
+
+            git fetch origin
+            git reset --hard origin/main
+
+            echo "Current commit: $(git log -1 --oneline)"
+          ENDSSH
+
+      - name: Deploy item-resolver
+        run: |
+          ssh ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} << 'ENDSSH'
+            set -e
+            cd ${{ env.DEPLOY_PATH }}
+
+            # Ensure .env file exists
+            if [ ! -f .env ]; then
+              echo "ERROR: .env file not found!"
+              echo "Please create .env file on server with production secrets"
+              exit 1
+            fi
+
+            # Fix network label mismatch (from docker-compose v1 to v2 migration)
+            if docker network inspect wishwithme-network >/dev/null 2>&1; then
+              echo "=== Checking Docker network compatibility ==="
+              NETWORK_LABEL=$(docker network inspect wishwithme-network --format '{{index .Labels "com.docker.compose.network"}}' 2>/dev/null || echo "")
+              if [ "$NETWORK_LABEL" != "wishwithme" ] && [ -n "$NETWORK_LABEL" ]; then
+                echo "Network label mismatch detected (label: '$NETWORK_LABEL'), recreating network..."
+                for container in $(docker network inspect wishwithme-network -f '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null); do
+                  echo "Stopping container: $container"
+                  docker stop "$container" 2>/dev/null || true
+                  docker rm "$container" 2>/dev/null || true
+                done
+                docker network rm wishwithme-network || true
+                echo "Network removed, will be recreated on next up"
+              fi
+            fi
+
+            echo "=== Building item-resolver ==="
+            docker-compose -f docker-compose.montreal.yml build item-resolver
+
+            echo "=== Restarting item-resolver ==="
+            docker-compose -f docker-compose.montreal.yml up -d item-resolver
+
+            # Cleanup old images
+            echo "=== Cleaning up old images ==="
+            docker image prune -f
+          ENDSSH
+
+      - name: Wait for service to start
+        run: |
+          echo "Waiting 30 seconds for item-resolver to start (Playwright needs time)..."
+          sleep 30
+
+      - name: Health check
+        run: |
+          ssh ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} << 'ENDSSH'
+            set -e
+            cd ${{ env.DEPLOY_PATH }}
+
+            echo "=== Health Check ==="
+
+            # Check that container is running
+            docker-compose -f docker-compose.montreal.yml ps
+
+            # Test item-resolver health endpoint
+            echo "Checking item-resolver health..."
+            source .env
+            docker exec wishwithme-item-resolver python -c "import httpx; httpx.get('http://localhost:8000/healthz', headers={'Authorization': 'Bearer ${RU_BEARER_TOKEN}'}, timeout=10)" && echo "✓ Item Resolver is healthy" || (echo "✗ Item Resolver health check failed" && exit 1)
+
+            # Also verify it's accessible externally on port 8001
+            echo "Verifying external access on port 8001..."
+            curl -sf -H "Authorization: Bearer ${RU_BEARER_TOKEN}" http://localhost:8001/healthz && echo "✓ External access OK" || (echo "✗ External access check failed" && exit 1)
+
+            echo "=== Health check passed ==="
+          ENDSSH
+
+      - name: Deployment summary
+        if: always()
+        run: |
+          ssh ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} << 'ENDSSH'
+            cd ${{ env.DEPLOY_PATH }}
+
+            echo "=== Deployment Summary (Montreal) ==="
+            echo "Deployed commit: $(git log -1 --oneline)"
+            echo ""
+            echo "Running containers:"
+            docker-compose -f docker-compose.montreal.yml ps
+            echo ""
+            echo "Item Resolver accessible at: http://158.69.203.3:8001"
+          ENDSSH
+
+  rollback:
+    name: Rollback on Failure
+    needs: [detect-changes, deploy]
+    runs-on: ubuntu-latest
+    if: failure()
+
+    steps:
+      - name: Setup SSH key
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          name: id_ed25519
+          known_hosts: unnecessary
+
+      - name: Add server to known_hosts
+        run: |
+          ssh-keyscan -H ${{ env.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Rollback deployment
+        run: |
+          ssh ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} << 'ENDSSH'
+            set -e
+            cd ${{ env.DEPLOY_PATH }}
+
+            echo "=== DEPLOYMENT FAILED - ROLLING BACK ==="
+
+            # Fix network label mismatch if present
+            if docker network inspect wishwithme-network >/dev/null 2>&1; then
+              NETWORK_LABEL=$(docker network inspect wishwithme-network --format '{{index .Labels "com.docker.compose.network"}}' 2>/dev/null || echo "")
+              if [ "$NETWORK_LABEL" != "wishwithme" ] && [ -n "$NETWORK_LABEL" ]; then
+                echo "Network label mismatch detected (label: '$NETWORK_LABEL'), recreating network..."
+                for container in $(docker network inspect wishwithme-network -f '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null); do
+                  echo "Stopping container: $container"
+                  docker stop "$container" 2>/dev/null || true
+                  docker rm "$container" 2>/dev/null || true
+                done
+                docker network rm wishwithme-network || true
+              fi
+            fi
+
+            # Check if we have a saved rollback point
+            if [ -f .last-known-good-commit-montreal ]; then
+              ROLLBACK_COMMIT=$(cat .last-known-good-commit-montreal)
+              echo "Rolling back to last known-good commit: $ROLLBACK_COMMIT"
+              git reset --hard "$ROLLBACK_COMMIT"
+            else
+              echo "WARNING: No rollback point found, using HEAD~1"
+              git reset --hard HEAD~1
+            fi
+
+            echo "Rolled back to commit: $(git log -1 --oneline)"
+
+            echo "Rebuilding previous version..."
+            docker-compose -f docker-compose.montreal.yml build item-resolver
+            docker-compose -f docker-compose.montreal.yml up -d item-resolver
+
+            echo "=== Rollback complete ==="
+            echo "Restored to commit: $(git log -1 --oneline)"
+          ENDSSH
