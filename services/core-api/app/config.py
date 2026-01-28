@@ -69,7 +69,7 @@ class Settings(BaseSettings):
     # Item Resolver Service
     item_resolver_url: str = "http://localhost:8080"
     item_resolver_token: str = "dev-token"
-    item_resolver_timeout: int = 60  # seconds (as per spec)
+    item_resolver_timeout: int = 90  # seconds (resolver typically takes 25-35s)
 
     # OAuth
     google_client_id: str | None = None
