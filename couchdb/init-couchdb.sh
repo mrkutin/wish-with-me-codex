@@ -1,6 +1,6 @@
 #!/bin/bash
 # CouchDB Initialization Script
-# Run this after CouchDB container is up to configure JWT and create database
+# Run this after CouchDB container is up to configure JWT, CORS, and create database
 
 set -e
 
@@ -46,14 +46,30 @@ curl -sf ${CURL_AUTH} -X POST "${COUCHDB_URL}/_cluster_setup" \
     -d '{"action": "enable_single_node", "bind_address": "0.0.0.0", "port": 5984}' \
     2>/dev/null || echo "  (already configured)"
 
+# Configure CORS via API
+echo ""
+echo "Configuring CORS..."
+curl -sf ${CURL_AUTH} -X PUT "${COUCHDB_URL}/_node/_local/_config/cors/origins" \
+    -d '"https://wishwith.me, https://api.wishwith.me, http://localhost:9000, http://localhost:9100"' || true
+curl -sf ${CURL_AUTH} -X PUT "${COUCHDB_URL}/_node/_local/_config/cors/credentials" \
+    -d '"true"' || true
+curl -sf ${CURL_AUTH} -X PUT "${COUCHDB_URL}/_node/_local/_config/cors/methods" \
+    -d '"GET, PUT, POST, HEAD, DELETE, OPTIONS"' || true
+curl -sf ${CURL_AUTH} -X PUT "${COUCHDB_URL}/_node/_local/_config/cors/headers" \
+    -d '"accept, authorization, content-type, origin, referer, x-csrf-token"' || true
+echo "  CORS configured"
+
 # Set JWT secret
 echo ""
 echo "Configuring JWT authentication..."
 curl -sf ${CURL_AUTH} -X PUT "${COUCHDB_URL}/_node/_local/_config/jwt_keys/hmac:_default" \
-    -H "Content-Type: application/json" \
     -d "\"${JWT_SECRET}\"" \
     && echo "  JWT secret configured" \
     || echo "  Failed to configure JWT secret"
+
+# Configure JWT auth settings
+curl -sf ${CURL_AUTH} -X PUT "${COUCHDB_URL}/_node/_local/_config/jwt_auth/required_claims" \
+    -d '"exp,sub"' || true
 
 # Create database if it doesn't exist
 echo ""
