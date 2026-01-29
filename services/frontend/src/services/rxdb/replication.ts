@@ -3,7 +3,7 @@
  */
 
 import { replicateRxCollection, type RxReplicationState } from 'rxdb/plugins/replication';
-import { Subject } from 'rxjs';
+import { ReplaySubject } from 'rxjs';
 import { api } from '@/boot/axios';
 import type { WishWithMeDatabase, WishlistDoc, ItemDoc, MarkDoc } from './index';
 
@@ -36,7 +36,7 @@ export interface ReplicationState {
   wishlists: RxReplicationState<WishlistDoc, ReplicationCheckpoint>;
   items: RxReplicationState<ItemDoc, ReplicationCheckpoint>;
   marks: RxReplicationState<MarkDoc, ReplicationCheckpoint>;
-  pullStream$: Subject<'RESYNC' | void>;
+  pullStream$: ReplaySubject<'RESYNC' | void>;
   cancel: () => Promise<void>;
   triggerPull: () => void;
 }
@@ -53,8 +53,9 @@ function notifyConflict(_conflicts: ConflictInfo[]): void {
  * Setup replication for all collections.
  */
 export function setupReplication(db: WishWithMeDatabase): ReplicationState {
-  // Use 'RESYNC' | void to allow emitting RESYNC flag for full sync
-  const pullStream$ = new Subject<'RESYNC' | void>();
+  // Use ReplaySubject to buffer the last event - this ensures RESYNC events
+  // are not lost if emitted before RxDB subscribes (which happens after leadership)
+  const pullStream$ = new ReplaySubject<'RESYNC' | void>(1);
 
   // Log leadership status for debugging
   // @ts-expect-error - RxDBLeaderElectionPlugin adds these methods
