@@ -4,58 +4,50 @@ const path = require('path');
 
 module.exports = configure((/* ctx */) => {
   return {
+    supportTS: true,
+
     boot: ['i18n', 'axios', 'auth'],
-
-    // https://v2.quasar.dev/quasar-cli-vite/quasar-config-js#sourcefiles
-    sourceFiles: {
-      rootComponent: 'src/App.vue',
-      router: 'src/router/index',
-      store: 'src/stores/index',
-    },
-
-    // https://v2.quasar.dev/quasar-cli-vite/quasar-config-js#aliases
-    alias: {
-      '@': path.resolve(__dirname, 'src'),
-    },
 
     css: ['app.sass'],
 
     extras: ['roboto-font', 'material-icons', 'mdi-v7'],
 
     build: {
-      target: {
-        browser: ['es2019', 'edge88', 'firefox78', 'chrome87', 'safari13.1'],
-        node: 'node20',
-      },
       vueRouterMode: 'history',
       env: {
         API_URL: process.env.API_URL || 'http://localhost:8000',
       },
-      typescript: {
-        strict: true,
-        vueShim: true,
+      // Webpack config for PouchDB compatibility
+      extendWebpack(cfg) {
+        // Node.js polyfills for PouchDB
+        cfg.resolve = cfg.resolve || {};
+        cfg.resolve.fallback = cfg.resolve.fallback || {};
+        cfg.resolve.fallback.events = require.resolve('events');
+
+        // Add TypeScript extensions for module resolution
+        cfg.resolve.extensions = cfg.resolve.extensions || [];
+        if (!cfg.resolve.extensions.includes('.ts')) {
+          cfg.resolve.extensions.push('.ts', '.tsx');
+        }
       },
-      extendViteConf(viteConf) {
-        viteConf.resolve = viteConf.resolve || {};
-        viteConf.resolve.alias = {
-          ...viteConf.resolve.alias,
-          '@': path.resolve(__dirname, 'src'),
-          // Node.js polyfills for PouchDB
-          'events': 'events',
-        };
-        // PouchDB requires special handling for Vite bundling
-        viteConf.optimizeDeps = viteConf.optimizeDeps || {};
-        viteConf.optimizeDeps.include = [
-          ...(viteConf.optimizeDeps.include || []),
-          'pouchdb-browser',
-          'pouchdb-find',
-          'events',
-        ];
-        viteConf.define = {
-          ...(viteConf.define || {}),
-          global: 'globalThis',
-          'process.env': {},
-        };
+      chainWebpack(chain) {
+        // Set up aliases for Quasar's generated files
+        chain.resolve.alias
+          .set('app', path.resolve(__dirname))
+          .set('src', path.resolve(__dirname, 'src'))
+          .set('@', path.resolve(__dirname, 'src'))
+          .set('boot', path.resolve(__dirname, 'src/boot'))
+          .set('components', path.resolve(__dirname, 'src/components'))
+          .set('layouts', path.resolve(__dirname, 'src/layouts'))
+          .set('pages', path.resolve(__dirname, 'src/pages'))
+          .set('assets', path.resolve(__dirname, 'src/assets'))
+          .set('stores', path.resolve(__dirname, 'src/stores'));
+
+        // Define global for PouchDB
+        chain.plugin('define').tap((args) => {
+          args[0]['global'] = 'window';
+          return args;
+        });
       },
     },
 
