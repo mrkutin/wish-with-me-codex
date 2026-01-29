@@ -56,16 +56,28 @@ class ItemResolverClient:
         request_id = str(uuid.uuid4())[:8]
         logger.info(f"[{request_id}] Starting resolution for URL: {url}")
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        # Configure limits for better connection handling
+        limits = httpx.Limits(
+            max_keepalive_connections=5,
+            max_connections=10,
+            keepalive_expiry=30.0,
+        )
+        async with httpx.AsyncClient(timeout=self.timeout, limits=limits) as client:
             try:
-                logger.debug(f"[{request_id}] Sending POST to {self.base_url}/resolver/v1/resolve")
+                logger.info(f"[{request_id}] Sending POST to {self.base_url}/resolver/v1/resolve")
                 response = await client.post(
                     f"{self.base_url}/resolver/v1/resolve",
                     json={"url": url},
                     headers={"Authorization": f"Bearer {self.token}"},
                 )
-                logger.debug(f"[{request_id}] Received response: {response.status_code}")
+                logger.info(f"[{request_id}] Received headers: {response.status_code}, content-length: {response.headers.get('content-length', 'chunked')}")
                 response.raise_for_status()
+
+                # Read response body explicitly to better track where timeout occurs
+                logger.info(f"[{request_id}] Reading response body...")
+                body = await response.aread()
+                logger.info(f"[{request_id}] Response body received: {len(body)} bytes")
+
                 data = response.json()
                 logger.info(f"[{request_id}] Successfully parsed response ({len(str(data))} chars)")
 
