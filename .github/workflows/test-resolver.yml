@@ -34,7 +34,15 @@ jobs:
             cd ${{ env.DEPLOY_PATH }}
             source .env
 
-            echo "=== Testing item-resolver connection from Ubuntu to Montreal ==="
+            echo "=== Testing basic TCP from Ubuntu to Montreal ==="
+
+            echo "Test 1: Simple file download (100KB)"
+            time curl -s -w "\nBytes: %{size_download}\nTime: %{time_total}s\n" \
+              http://158.69.203.3:9999/testfile.bin -o /tmp/simple_test.bin 2>&1 || echo "Failed"
+            ls -la /tmp/simple_test.bin 2>/dev/null || echo "File not downloaded"
+            echo ""
+
+            echo "Test 2: Resolver test"
             echo "URL to resolve: ${{ github.event.inputs.url }}"
             echo ""
 
