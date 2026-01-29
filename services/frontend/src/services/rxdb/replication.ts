@@ -61,7 +61,7 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
     deletedField: '_deleted',
     live: true,
     retryTime: 5000,
-    waitForLeadership: false, // Disabled to ensure replication runs in every tab
+    waitForLeadership: true, // Only leader tab runs replication to prevent duplicates
 
     push: {
       async handler(docs) {
@@ -136,7 +136,7 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
     deletedField: '_deleted',
     live: true,
     retryTime: 5000,
-    waitForLeadership: false, // Disabled to ensure replication runs in every tab
+    waitForLeadership: true, // Only leader tab runs replication to prevent duplicates
 
     push: {
       async handler(docs) {
@@ -210,7 +210,7 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
     deletedField: '_deleted',
     live: true,
     retryTime: 5000,
-    waitForLeadership: false, // Disabled to ensure replication runs in every tab
+    waitForLeadership: true, // Only leader tab runs replication to prevent duplicates
 
     push: {
       async handler(docs) {
