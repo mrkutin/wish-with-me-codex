@@ -78,7 +78,9 @@ class EventChannelManager:
                     if message["type"] == "message":
                         try:
                             user_id, event = ServerEvent.from_redis(message["data"])
-                            await self._deliver_local(user_id, event)
+                            logger.info(f"SSE: Received Redis message for user {user_id}, event {event.event}")
+                            delivered = await self._deliver_local(user_id, event)
+                            logger.info(f"SSE: Local delivery result for user {user_id}: {delivered}")
                         except Exception as e:
                             logger.exception(f"SSE: Failed to process Redis message: {e}")
             except asyncio.CancelledError:
@@ -154,6 +156,7 @@ class EventChannelManager:
         """Deliver event to local connections only (called from Redis subscriber)."""
         user_connections = self._channels.get(user_id)
         if not user_connections:
+            logger.info(f"SSE: No local connections for user {user_id}, event {event.event} not delivered locally")
             return False
 
         delivered = False
@@ -161,7 +164,7 @@ class EventChannelManager:
             try:
                 queue.put_nowait(event)
                 delivered = True
-                logger.debug(f"SSE: Delivered {event.event} to user {user_id} conn {conn_id[:8]}")
+                logger.info(f"SSE: Delivered {event.event} to user {user_id} conn {conn_id[:8]}")
             except asyncio.QueueFull:
                 logger.warning(
                     f"Event queue full for user {user_id} conn {conn_id[:8]}, dropping event"
@@ -176,7 +179,7 @@ class EventChannelManager:
         try:
             redis = await get_redis()
             await redis.publish(SSE_CHANNEL, event.to_redis(user_id))
-            logger.debug(f"SSE: Published {event.event} for user {user_id} to Redis")
+            logger.info(f"SSE: Published {event.event} for user {user_id} to Redis channel {SSE_CHANNEL}")
             return True
         except Exception as e:
             logger.exception(f"SSE: Failed to publish to Redis: {e}")
