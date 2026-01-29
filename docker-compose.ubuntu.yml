@@ -1,8 +1,11 @@
 # Ubuntu Server (176.106.144.182) - Main Application
-# Hosts: nginx, frontend, core-api, postgres, redis
+# Hosts: nginx, frontend, core-api, postgres, redis, couchdb
 # Domain: wishwith.me (points to this server)
 #
 # Usage: docker-compose -f docker-compose.ubuntu.yml up -d
+#
+# CouchDB Migration: CouchDB is added for PouchDB sync. After migration,
+# postgres and redis will be removed.
 
 services:
   # Nginx reverse proxy
@@ -23,6 +26,8 @@ services:
       core-api-1:
         condition: service_healthy
       core-api-2:
+        condition: service_healthy
+      couchdb:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/health"]
@@ -64,6 +69,26 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - wishwithme
+
+  # CouchDB (for PouchDB sync - migration from PostgreSQL)
+  couchdb:
+    image: couchdb:3.3
+    container_name: wishwithme-couchdb
+    restart: unless-stopped
+    environment:
+      - COUCHDB_USER=${COUCHDB_ADMIN_USER:-admin}
+      - COUCHDB_PASSWORD=${COUCHDB_ADMIN_PASSWORD:-couchdb_admin_password}
+    volumes:
+      - couchdb_data:/opt/couchdb/data
+      - ./couchdb/local.ini:/opt/couchdb/etc/local.d/local.ini:ro
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:5984/_up"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     networks:
       - wishwithme
 
@@ -273,6 +298,13 @@ volumes:
       type: none
       o: bind
       device: /home/mrkutin/wishwithme-data/redis
+
+  couchdb_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /home/mrkutin/wishwithme-data/couchdb
 
   item_resolver_storage_1:
     name: wishwithme-item-resolver-storage-1
