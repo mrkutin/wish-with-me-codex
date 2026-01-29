@@ -7,6 +7,7 @@ import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie';
 import { RxDBDevModePlugin } from 'rxdb/plugins/dev-mode';
 import { RxDBQueryBuilderPlugin } from 'rxdb/plugins/query-builder';
 import { RxDBUpdatePlugin } from 'rxdb/plugins/update';
+import { RxDBLeaderElectionPlugin } from 'rxdb/plugins/leader-election';
 
 /**
  * Suppress RxDB premium marketing messages in console.
@@ -34,6 +35,7 @@ if (process.env.NODE_ENV === 'development') {
 }
 addRxPlugin(RxDBQueryBuilderPlugin);
 addRxPlugin(RxDBUpdatePlugin);
+addRxPlugin(RxDBLeaderElectionPlugin);
 
 // Collection types
 export type WishlistCollection = RxCollection<WishlistDoc>;

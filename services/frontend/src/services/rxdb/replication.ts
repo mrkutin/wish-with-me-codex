@@ -56,6 +56,19 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
   // Use 'RESYNC' | void to allow emitting RESYNC flag for full sync
   const pullStream$ = new Subject<'RESYNC' | void>();
 
+  // Log leadership status for debugging
+  // @ts-expect-error - RxDBLeaderElectionPlugin adds these methods
+  if (typeof db.isLeader === 'function') {
+    // @ts-expect-error - RxDBLeaderElectionPlugin adds these methods
+    console.log('[RxDB] Initial leadership status:', db.isLeader());
+    // @ts-expect-error - RxDBLeaderElectionPlugin adds these methods
+    db.waitForLeadership().then(() => {
+      console.log('[RxDB] This tab is now the LEADER');
+    });
+  } else {
+    console.warn('[RxDB] Leader election plugin not available');
+  }
+
   // Wishlist replication
   const wishlistReplication = replicateRxCollection<WishlistDoc, ReplicationCheckpoint>({
     collection: db.wishlists,
