@@ -377,9 +377,9 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
 
       console.log('[RxDB] reSync() called on all active replications');
 
-      // Also emit on pullStream$ as backup trigger
-      console.log('[RxDB] Emitting on pullStream$...');
-      pullStream$.next();
+      // Also emit RESYNC on pullStream$ to force checkpoint reset and full pull
+      console.log('[RxDB] Emitting RESYNC on pullStream$...');
+      pullStream$.next('RESYNC');
     },
     cancel: async () => {
       // Remove event listener on cleanup
