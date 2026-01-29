@@ -41,6 +41,20 @@ module.exports = configure((/* ctx */) => {
           ...viteConf.resolve.alias,
           '@': path.resolve(__dirname, 'src'),
         };
+        // PouchDB requires special handling for Vite bundling
+        viteConf.optimizeDeps = viteConf.optimizeDeps || {};
+        viteConf.optimizeDeps.include = [
+          ...(viteConf.optimizeDeps.include || []),
+          'pouchdb-browser',
+          'pouchdb-find',
+        ];
+        viteConf.optimizeDeps.esbuildOptions = {
+          ...(viteConf.optimizeDeps.esbuildOptions || {}),
+          // Node.js global to browser globalThis
+          define: {
+            global: 'globalThis',
+          },
+        };
       },
     },
 
