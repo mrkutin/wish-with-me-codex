@@ -98,9 +98,8 @@ Once review is approved:
 2. Run linting/type checks:
    - Frontend: `npm run lint`
    - Backend: `ruff check .`
-3. **CRITICAL**: Test on production servers:
-   - SSH to Ubuntu: `ssh ubuntu@176.106.144.182` (for frontend, core-api)
-   - SSH to Montreal: `ssh ubuntu@158.69.203.3` (for item-resolver)
+3. **CRITICAL**: Test on production server:
+   - SSH to Ubuntu: `ssh mrkutin@176.106.144.182`
    - Check logs: `docker logs wishwithme-core-api-1 --tail=100` and `docker logs wishwithme-core-api-2 --tail=100`
    - Check item-resolver: `docker logs wishwithme-item-resolver-1 --tail=100` and `docker logs wishwithme-item-resolver-2 --tail=100`
    - Verify functionality works as expected
@@ -193,62 +192,41 @@ When writing tests:
 
 ## Testing & Deployment
 
-### Split Server Architecture
-**Application is deployed across TWO servers:**
+### Server Architecture
+**Application is deployed on a single Ubuntu server:**
 
-**Ubuntu Server (Main Application):**
 - **IP Address**: 176.106.144.182
-- **User**: ubuntu
+- **User**: mrkutin
 - **Domain**: wishwith.me, api.wishwith.me
-- **Services**: nginx (load balancer), frontend, core-api-1, core-api-2, postgres, redis
+- **Services**: nginx, frontend, core-api-1, core-api-2, item-resolver-1, item-resolver-2, postgres, redis
 - **Load Balancing**: nginx uses `ip_hash` for SSE sticky sessions
 - **Docker Compose**: `docker-compose.ubuntu.yml`
-
-**Montreal Server (Item Resolver Only):**
-- **IP Address**: 158.69.203.3
-- **User**: ubuntu
-- **Access**: Via IP only (no domain), port 8001
-- **Services**: nginx (load balancer), item-resolver-1, item-resolver-2
-- **Load Balancing**: nginx uses `least_conn` for distributing requests
-- **Docker Compose**: `docker-compose.montreal.yml`
+- **LLM**: DeepSeek API (text-based extraction for item-resolver)
 
 ### Testing Location (ALWAYS)
-**Test on the appropriate production server:**
+**Test on the production server:**
 
-**Ubuntu Server (main app):**
-- SSH: `ssh ubuntu@176.106.144.182`
-- Navigate: `cd /home/ubuntu/wish-with-me-codex`
+- SSH: `ssh mrkutin@176.106.144.182`
+- Navigate: `cd /home/mrkutin/wish-with-me-codex`
 - Check logs: `docker-compose -f docker-compose.ubuntu.yml logs -f`
-- Check service: `docker logs wishwithme-core-api-1 --tail=100` or `docker logs wishwithme-core-api-2 --tail=100`
+- Check core-api: `docker logs wishwithme-core-api-1 --tail=100`
+- Check item-resolver: `docker logs wishwithme-item-resolver-1 --tail=100`
 - Verify status: `docker-compose -f docker-compose.ubuntu.yml ps`
 - Test health: `curl -sf https://wishwith.me/health`
 
-**Montreal Server (item-resolver):**
-- SSH: `ssh ubuntu@158.69.203.3`
-- Navigate: `cd /home/ubuntu/wish-with-me-codex`
-- Check logs: `docker-compose -f docker-compose.montreal.yml logs -f`
-- Verify status: `docker-compose -f docker-compose.montreal.yml ps`
-- Test health: `curl -sf -H "Authorization: Bearer $RU_BEARER_TOKEN" http://158.69.203.3:8001/healthz`
-
 ### Deployment Method (ALWAYS AUTOMATIC)
-**Deployment happens AUTOMATICALLY on push to main via TWO workflows:**
+**Deployment happens AUTOMATICALLY on push to main:**
 
-1. **deploy-ubuntu.yml** - Deploys frontend, core-api to Ubuntu (176.106.144.182)
-   - Triggers on: `services/frontend/**`, `services/core-api/**`, `docker-compose.ubuntu.yml`, `nginx/**`
-   - Manual: `gh workflow run deploy-ubuntu.yml`
+**deploy-ubuntu.yml** - Deploys all services to Ubuntu (176.106.144.182)
+- Triggers on: `services/frontend/**`, `services/core-api/**`, `services/item-resolver/**`, `docker-compose.ubuntu.yml`, `nginx/**`
+- Manual: `gh workflow run deploy-ubuntu.yml`
 
-2. **deploy-montreal.yml** - Deploys item-resolver to Montreal (158.69.203.3)
-   - Triggers on: `services/item-resolver/**`, `docker-compose.montreal.yml`
-   - Manual: `gh workflow run deploy-montreal.yml`
-
-**Split Architecture:**
-- `docker-compose.ubuntu.yml` - Main app (frontend, core-api-1, core-api-2, postgres, redis, nginx)
-- `docker-compose.montreal.yml` - Item resolver (nginx, item-resolver-1, item-resolver-2)
-- Core API connects to item-resolver via: `http://158.69.203.3:8001`
+**Architecture:**
+- `docker-compose.ubuntu.yml` - All services (nginx, frontend, core-api, item-resolver, postgres, redis)
+- Core API connects to item-resolver via internal Docker network: `http://item-resolver-1:8000`
 - SSE uses Redis pub/sub for cross-instance communication
-- nginx uses `ip_hash` for SSE sticky sessions on Ubuntu
-- nginx uses `least_conn` for item-resolver on Montreal
-- Services on Ubuntu use shared network: `wishwithme-network`
+- nginx uses `ip_hash` for SSE sticky sessions
+- Services use shared network: `wishwithme-network`
 
 See `docs/13-deployment.md` for full deployment documentation.
 
@@ -265,10 +243,9 @@ When the user requests:
 | "fix review issues" | Address feedback, then re-review |
 | "run tests" | Execute appropriate test suite |
 | "check phase progress" | Read `docs/08-phases.md` and report status |
-| "deploy" | Push to GitHub main (triggers split deployment workflows) |
-| "check logs ubuntu" | SSH to Ubuntu: `docker-compose -f docker-compose.ubuntu.yml logs -f` |
-| "check logs montreal" | SSH to Montreal: `docker-compose -f docker-compose.montreal.yml logs -f` |
-| "check status" | SSH to both servers and run `docker-compose ps` |
+| "deploy" | Push to GitHub main (triggers deployment workflow) |
+| "check logs" | SSH to Ubuntu: `docker-compose -f docker-compose.ubuntu.yml logs -f` |
+| "check status" | SSH to server and run `docker-compose -f docker-compose.ubuntu.yml ps` |
 
 ---
 

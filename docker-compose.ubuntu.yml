@@ -84,8 +84,8 @@ services:
       - DEBUG=false
       # CORS
       - CORS_ALLOW_ALL=false
-      # Item Resolver - points to Montreal server (configurable via .env)
-      - ITEM_RESOLVER_URL=${ITEM_RESOLVER_URL:-http://158.69.203.3:8001}
+      # Item Resolver - internal Docker network
+      - ITEM_RESOLVER_URL=${ITEM_RESOLVER_URL:-http://item-resolver-1:8000}
       - ITEM_RESOLVER_TOKEN=${RU_BEARER_TOKEN:-ru_secret}
       # OAuth - Google
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
@@ -97,6 +97,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      item-resolver-1:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O-", "--timeout=5", "http://127.0.0.1:8000/live"]
@@ -124,8 +126,8 @@ services:
       - DEBUG=false
       # CORS
       - CORS_ALLOW_ALL=false
-      # Item Resolver - points to Montreal server (configurable via .env)
-      - ITEM_RESOLVER_URL=${ITEM_RESOLVER_URL:-http://158.69.203.3:8001}
+      # Item Resolver - internal Docker network
+      - ITEM_RESOLVER_URL=${ITEM_RESOLVER_URL:-http://item-resolver-1:8000}
       - ITEM_RESOLVER_TOKEN=${RU_BEARER_TOKEN:-ru_secret}
       # OAuth - Google
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
@@ -137,6 +139,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      item-resolver-1:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O-", "--timeout=5", "http://127.0.0.1:8000/live"]
@@ -169,6 +173,92 @@ services:
     networks:
       - wishwithme
 
+  # Item Resolver Instance 1 (Playwright + DeepSeek)
+  item-resolver-1:
+    build:
+      context: ./services/item-resolver
+      dockerfile: Dockerfile
+    container_name: wishwithme-item-resolver-1
+    restart: unless-stopped
+    environment:
+      - RU_BEARER_TOKEN=${RU_BEARER_TOKEN:-ru_secret}
+      - RU_FETCHER_MODE=playwright
+      - BROWSER_CHANNEL=${BROWSER_CHANNEL:-chrome}
+      - HEADLESS=${HEADLESS:-true}
+      - MAX_CONCURRENCY=${MAX_CONCURRENCY:-2}
+      - STORAGE_STATE_DIR=/data/storage_state
+      - SSRF_ALLOWLIST_HOSTS=${SSRF_ALLOWLIST_HOSTS:-}
+      # LLM Configuration - DeepSeek
+      - LLM_MODE=${LLM_MODE:-live}
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://api.deepseek.com}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_MODEL=${LLM_MODEL:-deepseek-chat}
+      - LLM_TIMEOUT_S=${LLM_TIMEOUT_S:-120}
+      - LLM_MAX_CHARS=${LLM_MAX_CHARS:-50000}
+    volumes:
+      - item_resolver_storage_1:/data/storage_state
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 -O- --timeout=5 --header='Authorization: Bearer ${RU_BEARER_TOKEN:-ru_secret}' http://127.0.0.1:8000/healthz > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    # Playwright needs shared memory
+    shm_size: '1gb'
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    networks:
+      - wishwithme
+
+  # Item Resolver Instance 2 (Playwright + DeepSeek)
+  item-resolver-2:
+    build:
+      context: ./services/item-resolver
+      dockerfile: Dockerfile
+    container_name: wishwithme-item-resolver-2
+    restart: unless-stopped
+    environment:
+      - RU_BEARER_TOKEN=${RU_BEARER_TOKEN:-ru_secret}
+      - RU_FETCHER_MODE=playwright
+      - BROWSER_CHANNEL=${BROWSER_CHANNEL:-chrome}
+      - HEADLESS=${HEADLESS:-true}
+      - MAX_CONCURRENCY=${MAX_CONCURRENCY:-2}
+      - STORAGE_STATE_DIR=/data/storage_state
+      - SSRF_ALLOWLIST_HOSTS=${SSRF_ALLOWLIST_HOSTS:-}
+      # LLM Configuration - DeepSeek
+      - LLM_MODE=${LLM_MODE:-live}
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://api.deepseek.com}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_MODEL=${LLM_MODEL:-deepseek-chat}
+      - LLM_TIMEOUT_S=${LLM_TIMEOUT_S:-120}
+      - LLM_MAX_CHARS=${LLM_MAX_CHARS:-50000}
+    volumes:
+      - item_resolver_storage_2:/data/storage_state
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 -O- --timeout=5 --header='Authorization: Bearer ${RU_BEARER_TOKEN:-ru_secret}' http://127.0.0.1:8000/healthz > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    # Playwright needs shared memory
+    shm_size: '1gb'
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    networks:
+      - wishwithme
+
 volumes:
   postgres_data:
     driver: local
@@ -183,6 +273,12 @@ volumes:
       type: none
       o: bind
       device: /home/mrkutin/wishwithme-data/redis
+
+  item_resolver_storage_1:
+    name: wishwithme-item-resolver-storage-1
+
+  item_resolver_storage_2:
+    name: wishwithme-item-resolver-storage-2
 
 networks:
   wishwithme:

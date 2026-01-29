@@ -1,7 +1,7 @@
 name: Deploy to Ubuntu (Main App)
 
 # This workflow deploys the main application to Ubuntu server (176.106.144.182)
-# Services: nginx, frontend, core-api-1, core-api-2, postgres, redis
+# Services: nginx, frontend, core-api-1, core-api-2, item-resolver-1, item-resolver-2, postgres, redis
 # Domain: wishwith.me
 #
 # Trigger: Automatic on push to main, or manual via workflow_dispatch
@@ -13,6 +13,7 @@ on:
     paths:
       - 'services/frontend/**'
       - 'services/core-api/**'
+      - 'services/item-resolver/**'
       - 'docker-compose.ubuntu.yml'
       - 'nginx/**'
   workflow_dispatch:
@@ -29,6 +30,7 @@ jobs:
     outputs:
       frontend: ${{ steps.changes.outputs.frontend }}
       core-api: ${{ steps.changes.outputs.core-api }}
+      item-resolver: ${{ steps.changes.outputs.item-resolver }}
       infrastructure: ${{ steps.changes.outputs.infrastructure }}
     steps:
       - uses: actions/checkout@v4
@@ -43,6 +45,7 @@ jobs:
             # Manual trigger - deploy everything
             echo "frontend=true" >> $GITHUB_OUTPUT
             echo "core-api=true" >> $GITHUB_OUTPUT
+            echo "item-resolver=true" >> $GITHUB_OUTPUT
             echo "infrastructure=true" >> $GITHUB_OUTPUT
           else
             # Auto trigger - detect changes
@@ -64,6 +67,12 @@ jobs:
               echo "core-api=false" >> $GITHUB_OUTPUT
             fi
 
+            if echo "$CHANGED_FILES" | grep -q "services/item-resolver/"; then
+              echo "item-resolver=true" >> $GITHUB_OUTPUT
+            else
+              echo "item-resolver=false" >> $GITHUB_OUTPUT
+            fi
+
             # Check infrastructure files
             if echo "$CHANGED_FILES" | grep -qE "(docker compose\.ubuntu\.yml|nginx/)"; then
               echo "infrastructure=true" >> $GITHUB_OUTPUT
@@ -80,6 +89,7 @@ jobs:
     if: |
       needs.detect-changes.outputs.frontend == 'true' ||
       needs.detect-changes.outputs.core-api == 'true' ||
+      needs.detect-changes.outputs.item-resolver == 'true' ||
       needs.detect-changes.outputs.infrastructure == 'true'
 
     steps:
@@ -98,6 +108,7 @@ jobs:
           echo "=== Deployment Plan (Ubuntu Server) ==="
           echo "Frontend: ${{ needs.detect-changes.outputs.frontend }}"
           echo "Core API: ${{ needs.detect-changes.outputs.core-api }}"
+          echo "Item Resolver: ${{ needs.detect-changes.outputs.item-resolver }}"
           echo "Infrastructure: ${{ needs.detect-changes.outputs.infrastructure }}"
 
       - name: Pull latest code
@@ -161,6 +172,10 @@ jobs:
 
             if [ "${{ needs.detect-changes.outputs.core-api }}" == "true" ]; then
               REBUILD_SERVICES="$REBUILD_SERVICES core-api-1 core-api-2"
+            fi
+
+            if [ "${{ needs.detect-changes.outputs.item-resolver }}" == "true" ]; then
+              REBUILD_SERVICES="$REBUILD_SERVICES item-resolver-1 item-resolver-2"
             fi
 
             # If infrastructure changed, rebuild nginx
@@ -238,6 +253,14 @@ jobs:
             if [ "${{ needs.detect-changes.outputs.frontend }}" == "true" ]; then
               echo "Checking frontend..."
               docker exec wishwithme-frontend wget --no-verbose --tries=1 --spider http://127.0.0.1/ && echo "✓ Frontend is healthy" || (echo "✗ Frontend health check failed" && exit 1)
+            fi
+
+            # Test item-resolver health endpoints (internal)
+            if [ "${{ needs.detect-changes.outputs.item-resolver }}" == "true" ]; then
+              echo "Checking item-resolver-1 health..."
+              docker exec wishwithme-item-resolver-1 wget --no-verbose --tries=1 -O- --timeout=5 --header="Authorization: Bearer ${RU_BEARER_TOKEN:-ru_secret}" http://127.0.0.1:8000/healthz > /dev/null && echo "✓ Item Resolver 1 is healthy" || (echo "✗ Item Resolver 1 health check failed" && exit 1)
+              echo "Checking item-resolver-2 health..."
+              docker exec wishwithme-item-resolver-2 wget --no-verbose --tries=1 -O- --timeout=5 --header="Authorization: Bearer ${RU_BEARER_TOKEN:-ru_secret}" http://127.0.0.1:8000/healthz > /dev/null && echo "✓ Item Resolver 2 is healthy" || (echo "✗ Item Resolver 2 health check failed" && exit 1)
             fi
 
             echo "=== All health checks passed ==="
@@ -333,6 +356,10 @@ jobs:
 
             if [ "${{ needs.detect-changes.outputs.core-api }}" == "true" ]; then
               REBUILD_SERVICES="$REBUILD_SERVICES core-api-1 core-api-2"
+            fi
+
+            if [ "${{ needs.detect-changes.outputs.item-resolver }}" == "true" ]; then
+              REBUILD_SERVICES="$REBUILD_SERVICES item-resolver-1 item-resolver-2"
             fi
 
             if [ "${{ needs.detect-changes.outputs.infrastructure }}" == "true" ]; then

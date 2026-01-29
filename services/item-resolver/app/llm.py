@@ -27,8 +27,9 @@ class LLMClient(Protocol):
         url: str,
         title: str,
         image_candidates: str,
-        image_base64: str,
-        image_mime: str,
+        image_base64: str = "",
+        image_mime: str = "",
+        html_content: str = "",
     ) -> LLMOutput:
         ...
 
@@ -69,8 +70,17 @@ def _default_canonical_url(url: str) -> str:
 
 @dataclass
 class StubLLMClient:
-    async def extract(self, *, url: str, title: str, image_candidates: str, image_base64: str, image_mime: str) -> LLMOutput:
-        _ = (image_candidates, image_base64, image_mime)
+    async def extract(
+        self,
+        *,
+        url: str,
+        title: str,
+        image_candidates: str,
+        image_base64: str = "",
+        image_mime: str = "",
+        html_content: str = "",
+    ) -> LLMOutput:
+        _ = (image_candidates, image_base64, image_mime, html_content)
         return LLMOutput(
             title=title or None,
             description=None,
@@ -90,7 +100,17 @@ class OpenAILikeClient:
     timeout_s: float
     max_chars: int
 
-    async def extract(self, *, url: str, title: str, image_candidates: str, image_base64: str, image_mime: str) -> LLMOutput:
+    async def extract(
+        self,
+        *,
+        url: str,
+        title: str,
+        image_candidates: str,
+        image_base64: str = "",
+        image_mime: str = "",
+        html_content: str = "",
+    ) -> LLMOutput:
+        _ = html_content  # Not used by vision client
         truncated_candidates = _truncate_text(image_candidates, self.max_chars)
         system = (
             "Return ONLY a single JSON object and nothing else. "
@@ -157,6 +177,99 @@ class OpenAILikeClient:
         return out
 
 
+@dataclass
+class DeepSeekTextClient:
+    """
+    LLM client for DeepSeek text-only models.
+
+    Uses HTML content instead of screenshots for product extraction.
+    Designed for models without vision capabilities.
+    """
+
+    base_url: str
+    api_key: str
+    model: str
+    timeout_s: float
+    max_chars: int
+
+    async def extract(
+        self,
+        *,
+        url: str,
+        title: str,
+        image_candidates: str,
+        image_base64: str = "",
+        image_mime: str = "",
+        html_content: str = "",
+    ) -> LLMOutput:
+        _ = (image_base64, image_mime)  # Not used by text client
+
+        truncated_candidates = _truncate_text(image_candidates, min(self.max_chars // 4, 10000))
+        truncated_html = _truncate_text(html_content, self.max_chars)
+
+        system = (
+            "You are a product data extraction assistant. "
+            "Extract product information from the provided HTML content and return ONLY a single JSON object.\n\n"
+            "Use the exact schema and keys:\n"
+            "{\n"
+            '  "title": "string|null",\n'
+            '  "description": "string|null",\n'
+            '  "price_amount": "number|null",\n'
+            '  "price_currency": "string|null",\n'
+            '  "canonical_url": "string|null",\n'
+            '  "confidence": "number",\n'
+            '  "image_url": "string|null"\n'
+            "}\n\n"
+            "Rules:\n"
+            "- Output valid JSON with double quotes only, no markdown formatting.\n"
+            "- If a field is missing or unclear, use null.\n"
+            "- confidence is 0.0 to 1.0 based on how certain you are about the extraction.\n"
+            "- For price_amount, extract only the numeric value (e.g., 15990 not '15 990 ₽').\n"
+            "- For price_currency, use ISO code if possible (RUB, USD, EUR) or the symbol (₽, $, €).\n"
+            "- For title, use the main product name, not marketing slogans.\n"
+            "- For description, extract a concise product description (1-3 sentences).\n"
+            "- For image_url, select the best main product image URL from the image candidates list.\n"
+            "- Prefer high-resolution product images, not thumbnails or icons.\n"
+            "- canonical_url should be the clean product page URL without tracking parameters.\n"
+        )
+
+        user = (
+            f"Extract product information from this page:\n\n"
+            f"URL: {url}\n"
+            f"Page title: {title}\n\n"
+            f"Image candidates (select the main product image from these):\n"
+            f"{truncated_candidates}\n\n"
+            f"Page content:\n"
+            f"{truncated_html}\n"
+        )
+
+        payload = {
+            "model": self.model,
+            "temperature": 0,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+        }
+
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+        timeout = httpx.Timeout(self.timeout_s, connect=self.timeout_s)
+
+        async with httpx.AsyncClient(base_url=self.base_url, timeout=timeout) as client:
+            resp = await client.post("/v1/chat/completions", json=payload, headers=headers)
+            resp.raise_for_status()
+            body = resp.json()
+
+        try:
+            content = body["choices"][0]["message"]["content"]
+        except Exception as exc:
+            raise ValueError("LLM response missing content") from exc
+
+        parsed = _extract_json(content)
+        out = LLMOutput.model_validate(parsed)
+        return out
+
+
 def load_llm_client_from_env() -> LLMClient:
     mode = (os.environ.get("LLM_MODE") or "live").strip().lower()
     if mode == "stub":
@@ -170,10 +283,36 @@ def load_llm_client_from_env() -> LLMClient:
 
     timeout_s = float(os.environ.get("LLM_TIMEOUT_S") or 60)
     max_chars = int(os.environ.get("LLM_MAX_CHARS") or 200_000)
-    return OpenAILikeClient(
-        base_url=base_url,
-        api_key=api_key,
-        model=model,
-        timeout_s=timeout_s,
-        max_chars=max_chars,
-    )
+
+    # Determine client type based on LLM_CLIENT_TYPE or model name
+    client_type = (os.environ.get("LLM_CLIENT_TYPE") or "").strip().lower()
+
+    # Auto-detect DeepSeek models (text-only)
+    if not client_type:
+        model_lower = model.lower()
+        if "deepseek" in model_lower and "vl" not in model_lower:
+            # DeepSeek text models (deepseek-chat, deepseek-coder, etc.)
+            client_type = "text"
+        elif "gpt-4" in model_lower or "gpt-3" in model_lower or "claude" in model_lower:
+            # Vision-capable models
+            client_type = "vision"
+        else:
+            # Default to text for unknown models (safer)
+            client_type = "text"
+
+    if client_type == "text":
+        return DeepSeekTextClient(
+            base_url=base_url,
+            api_key=api_key,
+            model=model,
+            timeout_s=timeout_s,
+            max_chars=max_chars,
+        )
+    else:
+        return OpenAILikeClient(
+            base_url=base_url,
+            api_key=api_key,
+            model=model,
+            timeout_s=timeout_s,
+            max_chars=max_chars,
+        )

@@ -16,6 +16,7 @@ from .auth import require_bearer_token
 from .browser_manager import load_manager_from_env, open_browser
 from .errors import blocked_or_unavailable, llm_parse_failed, timeout, unknown_error
 from .fetcher import PlaywrightFetcher, StubFetcher, fetcher_mode_from_env
+from .html_optimizer import format_html_for_llm
 from .html_parser import extract_images_from_html, format_images_for_llm
 from .image_utils import crop_screenshot_to_content, image_data_url
 from .llm import load_llm_client_from_env
@@ -187,6 +188,14 @@ def create_app(*, fetcher_mode: str | None = None) -> FastAPI:
                         images = extract_images_from_html(html, base_url=final_url or payload.url)
                         image_candidates = format_images_for_llm(images, max_images=20)
 
+                    async with measure_time(stats, "html_optimization"):
+                        html_content = format_html_for_llm(
+                            html=html,
+                            url=final_url or payload.url,
+                            title=page_title,
+                            max_chars=int(os.environ.get("LLM_MAX_CHARS") or 50000),
+                        )
+
                     try:
                         async with measure_time(stats, "llm_extraction"):
                             llm_out = await llm_client.extract(
@@ -195,6 +204,7 @@ def create_app(*, fetcher_mode: str | None = None) -> FastAPI:
                                 image_candidates=image_candidates,
                                 image_base64=page_b64,
                                 image_mime=page_mime,
+                                html_content=html_content,
                             )
                     except ValueError as exc:
                         raise llm_parse_failed(str(exc)) from exc
@@ -263,6 +273,14 @@ def create_app(*, fetcher_mode: str | None = None) -> FastAPI:
                 images = extract_images_from_html(html, base_url=final_url or payload.url)
                 image_candidates = format_images_for_llm(images, max_images=20)
 
+            async with measure_time(stats, "html_optimization"):
+                html_content = format_html_for_llm(
+                    html=html,
+                    url=final_url or payload.url,
+                    title=page_title,
+                    max_chars=int(os.environ.get("LLM_MAX_CHARS") or 50000),
+                )
+
             try:
                 async with measure_time(stats, "llm_extraction"):
                     llm_out = await llm_client.extract(
@@ -271,6 +289,7 @@ def create_app(*, fetcher_mode: str | None = None) -> FastAPI:
                         image_candidates=image_candidates,
                         image_base64=screenshot_b64,
                         image_mime=image_mime,
+                        html_content=html_content,
                     )
             except ValueError as exc:
                 raise llm_parse_failed(str(exc)) from exc
