@@ -1,5 +1,7 @@
 """HTTP client for Item Resolver service."""
 
+import asyncio
+import json
 import logging
 import uuid
 
@@ -9,6 +11,31 @@ from typing import Any
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+async def _curl_request(url: str, token: str, payload: dict, timeout: int) -> bytes:
+    """Fallback using curl subprocess for network edge cases."""
+    cmd = [
+        "curl", "-s",
+        "-X", "POST",
+        "-H", "Content-Type: application/json",
+        "-H", f"Authorization: Bearer {token}",
+        "-d", json.dumps(payload),
+        "--max-time", str(timeout),
+        url
+    ]
+
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
+    )
+    stdout, stderr = await proc.communicate()
+
+    if proc.returncode != 0:
+        raise RuntimeError(f"curl failed: {stderr.decode('utf-8', errors='replace')}")
+
+    return stdout
 
 
 class ItemResolverError(Exception):
@@ -94,7 +121,8 @@ class ItemResolverClient:
                     body = b"".join(chunks)
                     logger.info(f"[{request_id}] Response body complete: {len(body)} bytes")
 
-                data = response.json()
+                # Parse JSON from the body we already read (can't call response.json() after streaming)
+                data = json.loads(body.decode('utf-8'))
                 logger.info(f"[{request_id}] Successfully parsed response ({len(str(data))} chars)")
 
                 return {
@@ -124,10 +152,31 @@ class ItemResolverClient:
                 ) from e
 
             except httpx.ReadTimeout as e:
-                logger.error(f"[{request_id}] Read timeout after {self.read_timeout}s")
-                raise ItemResolverError(
-                    f"Resolution read timeout after {self.read_timeout}s"
-                ) from e
+                logger.warning(f"[{request_id}] Read timeout after {self.read_timeout}s, trying curl fallback...")
+                # Try curl fallback - it handles some network edge cases better
+                try:
+                    curl_body = await _curl_request(
+                        f"{self.base_url}/resolver/v1/resolve",
+                        self.token,
+                        {"url": url},
+                        int(self.read_timeout)
+                    )
+                    logger.info(f"[{request_id}] Curl fallback succeeded: {len(curl_body)} bytes")
+                    data = json.loads(curl_body.decode('utf-8'))
+                    return {
+                        "title": data.get("title", ""),
+                        "description": data.get("description"),
+                        "price": data.get("price_amount"),
+                        "currency": data.get("price_currency"),
+                        "image_base64": data.get("image_base64"),
+                        "source_url": data.get("canonical_url", url),
+                        "metadata": data,
+                    }
+                except Exception as curl_error:
+                    logger.error(f"[{request_id}] Curl fallback also failed: {curl_error}")
+                    raise ItemResolverError(
+                        f"Resolution read timeout after {self.read_timeout}s (curl fallback also failed)"
+                    ) from e
 
             except httpx.ConnectTimeout as e:
                 logger.error(f"[{request_id}] Connect timeout")
