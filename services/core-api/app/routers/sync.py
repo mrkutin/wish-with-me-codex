@@ -392,7 +392,7 @@ async def _push_items(
     Automatically triggers resolution for new items with source_url.
     """
     conflicts: list[ConflictDocument] = []
-    items_to_resolve: list[tuple[UUID, str]] = []  # (item_id, source_url)
+    items_to_resolve: dict[UUID, str] = {}  # {item_id: source_url} - dict to avoid duplicates
     updated_items: list[tuple[UUID, UUID]] = []  # (item_id, wishlist_id) for SSE
 
     # Get user's wishlist IDs for authorization
@@ -504,9 +504,9 @@ async def _push_items(
                         await db.execute(stmt)
                         updated_items.append((doc_id, wishlist_id))
 
-                        # Track items that need resolution
-                        if source_url:
-                            items_to_resolve.append((doc_id, source_url))
+                        # Track items that need resolution (use dict to avoid duplicates in batch)
+                        if source_url and doc_id not in items_to_resolve:
+                            items_to_resolve[doc_id] = source_url
                     except IntegrityError as e:
                         # Handle unique constraint violations (e.g., duplicate title in wishlist)
                         await db.rollback()
@@ -531,20 +531,31 @@ async def _push_items(
 
     # Publish SSE events for successful updates (for multi-tab/device sync)
     # Skip items that will be resolved (they'll get SSE events after resolution)
-    items_to_resolve_ids = {item_id for item_id, _ in items_to_resolve}
     for item_id, wishlist_id in updated_items:
-        if item_id not in items_to_resolve_ids:
+        if item_id not in items_to_resolve:
             await publish_item_updated(user_id, item_id, wishlist_id)
 
     # Trigger resolution for new items with URLs (after commit so items exist)
-    for item_id, source_url in items_to_resolve:
-        logger.info(f"Scheduling resolution for synced item {item_id}")
-        background_tasks.add_task(
-            resolve_item_background,
-            item_id=item_id,
-            source_url=source_url,
-            session_maker=async_session_maker,
+    # Only resolve items that are still in PENDING status (not already RESOLVING/RESOLVED)
+    if items_to_resolve:
+        # Fetch current status of items to resolve
+        result = await db.execute(
+            select(Item.id, Item.status).where(Item.id.in_(items_to_resolve.keys()))
         )
+        item_statuses = {row[0]: row[1] for row in result.fetchall()}
+
+        for item_id, source_url in items_to_resolve.items():
+            status = item_statuses.get(item_id)
+            if status == ItemStatus.PENDING:
+                logger.info(f"Scheduling resolution for synced item {item_id}")
+                background_tasks.add_task(
+                    resolve_item_background,
+                    item_id=item_id,
+                    source_url=source_url,
+                    session_maker=async_session_maker,
+                )
+            else:
+                logger.debug(f"Skipping resolution for item {item_id}, status is {status}")
 
     return PushResponse(conflicts=conflicts)
 

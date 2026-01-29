@@ -85,11 +85,31 @@ class ItemService:
         item.deleted_at = datetime.now(timezone.utc)
         await self.db.flush()
 
-    async def mark_resolving(self, item: Item) -> None:
-        """Mark an item as currently being resolved."""
-        item.status = ItemStatus.RESOLVING
+    async def mark_resolving(self, item: Item) -> bool:
+        """Mark an item as currently being resolved.
+
+        Uses conditional update to prevent race conditions - only succeeds if
+        the item is still in PENDING status.
+
+        Returns:
+            True if successfully claimed for resolution, False if already being resolved
+        """
+        from sqlalchemy import update
+
+        result = await self.db.execute(
+            update(Item)
+            .where(Item.id == item.id, Item.status == ItemStatus.PENDING)
+            .values(status=ItemStatus.RESOLVING)
+        )
         await self.db.flush()
-        await self.db.refresh(item)
+
+        if result.rowcount > 0:
+            await self.db.refresh(item)
+            return True
+        else:
+            # Another request already claimed this item
+            await self.db.refresh(item)
+            return False
 
     async def update_from_resolver(
         self, item: Item, resolver_data: dict
@@ -129,14 +149,26 @@ class ItemService:
     async def mark_resolver_failed(self, item: Item, error: str) -> None:
         """Mark an item as failed to resolve.
 
+        Only marks as failed if the item is not already RESOLVED.
+        This prevents a slow/failed duplicate request from overwriting a successful resolution.
+
         Args:
             item: The item that failed to resolve
             error: Error message from resolver
         """
-        item.status = ItemStatus.FAILED
-        item.resolver_metadata = {
-            "error": error,
-            "failed_at": datetime.now(timezone.utc).isoformat(),
-        }
+        from sqlalchemy import update
+
+        # Only mark as failed if not already resolved (another request may have succeeded)
+        result = await self.db.execute(
+            update(Item)
+            .where(Item.id == item.id, Item.status != ItemStatus.RESOLVED)
+            .values(
+                status=ItemStatus.FAILED,
+                resolver_metadata={
+                    "error": error,
+                    "failed_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+        )
         await self.db.flush()
         await self.db.refresh(item)

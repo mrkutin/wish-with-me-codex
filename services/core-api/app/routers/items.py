@@ -234,9 +234,13 @@ async def resolve_item_background(
                 logger.error(f"Wishlist {item.wishlist_id} not found for item {item_id}")
                 return
 
-            # Mark as resolving
-            await item_service.mark_resolving(item)
+            # Mark as resolving (returns False if another request already claimed it)
+            claimed = await item_service.mark_resolving(item)
             await session.commit()
+
+            if not claimed:
+                logger.info(f"Skipping resolution for item {item_id} - already being resolved by another request")
+                return
 
             # Call resolver service
             logger.info(f"Resolving item {item_id} from URL: {source_url}")
