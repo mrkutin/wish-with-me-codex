@@ -295,15 +295,47 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
     pullStream$,
     triggerPull: () => {
       console.log('[RxDB] triggerPull called');
+      // Log replication states for debugging
+      console.log('[RxDB] Replication states:', {
+        wishlists: {
+          isStopped: wishlistReplication.isStopped(),
+        },
+        items: {
+          isStopped: itemReplication.isStopped(),
+        },
+        marks: {
+          isStopped: markReplication.isStopped(),
+        },
+      });
+
       // Call reSync() directly on each replication state
       // This is the documented method to trigger immediate checkpoint iteration
-      console.log('[RxDB] Calling reSync() on wishlists...');
-      wishlistReplication.reSync();
-      console.log('[RxDB] Calling reSync() on items...');
-      itemReplication.reSync();
-      console.log('[RxDB] Calling reSync() on marks...');
-      markReplication.reSync();
-      console.log('[RxDB] reSync() called on all replications');
+      if (!wishlistReplication.isStopped()) {
+        console.log('[RxDB] Calling reSync() on wishlists...');
+        wishlistReplication.reSync();
+      } else {
+        console.warn('[RxDB] wishlists replication is stopped, skipping reSync');
+      }
+
+      if (!itemReplication.isStopped()) {
+        console.log('[RxDB] Calling reSync() on items...');
+        itemReplication.reSync();
+      } else {
+        console.warn('[RxDB] items replication is stopped, skipping reSync');
+      }
+
+      if (!markReplication.isStopped()) {
+        console.log('[RxDB] Calling reSync() on marks...');
+        markReplication.reSync();
+      } else {
+        console.warn('[RxDB] marks replication is stopped, skipping reSync');
+      }
+
+      console.log('[RxDB] reSync() called on all active replications');
+
+      // Also emit on pullStream$ as backup trigger
+      console.log('[RxDB] Emitting on pullStream$...');
+      pullStream$.next();
     },
     cancel: async () => {
       // Remove event listener on cleanup
