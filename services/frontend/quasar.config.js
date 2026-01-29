@@ -40,6 +40,8 @@ module.exports = configure((/* ctx */) => {
         viteConf.resolve.alias = {
           ...viteConf.resolve.alias,
           '@': path.resolve(__dirname, 'src'),
+          // Node.js polyfills for PouchDB
+          'events': 'events',
         };
         // PouchDB requires special handling for Vite bundling
         viteConf.optimizeDeps = viteConf.optimizeDeps || {};
@@ -47,13 +49,12 @@ module.exports = configure((/* ctx */) => {
           ...(viteConf.optimizeDeps.include || []),
           'pouchdb-browser',
           'pouchdb-find',
+          'events',
         ];
-        viteConf.optimizeDeps.esbuildOptions = {
-          ...(viteConf.optimizeDeps.esbuildOptions || {}),
-          // Node.js global to browser globalThis
-          define: {
-            global: 'globalThis',
-          },
+        viteConf.define = {
+          ...(viteConf.define || {}),
+          global: 'globalThis',
+          'process.env': {},
         };
       },
     },

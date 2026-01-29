@@ -8,12 +8,8 @@
  *   validates access arrays and user permissions
  */
 
-// Use require for better CommonJS compatibility with Vite
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const PouchDBModule = require('pouchdb-browser');
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const PouchDBFind = require('pouchdb-find');
-const PouchDB = PouchDBModule.default || PouchDBModule;
+import PouchDB from 'pouchdb-browser';
+import PouchDBFind from 'pouchdb-find';
 import type {
   CouchDBDoc,
   WishlistDoc,
@@ -25,8 +21,7 @@ import type {
 } from './types';
 
 // Register PouchDB plugins
-const PouchDBFindPlugin = PouchDBFind.default || PouchDBFind;
-PouchDB.plugin(PouchDBFindPlugin);
+PouchDB.plugin(PouchDBFind);
 
 // Database name
 const DB_NAME = 'wishwithme';

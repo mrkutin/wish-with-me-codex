@@ -22,6 +22,7 @@
     "@vueuse/core": "^10.9.0",
     "axios": "^1.6.0",
     "date-fns": "^3.3.0",
+    "events": "^3.3.0",
     "pinia": "^2.1.0",
     "pouchdb-browser": "^8.0.1",
     "pouchdb-find": "^8.0.1",
