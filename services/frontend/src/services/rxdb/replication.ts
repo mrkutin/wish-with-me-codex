@@ -335,52 +335,49 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
     pullStream$,
     triggerPull: () => {
       console.log('[RxDB] triggerPull called, replicationsActive:', replicationsActive);
-      // Log replication states for debugging
-      console.log('[RxDB] Replication states:', {
-        wishlists: {
-          isStopped: wishlistReplication.isStopped(),
-        },
-        items: {
-          isStopped: itemReplication.isStopped(),
-        },
-        marks: {
-          isStopped: markReplication.isStopped(),
-        },
-      });
 
-      // If replications aren't active yet (waiting for leadership), log warning
-      if (!replicationsActive) {
-        console.warn('[RxDB] Replications not yet active (waiting for leadership?). reSync may be queued.');
-      }
+      // IMPORTANT: reSync() only works after replication has started.
+      // With waitForLeadership: true, start() is delayed until leadership is acquired.
+      // We must await startPromise before calling reSync().
+      (async () => {
+        try {
+          // Wait for all replications to start (leadership acquired + internal setup complete)
+          console.log('[RxDB] Awaiting replication starts...');
+          await Promise.all([
+            wishlistReplication.startPromise,
+            itemReplication.startPromise,
+            markReplication.startPromise,
+          ]);
+          console.log('[RxDB] All replications have started');
 
-      // Call reSync() directly on each replication state
-      // This is the documented method to trigger immediate checkpoint iteration
-      if (!wishlistReplication.isStopped()) {
-        console.log('[RxDB] Calling reSync() on wishlists...');
-        wishlistReplication.reSync();
-      } else {
-        console.warn('[RxDB] wishlists replication is stopped, skipping reSync');
-      }
+          // Log replication states for debugging
+          console.log('[RxDB] Replication states after start:', {
+            wishlists: { isStopped: wishlistReplication.isStopped() },
+            items: { isStopped: itemReplication.isStopped() },
+            marks: { isStopped: markReplication.isStopped() },
+          });
 
-      if (!itemReplication.isStopped()) {
-        console.log('[RxDB] Calling reSync() on items...');
-        itemReplication.reSync();
-      } else {
-        console.warn('[RxDB] items replication is stopped, skipping reSync');
-      }
+          // Now call reSync() - this should work because replication has started
+          if (!wishlistReplication.isStopped()) {
+            console.log('[RxDB] Calling reSync() on wishlists...');
+            wishlistReplication.reSync();
+          }
 
-      if (!markReplication.isStopped()) {
-        console.log('[RxDB] Calling reSync() on marks...');
-        markReplication.reSync();
-      } else {
-        console.warn('[RxDB] marks replication is stopped, skipping reSync');
-      }
+          if (!itemReplication.isStopped()) {
+            console.log('[RxDB] Calling reSync() on items...');
+            itemReplication.reSync();
+          }
 
-      console.log('[RxDB] reSync() called on all active replications');
+          if (!markReplication.isStopped()) {
+            console.log('[RxDB] Calling reSync() on marks...');
+            markReplication.reSync();
+          }
 
-      // Also emit RESYNC on pullStream$ to force checkpoint reset and full pull
-      console.log('[RxDB] Emitting RESYNC on pullStream$...');
-      pullStream$.next('RESYNC');
+          console.log('[RxDB] reSync() called on all active replications');
+        } catch (error) {
+          console.error('[RxDB] Error in triggerPull:', error);
+        }
+      })();
     },
     cancel: async () => {
       // Remove event listener on cleanup
