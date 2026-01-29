@@ -1,14 +1,14 @@
 /**
  * Composable for real-time sync via Server-Sent Events (SSE).
  *
- * Listens to SSE events from the backend and triggers RxDB pulls
+ * Listens to SSE events from the backend and triggers PouchDB sync
  * when data changes (e.g., item resolution completes).
  */
 
 import { ref, watch, onMounted, onUnmounted } from 'vue';
 import { useOnline } from '@vueuse/core';
 import { useAuthStore } from '@/stores/auth';
-import { getReplicationState } from '@/services/rxdb/replication';
+import { triggerSync } from '@/services/pouchdb';
 import { getApiBaseUrl } from '@/boot/axios';
 
 interface SSEEventData {
@@ -46,15 +46,17 @@ export function useRealtimeSync() {
   }
 
   /**
-   * Trigger RxDB pull for all collections.
+   * Trigger PouchDB sync to pull latest changes.
    */
   function triggerPull() {
-    const replication = getReplicationState();
-    if (replication) {
-      console.log('[SSE] Triggering RxDB pull...');
-      replication.triggerPull();
+    const token = authStore.getAccessToken();
+    if (token) {
+      console.log('[SSE] Triggering PouchDB sync...');
+      triggerSync(token).catch((error) => {
+        console.error('[SSE] Sync failed:', error);
+      });
     } else {
-      console.warn('[SSE] Cannot trigger pull - replication state not initialized');
+      console.warn('[SSE] Cannot trigger sync - no access token');
     }
   }
 

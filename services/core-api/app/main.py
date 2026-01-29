@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import settings
+from app.couchdb import close_couchdb
 from app.redis import close_redis
 from app.services.events import event_manager
 from app.routers import (
@@ -35,6 +36,9 @@ from app.routers import (
     sync_router,
     events_router,
 )
+from app.routers.auth_couchdb import router as auth_couchdb_router
+from app.routers.share_couchdb import router as share_couchdb_router
+from app.routers.sync_couchdb import router as sync_couchdb_router
 
 
 @asynccontextmanager
@@ -44,6 +48,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
     # Shutdown
     await event_manager.stop_subscriber()
+    await close_couchdb()
     await close_redis()
 
 
@@ -101,6 +106,8 @@ async def global_exception_handler(request: Request, exc: Exception):
 # Include routers
 app.include_router(health_router)
 app.include_router(auth_router)
+app.include_router(auth_couchdb_router)  # CouchDB-based auth (v2)
+app.include_router(share_couchdb_router)  # CouchDB-based sharing (v2)
 app.include_router(users_router)
 app.include_router(wishlists_router)
 app.include_router(items_router)
@@ -108,6 +115,7 @@ app.include_router(oauth_router)
 app.include_router(share_router)
 app.include_router(shared_router)
 app.include_router(sync_router)
+app.include_router(sync_couchdb_router)  # CouchDB-based sync (v2)
 app.include_router(events_router)
 
 

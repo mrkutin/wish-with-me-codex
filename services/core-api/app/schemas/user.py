@@ -57,10 +57,11 @@ class UserResponse(UserBase):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: UUID
-    avatar_base64: str
-    created_at: datetime
-    updated_at: datetime
+    # Support both UUID (PostgreSQL) and string (CouchDB "user:uuid") IDs
+    id: UUID | str
+    avatar_base64: str | None = None
+    created_at: datetime | str
+    updated_at: datetime | str
 
 
 class UserPublicProfile(BaseModel):
@@ -68,9 +69,10 @@ class UserPublicProfile(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: UUID
+    # Support both UUID (PostgreSQL) and string (CouchDB) IDs
+    id: UUID | str
     name: str
-    avatar_base64: str
+    avatar_base64: str | None = None
     bio: str | None = None
     social_links: SocialLinks | None = None
 

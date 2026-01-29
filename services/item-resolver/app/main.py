@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from .auth import require_bearer_token
 from .browser_manager import load_manager_from_env, open_browser
+from .changes_watcher import start_watcher, stop_watcher
 from .errors import blocked_or_unavailable, llm_parse_failed, timeout, unknown_error
 from .fetcher import PlaywrightFetcher, StubFetcher, fetcher_mode_from_env
 from .html_optimizer import format_html_for_llm
@@ -74,7 +75,30 @@ def create_app(*, fetcher_mode: str | None = None) -> FastAPI:
 
         async with open_browser(headless=manager.headless, channel=manager.channel) as (_pw, browser):
             app.state.fetcher = PlaywrightFetcher(manager=manager, browser=browser, storage_state_dir=storage_dir, cfg=cfg)
-            yield
+
+            # Start CouchDB changes watcher if enabled
+            watcher_enabled = os.environ.get("COUCHDB_WATCHER_ENABLED", "true").lower() == "true"
+            if watcher_enabled:
+                try:
+                    llm_client = load_llm_client_from_env()
+                    app.state.llm_client = llm_client
+                    await start_watcher(
+                        llm_client=llm_client,
+                        manager=manager,
+                        browser=browser,
+                        storage_state_dir=str(storage_dir),
+                    )
+                    logger.info("CouchDB changes watcher started")
+                except Exception as e:
+                    logger.warning(f"Failed to start CouchDB watcher: {e}")
+
+            try:
+                yield
+            finally:
+                # Stop watcher on shutdown
+                if watcher_enabled:
+                    await stop_watcher()
+                    logger.info("CouchDB changes watcher stopped")
 
     app = FastAPI(title="item-resolver", version="0.1.0", lifespan=lifespan)
     setup_middleware(app)

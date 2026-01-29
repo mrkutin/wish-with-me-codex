@@ -26,18 +26,26 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def create_access_token(
-    user_id: UUID,
+    user_id: UUID | str,
     expires_delta: timedelta | None = None,
 ) -> str:
-    """Create a JWT access token."""
+    """Create a JWT access token.
+
+    The token is compatible with CouchDB JWT authentication.
+    For CouchDB user IDs (format: "user:uuid"), the full ID is stored in sub.
+    For UUID-only user IDs (PostgreSQL), just the UUID string is stored.
+    """
     if expires_delta is None:
         expires_delta = timedelta(minutes=settings.access_token_expire_minutes)
 
     now = datetime.now(timezone.utc)
     expire = now + expires_delta
 
+    # Support both UUID and string user IDs (for CouchDB "user:uuid" format)
+    sub = str(user_id)
+
     to_encode: dict[str, Any] = {
-        "sub": str(user_id),
+        "sub": sub,
         "exp": expire,
         "iat": now,
         "jti": secrets.token_hex(16),

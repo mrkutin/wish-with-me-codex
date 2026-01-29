@@ -1,7 +1,7 @@
 /**
- * Wishlist store - offline-first using RxDB.
- * All reads come from RxDB with reactive subscriptions.
- * All writes go to RxDB and sync to server via replication.
+ * Wishlist store - offline-first using PouchDB.
+ * All reads come from PouchDB with reactive change subscriptions.
+ * All writes go to PouchDB and sync to server via API.
  */
 
 import { defineStore } from 'pinia';
@@ -9,9 +9,17 @@ import { ref, computed } from 'vue';
 import { useOnline } from '@vueuse/core';
 import { Notify } from 'quasar';
 import { useI18n } from 'vue-i18n';
-import { getDatabase, type WishWithMeDatabase, type WishlistDoc } from '@/services/rxdb';
+import {
+  getDatabase,
+  subscribeToWishlists,
+  findById,
+  upsert,
+  softDelete,
+  triggerSync,
+  createId,
+  type WishlistDoc,
+} from '@/services/pouchdb';
 import { useAuthStore } from '@/stores/auth';
-import type { Subscription } from 'rxjs';
 import type {
   Wishlist,
   WishlistCreate,
@@ -29,18 +37,17 @@ export const useWishlistStore = defineStore('wishlist', () => {
   const isLoading = ref(false);
   const isInitialized = ref(false);
 
-  let subscription: Subscription | null = null;
-  let db: WishWithMeDatabase | null = null;
+  let unsubscribe: (() => void) | null = null;
 
   /**
-   * Convert RxDB doc to Wishlist type for API compatibility.
+   * Convert PouchDB doc to Wishlist type for API compatibility.
    */
   function docToWishlist(doc: WishlistDoc): Wishlist {
     return {
-      id: doc.id,
-      user_id: doc.user_id,
+      id: doc._id,
+      user_id: doc.owner_id,
       name: doc.name,
-      description: doc.description,
+      description: doc.description || null,
       is_public: doc.is_public,
       icon: doc.icon || 'card_giftcard',
       created_at: doc.created_at,
@@ -49,27 +56,21 @@ export const useWishlistStore = defineStore('wishlist', () => {
   }
 
   /**
-   * Initialize RxDB subscription for wishlists.
+   * Initialize PouchDB subscription for wishlists.
    * Called when user logs in.
    */
   async function initializeStore(): Promise<void> {
-    if (isInitialized.value || !authStore.user?.id) return;
+    const userId = authStore.userId;
+    if (isInitialized.value || !userId) return;
 
     isLoading.value = true;
     try {
-      db = await getDatabase();
+      // Initialize database
+      getDatabase();
 
-      // Subscribe to reactive RxDB query
-      const query = db.wishlists.find({
-        selector: {
-          user_id: authStore.user.id,
-          _deleted: { $ne: true },
-        },
-        sort: [{ updated_at: 'desc' }],
-      });
-
-      subscription = query.$.subscribe((docs) => {
-        wishlists.value = docs.map((d) => docToWishlist(d.toJSON() as WishlistDoc));
+      // Subscribe to wishlist changes
+      unsubscribe = subscribeToWishlists(userId, (docs) => {
+        wishlists.value = docs.map(docToWishlist);
         total.value = wishlists.value.length;
         isLoading.value = false;
       });
@@ -85,9 +86,10 @@ export const useWishlistStore = defineStore('wishlist', () => {
    * Cleanup store on logout.
    */
   function cleanup(): void {
-    subscription?.unsubscribe();
-    subscription = null;
-    db = null;
+    if (unsubscribe) {
+      unsubscribe();
+      unsubscribe = null;
+    }
     wishlists.value = [];
     currentWishlist.value = null;
     total.value = 0;
@@ -101,57 +103,56 @@ export const useWishlistStore = defineStore('wishlist', () => {
     if (!isInitialized.value) {
       await initializeStore();
     }
-    // Data is now loaded reactively via RxDB subscription
+    // Data is now loaded reactively via PouchDB subscription
   }
 
   /**
-   * Fetch a single wishlist by ID from RxDB.
+   * Fetch a single wishlist by ID from PouchDB.
    */
   async function fetchWishlist(id: string): Promise<void> {
-    if (!db) {
-      db = await getDatabase();
-    }
-
     isLoading.value = true;
     try {
-      const doc = await db.wishlists.findOne(id).exec();
-      currentWishlist.value = doc ? docToWishlist(doc.toJSON() as WishlistDoc) : null;
+      const doc = await findById<WishlistDoc>(id);
+      currentWishlist.value = doc ? docToWishlist(doc) : null;
     } finally {
       isLoading.value = false;
     }
   }
 
   /**
-   * Create a new wishlist in RxDB.
-   * Syncs to server via replication when online.
+   * Create a new wishlist in PouchDB.
+   * Syncs to server via API when online.
    */
   async function createWishlist(data: WishlistCreate): Promise<Wishlist> {
-    if (!db) {
-      db = await getDatabase();
-    }
-    if (!authStore.user) {
+    const userId = authStore.userId;
+    if (!userId) {
       throw new Error('User not authenticated');
     }
 
     isLoading.value = true;
     try {
       const now = new Date().toISOString();
-      const newDoc: WishlistDoc = {
-        id: crypto.randomUUID(),
-        user_id: authStore.user.id,
+      const newDoc: Omit<WishlistDoc, '_rev'> = {
+        _id: createId('wishlist'),
+        type: 'wishlist',
+        owner_id: userId,
         name: data.name,
         description: data.description || null,
         is_public: data.is_public || false,
         icon: data.icon || 'card_giftcard',
         created_at: now,
         updated_at: now,
-        _deleted: false,
+        access: [userId],
       };
 
-      await db.wishlists.insert(newDoc);
+      const saved = await upsert(newDoc as WishlistDoc);
 
-      // Show offline notification
-      if (!isOnline.value) {
+      // Trigger sync if online
+      const token = authStore.getAccessToken();
+      if (isOnline.value && token) {
+        triggerSync(token).catch(console.error);
+      } else {
+        // Show offline notification
         Notify.create({
           message: t('offline.createdOffline'),
           caption: t('offline.createdOfflineCaption'),
@@ -161,37 +162,38 @@ export const useWishlistStore = defineStore('wishlist', () => {
         });
       }
 
-      return docToWishlist(newDoc);
+      return docToWishlist(saved);
     } finally {
       isLoading.value = false;
     }
   }
 
   /**
-   * Update a wishlist in RxDB.
+   * Update a wishlist in PouchDB.
    */
   async function updateWishlist(id: string, data: WishlistUpdate): Promise<Wishlist> {
-    if (!db) {
-      db = await getDatabase();
-    }
-
     isLoading.value = true;
     try {
-      const doc = await db.wishlists.findOne(id).exec();
+      const doc = await findById<WishlistDoc>(id);
       if (!doc) {
         throw new Error('Wishlist not found');
       }
 
-      await doc.patch({
+      const updated = await upsert({
+        ...doc,
         ...data,
         updated_at: new Date().toISOString(),
       });
 
-      const updated = doc.toJSON() as WishlistDoc;
-
       // Update currentWishlist if it's the same
       if (currentWishlist.value?.id === id) {
         currentWishlist.value = docToWishlist(updated);
+      }
+
+      // Trigger sync if online
+      const token = authStore.getAccessToken();
+      if (isOnline.value && token) {
+        triggerSync(token).catch(console.error);
       }
 
       return docToWishlist(updated);
@@ -201,26 +203,22 @@ export const useWishlistStore = defineStore('wishlist', () => {
   }
 
   /**
-   * Soft-delete a wishlist in RxDB.
+   * Soft-delete a wishlist in PouchDB.
    */
   async function deleteWishlist(id: string): Promise<void> {
-    if (!db) {
-      db = await getDatabase();
-    }
-
     isLoading.value = true;
     try {
-      const doc = await db.wishlists.findOne(id).exec();
-      if (doc) {
-        await doc.patch({
-          _deleted: true,
-          updated_at: new Date().toISOString(),
-        });
-      }
+      await softDelete(id);
 
       // Clear current wishlist if it's the deleted one
       if (currentWishlist.value?.id === id) {
         currentWishlist.value = null;
+      }
+
+      // Trigger sync if online
+      const token = authStore.getAccessToken();
+      if (isOnline.value && token) {
+        triggerSync(token).catch(console.error);
       }
     } finally {
       isLoading.value = false;

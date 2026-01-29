@@ -1,7 +1,7 @@
 /**
- * Item store - offline-first using RxDB.
- * All reads come from RxDB with reactive subscriptions.
- * All writes go to RxDB and sync to server via replication.
+ * Item store - offline-first using PouchDB.
+ * All reads come from PouchDB with reactive change subscriptions.
+ * All writes go to PouchDB and sync to server via API.
  */
 
 import { defineStore } from 'pinia';
@@ -9,12 +9,22 @@ import { ref, computed } from 'vue';
 import { useOnline } from '@vueuse/core';
 import { Notify } from 'quasar';
 import { useI18n } from 'vue-i18n';
-import { getDatabase, type WishWithMeDatabase, type ItemDoc } from '@/services/rxdb';
-import { api } from '@/boot/axios';
-import type { Subscription } from 'rxjs';
+import {
+  getDatabase,
+  subscribeToItems,
+  findById,
+  upsert,
+  softDelete,
+  triggerSync,
+  createId,
+  type ItemDoc,
+  type WishlistDoc,
+} from '@/services/pouchdb';
+import { useAuthStore } from '@/stores/auth';
 import type { Item, ItemCreate, ItemUpdate } from '@/types/item';
 
 export const useItemStore = defineStore('item', () => {
+  const authStore = useAuthStore();
   const isOnline = useOnline();
   const { t } = useI18n();
 
@@ -24,24 +34,23 @@ export const useItemStore = defineStore('item', () => {
   const total = ref(0);
   const isLoading = ref(false);
 
-  let subscription: Subscription | null = null;
-  let db: WishWithMeDatabase | null = null;
+  let unsubscribe: (() => void) | null = null;
 
   /**
-   * Convert RxDB doc to Item type for API compatibility.
+   * Convert PouchDB doc to Item type for API compatibility.
    */
   function docToItem(doc: ItemDoc): Item {
     return {
-      id: doc.id,
+      id: doc._id,
       wishlist_id: doc.wishlist_id,
       title: doc.title,
-      description: doc.description,
-      price: doc.price,
-      currency: doc.currency,
+      description: doc.description || null,
+      price: doc.price ? String(doc.price) : null,
+      currency: doc.currency || null,
       quantity: doc.quantity,
-      source_url: doc.source_url,
-      image_url: doc.image_url,
-      image_base64: doc.image_base64,
+      source_url: doc.source_url || null,
+      image_url: doc.image_url || null,
+      image_base64: doc.image_base64 || null,
       status: doc.status,
       created_at: doc.created_at,
       updated_at: doc.updated_at,
@@ -51,75 +60,73 @@ export const useItemStore = defineStore('item', () => {
   /**
    * Subscribe to items for a specific wishlist.
    */
-  async function subscribeToWishlist(wishlistId: string): Promise<void> {
+  async function subscribeToWishlistItems(wishlistId: string): Promise<void> {
     // Cleanup previous subscription
-    subscription?.unsubscribe();
+    if (unsubscribe) {
+      unsubscribe();
+      unsubscribe = null;
+    }
     currentWishlistId.value = wishlistId;
 
-    if (!db) {
-      db = await getDatabase();
-    }
+    // Initialize database
+    getDatabase();
 
-    const query = db.items.find({
-      selector: {
-        wishlist_id: wishlistId,
-        _deleted: { $ne: true },
-      },
-      sort: [{ created_at: 'desc' }],
-    });
-
-    subscription = query.$.subscribe((docs) => {
-      items.value = docs.map((d) => docToItem(d.toJSON() as ItemDoc));
+    // Subscribe to item changes
+    unsubscribe = subscribeToItems(wishlistId, (docs) => {
+      items.value = docs.map(docToItem);
       total.value = items.value.length;
       isLoading.value = false;
     });
   }
 
   /**
-   * Fetch items for a wishlist - now uses RxDB subscription.
+   * Fetch items for a wishlist - now uses PouchDB subscription.
    */
   async function fetchItems(wishlistId: string): Promise<void> {
     if (currentWishlistId.value !== wishlistId) {
       isLoading.value = true;
-      await subscribeToWishlist(wishlistId);
+      await subscribeToWishlistItems(wishlistId);
     }
   }
 
   /**
-   * Fetch a single item by ID from RxDB.
+   * Fetch a single item by ID from PouchDB.
    */
   async function fetchItem(wishlistId: string, itemId: string): Promise<void> {
-    if (!db) {
-      db = await getDatabase();
-    }
-
     isLoading.value = true;
     try {
-      const doc = await db.items.findOne(itemId).exec();
-      currentItem.value = doc ? docToItem(doc.toJSON() as ItemDoc) : null;
+      const doc = await findById<ItemDoc>(itemId);
+      currentItem.value = doc ? docToItem(doc) : null;
     } finally {
       isLoading.value = false;
     }
   }
 
   /**
-   * Create a new item in RxDB.
-   * Syncs to server via replication when online.
+   * Create a new item in PouchDB.
+   * Syncs to server via API when online.
    */
   async function createItem(wishlistId: string, data: ItemCreate): Promise<Item> {
-    if (!db) {
-      db = await getDatabase();
+    const userId = authStore.userId;
+    if (!userId) {
+      throw new Error('User not authenticated');
     }
 
     isLoading.value = true;
     try {
+      // Get wishlist to inherit access array
+      const wishlist = await findById<WishlistDoc>(wishlistId);
+      const access = wishlist?.access || [userId];
+
       const now = new Date().toISOString();
-      const newDoc: ItemDoc = {
-        id: crypto.randomUUID(),
+      const newDoc: Omit<ItemDoc, '_rev'> = {
+        _id: createId('item'),
+        type: 'item',
         wishlist_id: wishlistId,
+        owner_id: userId,
         title: data.title,
         description: data.description || null,
-        price: data.price || null,
+        price: data.price ? parseFloat(data.price) : null,
         currency: data.currency || null,
         quantity: data.quantity || 1,
         source_url: data.source_url || null,
@@ -128,13 +135,17 @@ export const useItemStore = defineStore('item', () => {
         status: data.source_url ? 'pending' : 'resolved',
         created_at: now,
         updated_at: now,
-        _deleted: false,
+        access,
       };
 
-      await db.items.insert(newDoc);
+      const saved = await upsert(newDoc as ItemDoc);
 
-      // Show offline notification
-      if (!isOnline.value) {
+      // Trigger sync if online
+      const token = authStore.getAccessToken();
+      if (isOnline.value && token) {
+        triggerSync(token).catch(console.error);
+      } else {
+        // Show offline notification
         Notify.create({
           message: t('offline.createdOffline'),
           caption: t('offline.createdOfflineCaption'),
@@ -144,41 +155,43 @@ export const useItemStore = defineStore('item', () => {
         });
       }
 
-      return docToItem(newDoc);
+      return docToItem(saved);
     } finally {
       isLoading.value = false;
     }
   }
 
   /**
-   * Update an item in RxDB.
+   * Update an item in PouchDB.
    */
   async function updateItem(
     wishlistId: string,
     itemId: string,
     data: ItemUpdate
   ): Promise<Item> {
-    if (!db) {
-      db = await getDatabase();
-    }
-
     isLoading.value = true;
     try {
-      const doc = await db.items.findOne(itemId).exec();
+      const doc = await findById<ItemDoc>(itemId);
       if (!doc) {
         throw new Error('Item not found');
       }
 
-      await doc.patch({
+      const updated = await upsert({
+        ...doc,
         ...data,
+        price: data.price ? parseFloat(data.price) : doc.price,
         updated_at: new Date().toISOString(),
       });
-
-      const updated = doc.toJSON() as ItemDoc;
 
       // Update currentItem if it's the same
       if (currentItem.value?.id === itemId) {
         currentItem.value = docToItem(updated);
+      }
+
+      // Trigger sync if online
+      const token = authStore.getAccessToken();
+      if (isOnline.value && token) {
+        triggerSync(token).catch(console.error);
       }
 
       return docToItem(updated);
@@ -188,26 +201,22 @@ export const useItemStore = defineStore('item', () => {
   }
 
   /**
-   * Soft-delete an item in RxDB.
+   * Soft-delete an item in PouchDB.
    */
   async function deleteItem(wishlistId: string, itemId: string): Promise<void> {
-    if (!db) {
-      db = await getDatabase();
-    }
-
     isLoading.value = true;
     try {
-      const doc = await db.items.findOne(itemId).exec();
-      if (doc) {
-        await doc.patch({
-          _deleted: true,
-          updated_at: new Date().toISOString(),
-        });
-      }
+      await softDelete(itemId);
 
       // Clear current item if it's the deleted one
       if (currentItem.value?.id === itemId) {
         currentItem.value = null;
+      }
+
+      // Trigger sync if online
+      const token = authStore.getAccessToken();
+      if (isOnline.value && token) {
+        triggerSync(token).catch(console.error);
       }
     } finally {
       isLoading.value = false;
@@ -219,42 +228,27 @@ export const useItemStore = defineStore('item', () => {
    * This calls the API since resolution happens server-side.
    */
   async function retryResolve(wishlistId: string, itemId: string): Promise<Item> {
-    if (!db) {
-      db = await getDatabase();
-    }
-
     isLoading.value = true;
     try {
-      // Update status to resolving locally
-      const doc = await db.items.findOne(itemId).exec();
+      // Update status to pending locally to trigger server-side resolution
+      const doc = await findById<ItemDoc>(itemId);
       if (doc) {
-        await doc.patch({
-          status: 'resolving',
+        await upsert({
+          ...doc,
+          status: 'pending',
           updated_at: new Date().toISOString(),
         });
       }
 
-      // Call API for actual resolution (requires server-side processing)
-      if (isOnline.value) {
-        const response = await api.post<Item>(
-          `/api/v1/wishlists/${wishlistId}/items/${itemId}/resolve`
-        );
+      // Trigger sync to push the pending status to server
+      // Server will pick it up via changes watcher and resolve it
+      const token = authStore.getAccessToken();
+      if (isOnline.value && token) {
+        await triggerSync(token);
 
-        // Update local doc with resolved data
-        if (doc) {
-          await doc.patch({
-            title: response.data.title,
-            description: response.data.description,
-            price: response.data.price,
-            currency: response.data.currency,
-            image_url: response.data.image_url,
-            image_base64: response.data.image_base64,
-            status: response.data.status,
-            updated_at: response.data.updated_at,
-          });
-        }
-
-        return response.data;
+        // Return current item state (will be updated when resolution completes)
+        const updated = await findById<ItemDoc>(itemId);
+        return updated ? docToItem(updated) : docToItem(doc!);
       } else {
         Notify.create({
           message: t('offline.youAreOffline'),
@@ -274,8 +268,10 @@ export const useItemStore = defineStore('item', () => {
    * Cleanup subscriptions.
    */
   function clearItems(): void {
-    subscription?.unsubscribe();
-    subscription = null;
+    if (unsubscribe) {
+      unsubscribe();
+      unsubscribe = null;
+    }
     items.value = [];
     currentItem.value = null;
     currentWishlistId.value = null;

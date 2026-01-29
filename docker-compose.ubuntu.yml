@@ -99,7 +99,7 @@ services:
     container_name: wishwithme-core-api-1
     restart: unless-stopped
     environment:
-      # Database
+      # Database (PostgreSQL - legacy, will be removed after migration)
       - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://wishwithme:postgres@postgres:5432/wishwithme}
       # Redis
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
@@ -117,10 +117,17 @@ services:
       # OAuth - Yandex
       - YANDEX_CLIENT_ID=${YANDEX_CLIENT_ID:-}
       - YANDEX_CLIENT_SECRET=${YANDEX_CLIENT_SECRET:-}
+      # CouchDB (new primary database)
+      - COUCHDB_URL=http://couchdb:5984
+      - COUCHDB_DATABASE=wishwithme
+      - COUCHDB_ADMIN_USER=${COUCHDB_ADMIN_USER:-admin}
+      - COUCHDB_ADMIN_PASSWORD=${COUCHDB_ADMIN_PASSWORD:-couchdb_admin_password}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      couchdb:
         condition: service_healthy
       item-resolver-1:
         condition: service_healthy
@@ -141,7 +148,7 @@ services:
     container_name: wishwithme-core-api-2
     restart: unless-stopped
     environment:
-      # Database
+      # Database (PostgreSQL - legacy, will be removed after migration)
       - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://wishwithme:postgres@postgres:5432/wishwithme}
       # Redis
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
@@ -159,10 +166,17 @@ services:
       # OAuth - Yandex
       - YANDEX_CLIENT_ID=${YANDEX_CLIENT_ID:-}
       - YANDEX_CLIENT_SECRET=${YANDEX_CLIENT_SECRET:-}
+      # CouchDB (new primary database)
+      - COUCHDB_URL=http://couchdb:5984
+      - COUCHDB_DATABASE=wishwithme
+      - COUCHDB_ADMIN_USER=${COUCHDB_ADMIN_USER:-admin}
+      - COUCHDB_ADMIN_PASSWORD=${COUCHDB_ADMIN_PASSWORD:-couchdb_admin_password}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      couchdb:
         condition: service_healthy
       item-resolver-1:
         condition: service_healthy
@@ -198,6 +212,7 @@ services:
       - wishwithme
 
   # Item Resolver Instance 1 (Playwright + DeepSeek)
+  # This instance watches CouchDB for pending items
   item-resolver-1:
     build:
       context: ./services/item-resolver
@@ -219,6 +234,15 @@ services:
       - LLM_MODEL=${LLM_MODEL:-deepseek-chat}
       - LLM_TIMEOUT_S=${LLM_TIMEOUT_S:-120}
       - LLM_MAX_CHARS=${LLM_MAX_CHARS:-50000}
+      # CouchDB Configuration - watches for pending items
+      - COUCHDB_WATCHER_ENABLED=true
+      - COUCHDB_URL=http://couchdb:5984
+      - COUCHDB_DATABASE=wishwithme
+      - COUCHDB_ADMIN_USER=${COUCHDB_ADMIN_USER:-admin}
+      - COUCHDB_ADMIN_PASSWORD=${COUCHDB_ADMIN_PASSWORD:-couchdb_admin_password}
+    depends_on:
+      couchdb:
+        condition: service_healthy
     volumes:
       - item_resolver_storage_1:/data/storage_state
     healthcheck:
@@ -241,6 +265,7 @@ services:
       - wishwithme
 
   # Item Resolver Instance 2 (Playwright + DeepSeek)
+  # This instance does NOT watch CouchDB (only instance 1 does)
   item-resolver-2:
     build:
       context: ./services/item-resolver
@@ -262,6 +287,8 @@ services:
       - LLM_MODEL=${LLM_MODEL:-deepseek-chat}
       - LLM_TIMEOUT_S=${LLM_TIMEOUT_S:-120}
       - LLM_MAX_CHARS=${LLM_MAX_CHARS:-50000}
+      # CouchDB watcher disabled on instance 2 (only instance 1 watches)
+      - COUCHDB_WATCHER_ENABLED=false
     volumes:
       - item_resolver_storage_2:/data/storage_state
     healthcheck:

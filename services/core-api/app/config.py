@@ -25,8 +25,14 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
 
-    # Database
+    # Database (PostgreSQL - deprecated, kept for migration period)
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/wishwithme"
+
+    # CouchDB (new primary database)
+    couchdb_url: str = "http://localhost:5984"
+    couchdb_database: str = "wishwithme"
+    couchdb_admin_user: str = "admin"
+    couchdb_admin_password: str = ""
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"

@@ -7,6 +7,9 @@ import type { AuthResponse, TokenResponse, LoginRequest, RegisterRequest } from 
 
 const REFRESH_TOKEN_KEY = 'refresh_token';
 
+// API version to use (v2 = CouchDB, v1 = PostgreSQL legacy)
+const API_VERSION = 'v2';
+
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null);
   const accessToken = ref<string | null>(null);
@@ -14,6 +17,13 @@ export const useAuthStore = defineStore('auth', () => {
   const isLoading = ref(false);
 
   const isAuthenticated = computed(() => !!user.value && !!accessToken.value);
+
+  // Get user ID (handles both CouchDB _id and PostgreSQL id formats)
+  const userId = computed(() => {
+    if (!user.value) return null;
+    // CouchDB uses _id, PostgreSQL uses id
+    return (user.value as { _id?: string; id?: string })._id || user.value.id;
+  });
 
   async function initializeAuth(): Promise<void> {
     const storedRefreshToken = LocalStorage.getItem<string>(REFRESH_TOKEN_KEY);
@@ -31,7 +41,7 @@ export const useAuthStore = defineStore('auth', () => {
   async function login(email: string, password: string): Promise<void> {
     isLoading.value = true;
     try {
-      const response = await api.post<AuthResponse>('/api/v1/auth/login', {
+      const response = await api.post<AuthResponse>(`/api/${API_VERSION}/auth/login`, {
         email,
         password,
       } as LoginRequest);
@@ -45,7 +55,7 @@ export const useAuthStore = defineStore('auth', () => {
   async function register(data: RegisterRequest): Promise<void> {
     isLoading.value = true;
     try {
-      const response = await api.post<AuthResponse>('/api/v1/auth/register', data);
+      const response = await api.post<AuthResponse>(`/api/${API_VERSION}/auth/register`, data);
       setAuth(response.data);
     } finally {
       isLoading.value = false;
@@ -57,7 +67,7 @@ export const useAuthStore = defineStore('auth', () => {
       throw new Error('No refresh token');
     }
 
-    const response = await api.post<TokenResponse>('/api/v1/auth/refresh', {
+    const response = await api.post<TokenResponse>(`/api/${API_VERSION}/auth/refresh`, {
       refresh_token: refreshTokenValue.value,
     });
 
@@ -72,6 +82,8 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function fetchCurrentUser(): Promise<void> {
+    // v2 returns user in auth response, but we can also fetch via /users/me
+    // For now, keep using v1 endpoint until we create v2 users endpoint
     const response = await api.get<User>('/api/v1/users/me');
     user.value = response.data;
   }
@@ -79,7 +91,7 @@ export const useAuthStore = defineStore('auth', () => {
   async function logout(): Promise<void> {
     if (refreshTokenValue.value) {
       try {
-        await api.post('/api/v1/auth/logout', {
+        await api.post(`/api/${API_VERSION}/auth/logout`, {
           refresh_token: refreshTokenValue.value,
         });
       } catch {
@@ -113,6 +125,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   return {
     user,
+    userId,
     accessToken,
     isAuthenticated,
     isLoading,
