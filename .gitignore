@@ -98,3 +98,4 @@ storage_state/
 # Deployment rollback tracking (server-side only)
 .last-known-good-commit
 
+node_modules/
