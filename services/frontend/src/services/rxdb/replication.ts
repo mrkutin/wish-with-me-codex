@@ -396,30 +396,11 @@ export async function directSyncItems(db: WishWithMeDatabase): Promise<void> {
       return;
     }
 
-    // Directly upsert each document into RxDB
+    // Use incrementalUpsert which handles both insert and update automatically
+    // This also properly handles soft-deleted documents
     for (const doc of documents) {
       try {
-        // Check if document exists
-        const existing = await db.items.findOne(doc.id).exec();
-        if (existing) {
-          // Update existing document using incrementalPatch
-          await existing.incrementalPatch({
-            title: doc.title,
-            description: doc.description,
-            price: doc.price,
-            currency: doc.currency,
-            quantity: doc.quantity,
-            source_url: doc.source_url,
-            image_url: doc.image_url,
-            image_base64: doc.image_base64,
-            status: doc.status,
-            updated_at: doc.updated_at,
-            _deleted: doc._deleted,
-          });
-        } else {
-          // Insert new document
-          await db.items.insert(doc);
-        }
+        await db.items.incrementalUpsert(doc);
       } catch (docError) {
         console.error('[RxDB] Error upserting item:', doc.id, docError);
       }
