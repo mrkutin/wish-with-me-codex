@@ -9,6 +9,8 @@ import type { WishWithMeDatabase, WishlistDoc, ItemDoc, MarkDoc } from './index'
 
 // Global reference for SSE to trigger syncs
 let currentReplicationState: ReplicationState | null = null;
+// Track if replications are active (not waiting for leadership)
+let replicationsActive = false;
 
 export interface ReplicationCheckpoint {
   updated_at: string;
@@ -288,13 +290,37 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
     console.log('[RxDB] pullStream$ event received:', event);
   });
 
+  // Track when replications become active (not waiting for leadership)
+  // Subscribe to active$ observables to know when replications are ready
+  wishlistReplication.active$.subscribe((active) => {
+    console.log('[RxDB] wishlists replication active:', active);
+  });
+  itemReplication.active$.subscribe((active) => {
+    console.log('[RxDB] items replication active:', active);
+    if (active) replicationsActive = true;
+  });
+  markReplication.active$.subscribe((active) => {
+    console.log('[RxDB] marks replication active:', active);
+  });
+
+  // Log errors
+  wishlistReplication.error$.subscribe((err) => {
+    console.error('[RxDB] wishlists replication error:', err);
+  });
+  itemReplication.error$.subscribe((err) => {
+    console.error('[RxDB] items replication error:', err);
+  });
+  markReplication.error$.subscribe((err) => {
+    console.error('[RxDB] marks replication error:', err);
+  });
+
   const state: ReplicationState = {
     wishlists: wishlistReplication,
     items: itemReplication,
     marks: markReplication,
     pullStream$,
     triggerPull: () => {
-      console.log('[RxDB] triggerPull called');
+      console.log('[RxDB] triggerPull called, replicationsActive:', replicationsActive);
       // Log replication states for debugging
       console.log('[RxDB] Replication states:', {
         wishlists: {
@@ -307,6 +333,11 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
           isStopped: markReplication.isStopped(),
         },
       });
+
+      // If replications aren't active yet (waiting for leadership), log warning
+      if (!replicationsActive) {
+        console.warn('[RxDB] Replications not yet active (waiting for leadership?). reSync may be queued.');
+      }
 
       // Call reSync() directly on each replication state
       // This is the documented method to trigger immediate checkpoint iteration
