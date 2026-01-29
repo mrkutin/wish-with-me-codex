@@ -53,6 +53,9 @@ function notifyConflict(_conflicts: ConflictInfo[]): void {
  * Setup replication for all collections.
  */
 export function setupReplication(db: WishWithMeDatabase): ReplicationState {
+  // Store database instance for direct sync operations
+  setDatabaseForDirectSync(db);
+
   // Use ReplaySubject to buffer the last event - this ensures RESYNC events
   // are not lost if emitted before RxDB subscribes (which happens after leadership)
   const pullStream$ = new ReplaySubject<'RESYNC' | void>(1);
@@ -334,50 +337,18 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
     marks: markReplication,
     pullStream$,
     triggerPull: () => {
-      console.log('[RxDB] triggerPull called, replicationsActive:', replicationsActive);
+      console.log('[RxDB] triggerPull called');
 
-      // IMPORTANT: reSync() only works after replication has started.
-      // With waitForLeadership: true, start() is delayed until leadership is acquired.
-      // We must await startPromise before calling reSync().
-      (async () => {
-        try {
-          // Wait for all replications to start (leadership acquired + internal setup complete)
-          console.log('[RxDB] Awaiting replication starts...');
-          await Promise.all([
-            wishlistReplication.startPromise,
-            itemReplication.startPromise,
-            markReplication.startPromise,
-          ]);
-          console.log('[RxDB] All replications have started');
-
-          // Log replication states for debugging
-          console.log('[RxDB] Replication states after start:', {
-            wishlists: { isStopped: wishlistReplication.isStopped() },
-            items: { isStopped: itemReplication.isStopped() },
-            marks: { isStopped: markReplication.isStopped() },
-          });
-
-          // Now call reSync() - this should work because replication has started
-          if (!wishlistReplication.isStopped()) {
-            console.log('[RxDB] Calling reSync() on wishlists...');
-            wishlistReplication.reSync();
-          }
-
-          if (!itemReplication.isStopped()) {
-            console.log('[RxDB] Calling reSync() on items...');
-            itemReplication.reSync();
-          }
-
-          if (!markReplication.isStopped()) {
-            console.log('[RxDB] Calling reSync() on marks...');
-            markReplication.reSync();
-          }
-
-          console.log('[RxDB] reSync() called on all active replications');
-        } catch (error) {
-          console.error('[RxDB] Error in triggerPull:', error);
-        }
-      })();
+      // Use direct sync to bypass RxDB's complex replication mechanism
+      // This directly fetches items from the server and upserts them into RxDB
+      const database = getDatabaseForDirectSync();
+      if (database) {
+        directSyncItems(database).catch((error) => {
+          console.error('[RxDB] directSyncItems failed:', error);
+        });
+      } else {
+        console.warn('[RxDB] Database not available for direct sync');
+      }
     },
     cancel: async () => {
       // Remove event listener on cleanup
@@ -403,4 +374,72 @@ export function setupReplication(db: WishWithMeDatabase): ReplicationState {
  */
 export function getReplicationState(): ReplicationState | null {
   return currentReplicationState;
+}
+
+/**
+ * Directly fetch and upsert items from the server.
+ * This bypasses RxDB's complex replication mechanism and directly updates the local database.
+ * Use this when SSE events arrive to ensure immediate UI updates.
+ */
+export async function directSyncItems(db: WishWithMeDatabase): Promise<void> {
+  console.log('[RxDB] directSyncItems called');
+  try {
+    // Fetch recent items from the server (no checkpoint = get recent items)
+    const response = await api.get<PullResponse<ItemDoc>>('/api/v1/sync/pull/items', {
+      params: { limit: 100 },
+    });
+
+    const documents = response.data.documents;
+    console.log('[RxDB] directSyncItems fetched', documents.length, 'items');
+
+    if (documents.length === 0) {
+      return;
+    }
+
+    // Directly upsert each document into RxDB
+    for (const doc of documents) {
+      try {
+        // Check if document exists
+        const existing = await db.items.findOne(doc.id).exec();
+        if (existing) {
+          // Update existing document using incrementalPatch
+          await existing.incrementalPatch({
+            title: doc.title,
+            description: doc.description,
+            price: doc.price,
+            currency: doc.currency,
+            quantity: doc.quantity,
+            source_url: doc.source_url,
+            image_url: doc.image_url,
+            image_base64: doc.image_base64,
+            status: doc.status,
+            updated_at: doc.updated_at,
+            _deleted: doc._deleted,
+          });
+        } else {
+          // Insert new document
+          await db.items.insert(doc);
+        }
+      } catch (docError) {
+        console.error('[RxDB] Error upserting item:', doc.id, docError);
+      }
+    }
+
+    console.log('[RxDB] directSyncItems completed');
+  } catch (error) {
+    console.error('[RxDB] directSyncItems error:', error);
+  }
+}
+
+/**
+ * Get the database instance for direct sync operations.
+ */
+let dbInstance: WishWithMeDatabase | null = null;
+
+export function setDatabaseForDirectSync(db: WishWithMeDatabase): void {
+  dbInstance = db;
+}
+
+export function getDatabaseForDirectSync(): WishWithMeDatabase | null {
+  return dbInstance;
 }
