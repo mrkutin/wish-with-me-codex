@@ -1,0 +1,59 @@
+name: Test - Item Resolver Connection
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'URL to resolve'
+        required: true
+        default: 'https://www.ozon.ru/product/tortsevoy-klyuch-11mm-instrument-dlya-ustanovki-i-snyatiya-smesitelya-aquapotok-1835694520/'
+
+env:
+  SERVER_HOST: 176.106.144.182
+  SERVER_USER: mrkutin
+  DEPLOY_PATH: /home/mrkutin/wish-with-me-codex
+
+jobs:
+  test-resolver:
+    name: Test Resolver
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY_UBUNTU }}
+
+      - name: Add server to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ env.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Test resolver from Ubuntu to Montreal
+        run: |
+          ssh ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} << 'ENDSSH'
+            cd ${{ env.DEPLOY_PATH }}
+            source .env
+
+            echo "=== Testing item-resolver connection from Ubuntu to Montreal ==="
+            echo "URL to resolve: ${{ github.event.inputs.url }}"
+            echo ""
+
+            echo "=== Running curl test ==="
+            time curl -s -w "\n\n=== Curl stats ===\nHTTP Code: %{http_code}\nBytes Downloaded: %{size_download}\nTime Connect: %{time_connect}s\nTime Total: %{time_total}s\n" \
+              -X POST "http://158.69.203.3:8001/resolver/v1/resolve" \
+              -H "Authorization: Bearer $RU_BEARER_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d '{"url": "${{ github.event.inputs.url }}"}' \
+              -o /tmp/resolver_test.json 2>&1
+
+            echo ""
+            echo "=== Response size ==="
+            wc -c /tmp/resolver_test.json
+
+            echo ""
+            echo "=== Response preview (first 500 chars) ==="
+            head -c 500 /tmp/resolver_test.json
+            echo ""
+            echo "..."
+            echo "(truncated)"
+          ENDSSH
