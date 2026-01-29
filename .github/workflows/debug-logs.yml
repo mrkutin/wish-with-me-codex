@@ -1,0 +1,73 @@
+name: Debug - Fetch Logs
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: 'Service to get logs from'
+        required: true
+        default: 'core-api-1'
+        type: choice
+        options:
+          - core-api-1
+          - core-api-2
+          - nginx
+          - all
+      lines:
+        description: 'Number of lines to fetch'
+        required: false
+        default: '100'
+      filter:
+        description: 'Filter pattern (grep)'
+        required: false
+        default: ''
+
+env:
+  SERVER_HOST: 176.106.144.182
+  SERVER_USER: mrkutin
+  DEPLOY_PATH: /home/mrkutin/wish-with-me-codex
+
+jobs:
+  fetch-logs:
+    name: Fetch Logs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY_UBUNTU }}
+
+      - name: Add server to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ env.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Fetch logs
+        run: |
+          ssh ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} << 'ENDSSH'
+            cd ${{ env.DEPLOY_PATH }}
+
+            echo "=== Docker Container Status ==="
+            docker compose -f docker-compose.ubuntu.yml ps
+            echo ""
+
+            SERVICE="${{ github.event.inputs.service }}"
+            LINES="${{ github.event.inputs.lines }}"
+            FILTER="${{ github.event.inputs.filter }}"
+
+            if [ "$SERVICE" == "all" ]; then
+              SERVICES="core-api-1 core-api-2 nginx"
+            else
+              SERVICES="$SERVICE"
+            fi
+
+            for svc in $SERVICES; do
+              echo ""
+              echo "=== Logs for wishwithme-$svc (last $LINES lines) ==="
+              if [ -n "$FILTER" ]; then
+                docker logs wishwithme-$svc --tail=$LINES 2>&1 | grep -i "$FILTER" || echo "No matches for filter: $FILTER"
+              else
+                docker logs wishwithme-$svc --tail=$LINES 2>&1
+              fi
+            done
+          ENDSSH
