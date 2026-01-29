@@ -56,27 +56,43 @@ class ItemResolverClient:
         request_id = str(uuid.uuid4())[:8]
         logger.info(f"[{request_id}] Starting resolution for URL: {url}")
 
-        # Configure limits for better connection handling
+        # Configure limits and force HTTP/1.1 for better compatibility
         limits = httpx.Limits(
             max_keepalive_connections=5,
             max_connections=10,
             keepalive_expiry=30.0,
         )
-        async with httpx.AsyncClient(timeout=self.timeout, limits=limits) as client:
+        # Force HTTP/1.1 and disable connection pooling to avoid potential issues
+        async with httpx.AsyncClient(
+            timeout=self.timeout,
+            limits=limits,
+            http2=False,  # Force HTTP/1.1
+        ) as client:
             try:
                 logger.info(f"[{request_id}] Sending POST to {self.base_url}/resolver/v1/resolve")
-                response = await client.post(
+
+                # Use streaming to diagnose where exactly the read stops
+                async with client.stream(
+                    "POST",
                     f"{self.base_url}/resolver/v1/resolve",
                     json={"url": url},
                     headers={"Authorization": f"Bearer {self.token}"},
-                )
-                logger.info(f"[{request_id}] Received headers: {response.status_code}, content-length: {response.headers.get('content-length', 'chunked')}")
-                response.raise_for_status()
+                ) as response:
+                    logger.info(f"[{request_id}] Received headers: {response.status_code}, content-length: {response.headers.get('content-length', 'chunked')}")
+                    response.raise_for_status()
 
-                # Read response body explicitly to better track where timeout occurs
-                logger.info(f"[{request_id}] Reading response body...")
-                body = await response.aread()
-                logger.info(f"[{request_id}] Response body received: {len(body)} bytes")
+                    # Read response body in chunks to see progress
+                    logger.info(f"[{request_id}] Starting to read response body...")
+                    chunks = []
+                    bytes_read = 0
+                    async for chunk in response.aiter_bytes(chunk_size=8192):
+                        chunks.append(chunk)
+                        bytes_read += len(chunk)
+                        if bytes_read % 32768 == 0 or len(chunks) == 1:  # Log every 32KB or first chunk
+                            logger.info(f"[{request_id}] Read {bytes_read} bytes so far...")
+
+                    body = b"".join(chunks)
+                    logger.info(f"[{request_id}] Response body complete: {len(body)} bytes")
 
                 data = response.json()
                 logger.info(f"[{request_id}] Successfully parsed response ({len(str(data))} chars)")
