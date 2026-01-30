@@ -508,7 +508,7 @@ class OAuthService:
         access_token = create_access_token(user.id)
         refresh_token = create_refresh_token()
 
-        # Store refresh token
+        # Store refresh token in PostgreSQL
         token_record = RefreshToken(
             user_id=user.id,
             token_hash=hash_token(refresh_token),
@@ -518,12 +518,63 @@ class OAuthService:
         self.db.add(token_record)
         await self.db.flush()
 
+        # Sync user to CouchDB for v2 sync endpoints
+        await self._sync_user_to_couchdb(user)
+
         return AuthResponse(
             user=UserResponse.model_validate(user),
             access_token=access_token,
             refresh_token=refresh_token,
             expires_in=settings.access_token_expire_minutes * 60,
         )
+
+    async def _sync_user_to_couchdb(self, user: User) -> None:
+        """Sync PostgreSQL user to CouchDB for v2 sync endpoints.
+
+        Creates or updates the user document in CouchDB using the PostgreSQL
+        user's UUID as the document ID. This allows the JWT token (which contains
+        the PostgreSQL UUID) to work with CouchDB-based sync endpoints.
+        """
+        from datetime import datetime, timezone
+        from app.couchdb import get_couchdb, DocumentNotFoundError
+
+        try:
+            db = get_couchdb()
+            user_id = str(user.id)
+            now = datetime.now(timezone.utc).isoformat()
+
+            try:
+                # Check if user already exists in CouchDB
+                existing = await db.get(user_id)
+                # Update existing document
+                existing["name"] = user.name
+                existing["email"] = user.email
+                existing["avatar_base64"] = user.avatar_base64
+                existing["bio"] = user.bio
+                existing["locale"] = user.locale or "en"
+                existing["updated_at"] = now
+                await db.put(existing)
+                logger.info(f"Updated CouchDB user {user_id}")
+            except DocumentNotFoundError:
+                # Create new user document in CouchDB
+                doc = {
+                    "_id": user_id,
+                    "type": "user",
+                    "email": user.email.lower() if user.email else None,
+                    "name": user.name,
+                    "avatar_base64": user.avatar_base64,
+                    "bio": user.bio,
+                    "locale": user.locale or "en",
+                    "created_at": now,
+                    "updated_at": now,
+                    # No password_hash - OAuth users don't have passwords
+                    "refresh_tokens": [],
+                }
+                await db.put(doc)
+                logger.info(f"Created CouchDB user {user_id}")
+        except Exception as e:
+            # Log but don't fail - sync endpoints may not work but auth should
+            logger.error(f"Failed to sync user {user.id} to CouchDB: {e}")
 
 
 class EmailConflictError(Exception):
