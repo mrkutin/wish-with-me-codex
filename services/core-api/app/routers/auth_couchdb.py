@@ -2,8 +2,6 @@
 
 from fastapi import APIRouter, HTTPException, Request, status
 
-from app.config import settings
-from app.redis import RateLimiter
 from app.schemas.auth import (
     AuthResponse,
     LoginRequest,
@@ -17,39 +15,10 @@ from app.services.auth_couchdb import CouchDBAuthService
 router = APIRouter(prefix="/api/v2/auth", tags=["authentication-v2"])
 
 
-def get_client_ip(request: Request) -> str:
-    """Extract client IP from request."""
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
-
-
 def get_device_info(request: Request) -> str | None:
     """Extract device info from request headers."""
     user_agent = request.headers.get("User-Agent")
     return user_agent[:255] if user_agent else None
-
-
-async def check_rate_limit(
-    request: Request,
-    action: str,
-    max_requests: int,
-    window_seconds: int,
-) -> None:
-    """Check rate limit for an action."""
-    if not settings.rate_limit_enabled:
-        return
-    client_ip = get_client_ip(request)
-    if await RateLimiter.is_rate_limited(
-        f"{action}:{client_ip}",
-        max_requests,
-        window_seconds,
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many requests. Please try again later.",
-        )
 
 
 @router.post(
@@ -58,7 +27,6 @@ async def check_rate_limit(
     status_code=status.HTTP_201_CREATED,
     responses={
         409: {"description": "Email already registered"},
-        429: {"description": "Too many requests"},
     },
 )
 async def register(
@@ -66,9 +34,6 @@ async def register(
     request: Request,
 ) -> AuthResponse:
     """Register a new user with email and password (CouchDB backend)."""
-    # Rate limit: 3 registrations per minute per IP
-    await check_rate_limit(request, "register", max_requests=3, window_seconds=60)
-
     auth_service = CouchDBAuthService()
     device_info = get_device_info(request)
 
@@ -88,7 +53,6 @@ async def register(
     response_model=AuthResponse,
     responses={
         401: {"description": "Invalid credentials"},
-        429: {"description": "Too many requests"},
     },
 )
 async def login(
@@ -96,9 +60,6 @@ async def login(
     request: Request,
 ) -> AuthResponse:
     """Login with email and password (CouchDB backend)."""
-    # Rate limit: 5 login attempts per minute per IP
-    await check_rate_limit(request, "login", max_requests=5, window_seconds=60)
-
     auth_service = CouchDBAuthService()
     device_info = get_device_info(request)
 

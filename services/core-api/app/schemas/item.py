@@ -2,12 +2,20 @@
 
 from datetime import datetime
 from decimal import Decimal
+from enum import Enum
 from typing import Annotated
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.item import ItemStatus
+
+class ItemStatus(str, Enum):
+    """Status of an item in the resolution pipeline."""
+
+    PENDING = "pending"
+    PROCESSING = "processing"
+    RESOLVED = "resolved"
+    FAILED = "failed"
 
 
 class ItemBase(BaseModel):

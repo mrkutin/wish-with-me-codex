@@ -1,12 +1,18 @@
 """Share-related Pydantic schemas."""
 
 from datetime import datetime
+from enum import Enum
 from typing import Annotated
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.share import ShareLinkType
+
+class ShareLinkType(str, Enum):
+    """Types of share links."""
+
+    VIEW = "view"  # Read-only access
+    MARK = "mark"  # Can mark items as taken
 
 
 class ShareLinkCreate(BaseModel):

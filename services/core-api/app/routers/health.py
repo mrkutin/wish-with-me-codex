@@ -1,12 +1,9 @@
-"""Health check endpoints."""
+"""Health check endpoints - CouchDB-based."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from pydantic import BaseModel
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db
-from app.redis import get_redis
+from app.couchdb import get_couchdb
 
 router = APIRouter(tags=["health"])
 
@@ -15,35 +12,26 @@ class HealthResponse(BaseModel):
     """Health check response."""
 
     status: str
-    database: str
-    redis: str
+    couchdb: str
 
 
 @router.get("/healthz", response_model=HealthResponse)
-async def health_check(db: AsyncSession = Depends(get_db)) -> HealthResponse:
+async def health_check() -> HealthResponse:
     """Check application health."""
-    db_status = "healthy"
-    redis_status = "healthy"
+    couchdb_status = "healthy"
 
-    # Check database
+    # Check CouchDB
     try:
-        await db.execute(text("SELECT 1"))
+        db = get_couchdb()
+        await db.info()
     except Exception:
-        db_status = "unhealthy"
+        couchdb_status = "unhealthy"
 
-    # Check Redis
-    try:
-        redis_client = await get_redis()
-        await redis_client.ping()
-    except Exception:
-        redis_status = "unhealthy"
-
-    overall_status = "healthy" if db_status == "healthy" and redis_status == "healthy" else "unhealthy"
+    overall_status = "healthy" if couchdb_status == "healthy" else "unhealthy"
 
     return HealthResponse(
         status=overall_status,
-        database=db_status,
-        redis=redis_status,
+        couchdb=couchdb_status,
     )
 
 
