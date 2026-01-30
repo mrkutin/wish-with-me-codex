@@ -1,7 +1,7 @@
 name: Deploy to Ubuntu (Main App)
 
 # This workflow deploys the main application to Ubuntu server (176.106.144.182)
-# Services: nginx, frontend, core-api-1, core-api-2, item-resolver-1, item-resolver-2, postgres, redis
+# Services: nginx, frontend, core-api-1, core-api-2, item-resolver-1, item-resolver-2, couchdb
 # Domain: wishwith.me
 #
 # Trigger: Automatic on push to main, or manual via workflow_dispatch
@@ -144,8 +144,7 @@ jobs:
             fi
 
             # Ensure data directories exist
-            mkdir -p /home/mrkutin/wishwithme-data/postgres
-            mkdir -p /home/mrkutin/wishwithme-data/redis
+            mkdir -p /home/mrkutin/wishwithme-data/couchdb
 
             # Fix network label mismatch (from docker compose v1 to v2 migration)
             if docker network inspect wishwithme-network >/dev/null 2>&1; then
@@ -188,27 +187,6 @@ jobs:
             if [ -n "$REBUILD_SERVICES" ]; then
               # Build the changed services
               docker compose -f docker-compose.ubuntu.yml build $REBUILD_SERVICES
-
-              # Run database migrations if core-api changed
-              if [ "${{ needs.detect-changes.outputs.core-api }}" == "true" ]; then
-                echo "=== Running database migrations ==="
-
-                # First ensure postgres is running
-                docker compose -f docker-compose.ubuntu.yml up -d postgres
-                sleep 5
-
-                # Check if alembic versions directory exists
-                if docker compose -f docker-compose.ubuntu.yml run --rm core-api-1 test -d alembic/versions; then
-                  echo "Running alembic migrations..."
-                  if ! docker compose -f docker-compose.ubuntu.yml run --rm core-api-1 alembic upgrade head; then
-                    echo "ERROR: Database migration failed!"
-                    exit 1
-                  fi
-                  echo "Migrations completed successfully"
-                else
-                  echo "No alembic migrations directory found, skipping migrations"
-                fi
-              fi
 
               # Restart the changed services
               echo "=== Restarting services: $REBUILD_SERVICES ==="
