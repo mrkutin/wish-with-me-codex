@@ -7,8 +7,10 @@ import type { AuthResponse, TokenResponse, LoginRequest, RegisterRequest } from 
 
 const REFRESH_TOKEN_KEY = 'refresh_token';
 
-// API version to use (v2 = CouchDB, v1 = PostgreSQL legacy)
-const API_VERSION = 'v2';
+// API version to use (v1 = PostgreSQL, where OAuth stores tokens)
+// Note: OAuth creates users and stores refresh tokens in PostgreSQL,
+// so we must use v1 for auth operations to match.
+const API_VERSION = 'v1';
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null);
