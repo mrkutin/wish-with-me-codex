@@ -1,0 +1,408 @@
+"""Shared wishlist access endpoints (CouchDB-based)."""
+
+import logging
+from datetime import datetime, timezone
+from typing import Annotated
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, status
+
+from app.couchdb import CouchDBClient, DocumentNotFoundError, get_couchdb
+from app.dependencies import CurrentUserCouchDB, OptionalCurrentUser
+from app.schemas.share import (
+    MarkCreate,
+    MarkResponse,
+    OwnerPublicProfile,
+    SharedItemResponse,
+    SharedWishlistInfo,
+    SharedWishlistPreview,
+    SharedWishlistResponse,
+)
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/v1/shared", tags=["shared"])
+
+
+async def get_db() -> CouchDBClient:
+    """Get CouchDB client dependency."""
+    return get_couchdb()
+
+
+def extract_uuid(doc_id: str) -> UUID:
+    """Extract UUID from CouchDB document ID (e.g., 'wishlist:uuid')."""
+    if ":" in doc_id:
+        return UUID(doc_id.split(":", 1)[1])
+    return UUID(doc_id)
+
+
+async def get_share_by_token(db: CouchDBClient, token: str) -> dict:
+    """Get share document by token, validating it's active."""
+    shares = await db.find({
+        "type": "share",
+        "token": token,
+        "revoked": False,
+    })
+
+    if not shares:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Share link not found or expired",
+        )
+
+    share = shares[0]
+
+    # Check expiration
+    if share.get("expires_at"):
+        expires = datetime.fromisoformat(share["expires_at"])
+        if expires < datetime.now(timezone.utc):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Share link has expired",
+            )
+
+    return share
+
+
+async def grant_access_to_user(db: CouchDBClient, share: dict, user_id: str) -> None:
+    """Grant a user access to the shared wishlist and its items."""
+    # Add user to granted_users if not already there
+    granted = share.get("granted_users", [])
+    if user_id not in granted:
+        granted.append(user_id)
+        share["granted_users"] = granted
+        share["access_count"] = share.get("access_count", 0) + 1
+        share["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await db.put(share)
+
+        # Add user to wishlist and items access arrays
+        await db.update_access_arrays(share["wishlist_id"], user_id, action="add")
+
+
+@router.get(
+    "/{token}/preview",
+    response_model=SharedWishlistPreview,
+)
+async def preview_shared_wishlist(
+    token: str,
+    db: Annotated[CouchDBClient, Depends(get_db)],
+) -> SharedWishlistPreview:
+    """Preview a shared wishlist (no authentication required)."""
+    share = await get_share_by_token(db, token)
+
+    # Get wishlist
+    try:
+        wishlist = await db.get(share["wishlist_id"])
+    except DocumentNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Wishlist not found",
+        )
+
+    # Get owner info
+    try:
+        owner = await db.get(wishlist["owner_id"])
+        # Show only first name for privacy
+        owner_name = owner.get("name", "Someone").split()[0]
+    except DocumentNotFoundError:
+        owner_name = "Someone"
+
+    # Count items
+    items = await db.find({
+        "type": "item",
+        "wishlist_id": share["wishlist_id"],
+        "_deleted": {"$ne": True},
+    })
+
+    return SharedWishlistPreview(
+        wishlist={
+            "title": wishlist.get("title", "Wishlist"),
+            "owner_name": owner_name,
+            "item_count": len(items),
+        },
+        requires_auth=True,
+        auth_redirect=f"/login?share_token={token}",
+    )
+
+
+@router.get(
+    "/{token}",
+    response_model=SharedWishlistResponse,
+)
+async def get_shared_wishlist(
+    token: str,
+    current_user: CurrentUserCouchDB,
+    db: Annotated[CouchDBClient, Depends(get_db)],
+) -> SharedWishlistResponse:
+    """Access a shared wishlist (authentication required)."""
+    user_id = current_user["_id"]
+    share = await get_share_by_token(db, token)
+
+    # Grant access to user if not already granted
+    await grant_access_to_user(db, share, user_id)
+
+    # Get wishlist
+    try:
+        wishlist = await db.get(share["wishlist_id"])
+    except DocumentNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Wishlist not found",
+        )
+
+    # Get owner info
+    try:
+        owner = await db.get(wishlist["owner_id"])
+        owner_profile = OwnerPublicProfile(
+            id=extract_uuid(owner["_id"]),
+            name=owner.get("name", "Unknown"),
+            avatar_base64=owner.get("avatar_base64"),
+        )
+    except DocumentNotFoundError:
+        owner_profile = OwnerPublicProfile(
+            id=extract_uuid(wishlist["owner_id"]),
+            name="Unknown",
+            avatar_base64=None,
+        )
+
+    # Get items
+    items = await db.find({
+        "type": "item",
+        "wishlist_id": share["wishlist_id"],
+        "_deleted": {"$ne": True},
+    })
+
+    # Get all marks for these items
+    item_ids = [item["_id"] for item in items]
+    marks = await db.find({
+        "type": "mark",
+        "item_id": {"$in": item_ids},
+        "_deleted": {"$ne": True},
+    }) if item_ids else []
+
+    # Build marks lookup: item_id -> list of marks
+    marks_by_item: dict[str, list[dict]] = {}
+    for mark in marks:
+        item_id = mark["item_id"]
+        if item_id not in marks_by_item:
+            marks_by_item[item_id] = []
+        marks_by_item[item_id].append(mark)
+
+    # Build item responses
+    item_responses = []
+    for item in items:
+        item_marks = marks_by_item.get(item["_id"], [])
+        total_marked = sum(m.get("quantity", 1) for m in item_marks)
+        my_marked = sum(
+            m.get("quantity", 1) for m in item_marks
+            if m.get("marked_by") == user_id
+        )
+        quantity = item.get("quantity", 1)
+
+        item_responses.append(SharedItemResponse(
+            id=extract_uuid(item["_id"]),
+            title=item.get("title", ""),
+            description=item.get("description"),
+            price_amount=str(item["price"]) if item.get("price") else None,
+            price_currency=item.get("currency"),
+            image_base64=item.get("image_base64"),
+            quantity=quantity,
+            marked_quantity=total_marked,
+            available_quantity=max(0, quantity - total_marked),
+            my_mark_quantity=my_marked,
+        ))
+
+    # Determine permissions based on link type
+    permissions = ["view"]
+    if share.get("link_type") == "mark":
+        permissions.append("mark")
+
+    return SharedWishlistResponse(
+        wishlist=SharedWishlistInfo(
+            id=extract_uuid(wishlist["_id"]),
+            title=wishlist.get("title", ""),
+            description=wishlist.get("description"),
+            icon=wishlist.get("icon", "card_giftcard"),
+            owner=owner_profile,
+            item_count=len(items),
+        ),
+        items=item_responses,
+        permissions=permissions,
+    )
+
+
+@router.post(
+    "/{token}/items/{item_id}/mark",
+    response_model=MarkResponse,
+    responses={
+        403: {"description": "No permission to mark items"},
+        404: {"description": "Item not found"},
+        409: {"description": "Not enough available quantity"},
+    },
+)
+async def mark_item(
+    token: str,
+    item_id: UUID,
+    data: MarkCreate,
+    current_user: CurrentUserCouchDB,
+    db: Annotated[CouchDBClient, Depends(get_db)],
+) -> MarkResponse:
+    """Mark an item as taken/reserved."""
+    user_id = current_user["_id"]
+    share = await get_share_by_token(db, token)
+
+    # Check permission
+    if share.get("link_type") != "mark":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This share link doesn't allow marking items",
+        )
+
+    # Get item
+    item_doc_id = f"item:{item_id}"
+    try:
+        item = await db.get(item_doc_id)
+    except DocumentNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Item not found",
+        )
+
+    # Verify item belongs to the shared wishlist
+    if item.get("wishlist_id") != share["wishlist_id"]:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Item not found in this wishlist",
+        )
+
+    # Get wishlist for access array
+    wishlist = await db.get(share["wishlist_id"])
+    owner_id = wishlist.get("owner_id")
+
+    # Get existing marks for this item
+    marks = await db.find({
+        "type": "mark",
+        "item_id": item_doc_id,
+        "_deleted": {"$ne": True},
+    })
+
+    total_marked = sum(m.get("quantity", 1) for m in marks)
+    my_existing_mark = next(
+        (m for m in marks if m.get("marked_by") == user_id),
+        None
+    )
+    my_marked = my_existing_mark.get("quantity", 0) if my_existing_mark else 0
+
+    quantity = item.get("quantity", 1)
+    available = quantity - total_marked
+
+    # Check if enough available
+    if data.quantity > available + my_marked:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Only {available} items available",
+        )
+
+    # Update or create mark
+    new_my_quantity = my_marked + data.quantity
+    if new_my_quantity > quantity:
+        new_my_quantity = quantity
+
+    if my_existing_mark:
+        # Update existing mark
+        my_existing_mark["quantity"] = new_my_quantity
+        my_existing_mark["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await db.put(my_existing_mark)
+    else:
+        # Create new mark - access excludes owner (surprise mode)
+        mark_access = [
+            uid for uid in wishlist.get("access", [])
+            if uid != owner_id
+        ]
+        await db.create_mark(
+            item_id=item_doc_id,
+            wishlist_id=share["wishlist_id"],
+            marked_by=user_id,
+            quantity=data.quantity,
+            access=mark_access,
+        )
+
+    # Recalculate totals
+    new_total_marked = total_marked - my_marked + new_my_quantity
+    new_available = quantity - new_total_marked
+
+    return MarkResponse(
+        item_id=item_id,
+        my_mark_quantity=new_my_quantity,
+        total_marked_quantity=new_total_marked,
+        available_quantity=max(0, new_available),
+    )
+
+
+@router.delete(
+    "/{token}/items/{item_id}/mark",
+    response_model=MarkResponse,
+    responses={
+        404: {"description": "Item or mark not found"},
+    },
+)
+async def unmark_item(
+    token: str,
+    item_id: UUID,
+    current_user: CurrentUserCouchDB,
+    db: Annotated[CouchDBClient, Depends(get_db)],
+) -> MarkResponse:
+    """Remove mark from an item."""
+    user_id = current_user["_id"]
+    share = await get_share_by_token(db, token)
+
+    # Get item
+    item_doc_id = f"item:{item_id}"
+    try:
+        item = await db.get(item_doc_id)
+    except DocumentNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Item not found",
+        )
+
+    # Verify item belongs to the shared wishlist
+    if item.get("wishlist_id") != share["wishlist_id"]:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Item not found in this wishlist",
+        )
+
+    # Get existing marks for this item
+    marks = await db.find({
+        "type": "mark",
+        "item_id": item_doc_id,
+        "_deleted": {"$ne": True},
+    })
+
+    my_mark = next(
+        (m for m in marks if m.get("marked_by") == user_id),
+        None
+    )
+
+    if not my_mark:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="You haven't marked this item",
+        )
+
+    # Soft delete the mark
+    my_mark["_deleted"] = True
+    my_mark["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.put(my_mark)
+
+    # Recalculate totals
+    total_marked = sum(m.get("quantity", 1) for m in marks if m["_id"] != my_mark["_id"])
+    quantity = item.get("quantity", 1)
+
+    return MarkResponse(
+        item_id=item_id,
+        my_mark_quantity=0,
+        total_marked_quantity=total_marked,
+        available_quantity=max(0, quantity - total_marked),
+    )
