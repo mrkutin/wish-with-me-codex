@@ -1,0 +1,27 @@
+# Dependencies - these are installed fresh in Docker
+node_modules
+
+# Build outputs
+dist
+.quasar
+
+# Development files
+.git
+.gitignore
+*.md
+.vscode
+.idea
+
+# Test files
+e2e
+coverage
+*.spec.ts
+*.test.ts
+
+# Environment files
+.env
+.env.*
+
+# Logs
+*.log
+npm-debug.log*
