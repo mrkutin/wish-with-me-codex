@@ -25,13 +25,11 @@
 
 import { defineConfig } from 'vitest/config';
 import vue from '@vitejs/plugin-vue';
-import { quasar } from '@quasar/vite-plugin';
 import tsconfigPaths from 'vite-tsconfig-paths';
 
 export default defineConfig({
   plugins: [
     vue(),
-    quasar({ autoImportComponentCase: 'pascal' }),
     tsconfigPaths()
   ],
   test: {
@@ -61,17 +59,30 @@ import { createTestingPinia } from '@pinia/testing';
 import { vi } from 'vitest';
 import messages from '@/i18n';
 
-// Mock RxDB
-vi.mock('@/services/rxdb', () => ({
-  getDatabase: vi.fn(() => Promise.resolve({
-    wishlists: {
-      find: vi.fn(() => ({ $ : { subscribe: vi.fn() } })),
-      insert: vi.fn()
-    },
-    items: {
-      find: vi.fn(() => ({ $ : { subscribe: vi.fn() } })),
-      insert: vi.fn()
-    }
+// Mock PouchDB
+vi.mock('@/services/pouchdb', () => ({
+  getDatabase: vi.fn(() => ({
+    find: vi.fn(() => Promise.resolve({ docs: [] })),
+    put: vi.fn(() => Promise.resolve({ ok: true })),
+    get: vi.fn(() => Promise.resolve({})),
+    changes: vi.fn(() => ({
+      on: vi.fn().mockReturnThis(),
+      cancel: vi.fn()
+    }))
+  })),
+  initDatabase: vi.fn(() => Promise.resolve()),
+  destroyDatabase: vi.fn(() => Promise.resolve())
+}));
+
+// Mock PouchDB sync
+vi.mock('@/services/pouchdb/sync', () => ({
+  startSync: vi.fn(),
+  stopSync: vi.fn(),
+  getSyncStatus: vi.fn(() => ({
+    isActive: false,
+    isPaused: false,
+    lastSync: null,
+    error: null
   }))
 }));
 
@@ -115,14 +126,16 @@ import ItemCard from './ItemCard.vue';
 
 describe('ItemCard', () => {
   const mockItem = {
-    id: '123',
+    _id: 'item:123',
+    type: 'item',
     title: 'Test Item',
-    price: 5990,
-    currency: 'RUB',
+    price_amount: 5990,
+    price_currency: 'RUB',
     image_base64: null,
     status: 'resolved',
     quantity: 1,
-    marked_quantity: 0
+    marked_quantity: 0,
+    access: ['user:owner']
   };
 
   it('renders item title', () => {
@@ -188,15 +201,15 @@ describe('useWishlists', () => {
     const { wishlists, loading } = useWishlists();
 
     expect(loading.value).toBe(true);
-    // Wait for RxDB subscription
+    // Wait for PouchDB query
     await vi.waitFor(() => !loading.value);
     expect(Array.isArray(wishlists.value)).toBe(true);
   });
 
   it('creates wishlist', async () => {
-    const { createWishlist } = useWishlists();
+    const { create } = useWishlists();
 
-    const result = await createWishlist({
+    const result = await create({
       title: 'Birthday List',
       description: 'My birthday wishlist'
     });
@@ -223,7 +236,7 @@ python_functions = test_*
 addopts = -v --tb=short --strict-markers
 markers =
     slow: marks tests as slow
-    integration: marks tests requiring database
+    integration: marks tests requiring CouchDB
 ```
 
 ### 3.2 Conftest
@@ -234,44 +247,27 @@ markers =
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
+from unittest.mock import AsyncMock, MagicMock
 
 from app.main import app
-from app.db import Base, get_db
 from app.config import settings
 
-# Test database URL
-TEST_DATABASE_URL = settings.DATABASE_URL.replace(
-    settings.POSTGRES_DB,
-    f"{settings.POSTGRES_DB}_test"
-)
+# Mock CouchDB client
+@pytest.fixture
+def mock_couchdb():
+    """Create a mock CouchDB client."""
+    mock = MagicMock()
+    mock.get = AsyncMock(return_value={})
+    mock.put = AsyncMock(return_value={'ok': True})
+    mock.find = AsyncMock(return_value={'docs': []})
+    return mock
 
 @pytest_asyncio.fixture
-async def db_engine():
-    engine = create_async_engine(TEST_DATABASE_URL, echo=False)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield engine
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-    await engine.dispose()
+async def client(mock_couchdb):
+    """Create test client with mocked CouchDB."""
+    from app.couchdb import get_couchdb
 
-@pytest_asyncio.fixture
-async def db_session(db_engine):
-    async_session = sessionmaker(
-        db_engine, class_=AsyncSession, expire_on_commit=False
-    )
-    async with async_session() as session:
-        yield session
-        await session.rollback()
-
-@pytest_asyncio.fixture
-async def client(db_session):
-    async def override_get_db():
-        yield db_session
-
-    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_couchdb] = lambda: mock_couchdb
 
     async with AsyncClient(
         transport=ASGITransport(app=app),
@@ -282,154 +278,141 @@ async def client(db_session):
     app.dependency_overrides.clear()
 
 @pytest_asyncio.fixture
-async def auth_client(client, db_session):
-    """Client with authenticated user"""
-    # Create test user
-    from app.security import hash_password
-    from app.models import User
+async def auth_client(client, mock_couchdb):
+    """Client with authenticated user."""
+    from app.security import hash_password, create_access_token
 
-    user = User(
-        email="test@example.com",
-        password_hash=hash_password("testpass123"),
-        name="Test User"
-    )
-    db_session.add(user)
-    await db_session.commit()
-
-    # Login
-    response = await client.post("/api/v1/auth/login", json={
+    # Mock user in CouchDB
+    test_user = {
+        "_id": "user:test-user-id",
+        "type": "user",
         "email": "test@example.com",
-        "password": "testpass123"
-    })
-    token = response.json()["access_token"]
+        "password_hash": hash_password("testpass123"),
+        "name": "Test User",
+        "access": ["user:test-user-id"]
+    }
 
+    mock_couchdb.get.return_value = test_user
+    mock_couchdb.find.return_value = {"docs": [test_user]}
+
+    # Create token
+    token = create_access_token("user:test-user-id")
     client.headers["Authorization"] = f"Bearer {token}"
-    yield client, user
+
+    yield client, test_user
 ```
 
 ### 3.3 API Test Examples
 
 ```python
-# /services/core-api/tests/test_wishlists.py
+# /services/core-api/tests/test_auth.py
 
 import pytest
 
 @pytest.mark.asyncio
-async def test_create_wishlist(auth_client):
+async def test_login_success(client, mock_couchdb):
+    from app.security import hash_password
+
+    # Setup mock user
+    mock_couchdb.find.return_value = {
+        "docs": [{
+            "_id": "user:123",
+            "email": "test@example.com",
+            "password_hash": hash_password("testpass123"),
+            "name": "Test"
+        }]
+    }
+
+    response = await client.post("/api/v1/auth/login", json={
+        "email": "test@example.com",
+        "password": "testpass123"
+    })
+
+    assert response.status_code == 200
+    assert "access_token" in response.json()
+
+@pytest.mark.asyncio
+async def test_login_invalid_password(client, mock_couchdb):
+    from app.security import hash_password
+
+    mock_couchdb.find.return_value = {
+        "docs": [{
+            "_id": "user:123",
+            "email": "test@example.com",
+            "password_hash": hash_password("correct-password"),
+            "name": "Test"
+        }]
+    }
+
+    response = await client.post("/api/v1/auth/login", json={
+        "email": "test@example.com",
+        "password": "wrong-password"
+    })
+
+    assert response.status_code == 401
+```
+
+### 3.4 Share Endpoint Tests
+
+```python
+# /services/core-api/tests/test_share.py
+
+import pytest
+
+@pytest.mark.asyncio
+async def test_create_share_link(auth_client, mock_couchdb):
     client, user = auth_client
 
-    response = await client.post("/api/v1/wishlists", json={
-        "title": "Birthday List",
-        "description": "Things I want"
+    # Mock wishlist owned by user
+    mock_couchdb.get.return_value = {
+        "_id": "wishlist:123",
+        "type": "wishlist",
+        "owner_id": user["_id"],
+        "title": "Test Wishlist",
+        "access": [user["_id"]]
+    }
+
+    response = await client.post("/api/v1/wishlists/wishlist:123/share", json={
+        "link_type": "mark"
     })
 
     assert response.status_code == 201
     data = response.json()
-    assert data["title"] == "Birthday List"
-    assert data["owner_id"] == str(user.id)
+    assert "token" in data
+    assert data["link_type"] == "mark"
 
 @pytest.mark.asyncio
-async def test_list_wishlists(auth_client):
+async def test_access_share_link(auth_client, mock_couchdb):
     client, user = auth_client
 
-    # Create a wishlist first
-    await client.post("/api/v1/wishlists", json={"title": "List 1"})
-    await client.post("/api/v1/wishlists", json={"title": "List 2"})
+    # Mock share document
+    mock_couchdb.find.return_value = {
+        "docs": [{
+            "_id": "share:abc123",
+            "token": "share-token-123",
+            "wishlist_id": "wishlist:456",
+            "owner_id": "user:other",
+            "link_type": "mark",
+            "revoked": False
+        }]
+    }
 
-    response = await client.get("/api/v1/wishlists")
+    # Mock wishlist
+    mock_couchdb.get.side_effect = [
+        {  # Share
+            "_id": "share:abc123",
+            "wishlist_id": "wishlist:456"
+        },
+        {  # Wishlist
+            "_id": "wishlist:456",
+            "title": "Shared List",
+            "access": ["user:other"]
+        }
+    ]
+
+    response = await client.post("/api/v1/share/share-token-123/access")
 
     assert response.status_code == 200
-    data = response.json()
-    assert len(data) == 2
-
-@pytest.mark.asyncio
-async def test_owner_cannot_see_marks(auth_client):
-    client, user = auth_client
-
-    # Create wishlist with item
-    wl_response = await client.post("/api/v1/wishlists", json={"title": "Test"})
-    wishlist_id = wl_response.json()["id"]
-
-    item_response = await client.post(
-        f"/api/v1/wishlists/{wishlist_id}/items",
-        json={"title": "Gift", "quantity": 1}
-    )
-
-    # Get item as owner - should not see marked_quantity
-    response = await client.get(f"/api/v1/wishlists/{wishlist_id}/items")
-    items = response.json()
-
-    assert "marked_quantity" not in items[0] or items[0].get("marked_quantity") is None
-```
-
-### 3.4 Sync Endpoint Tests
-
-```python
-# /services/core-api/tests/test_sync.py
-
-import pytest
-from datetime import datetime, timezone
-
-@pytest.mark.asyncio
-async def test_pull_returns_documents(auth_client):
-    client, user = auth_client
-
-    # Create some data
-    await client.post("/api/v1/wishlists", json={"title": "List 1"})
-    await client.post("/api/v1/wishlists", json={"title": "List 2"})
-
-    # Pull with no checkpoint
-    response = await client.get("/api/v1/sync/pull/wishlists")
-
-    assert response.status_code == 200
-    data = response.json()
-    assert len(data["documents"]) == 2
-    assert "checkpoint" in data
-
-@pytest.mark.asyncio
-async def test_pull_with_checkpoint(auth_client):
-    client, user = auth_client
-
-    # Create initial data
-    await client.post("/api/v1/wishlists", json={"title": "Old"})
-
-    # Get checkpoint
-    pull1 = await client.get("/api/v1/sync/pull/wishlists")
-    checkpoint = pull1.json()["checkpoint"]
-
-    # Create new data
-    await client.post("/api/v1/wishlists", json={"title": "New"})
-
-    # Pull from checkpoint
-    response = await client.get("/api/v1/sync/pull/wishlists", params={
-        "checkpoint_updated_at": checkpoint["updated_at"],
-        "checkpoint_id": checkpoint["id"]
-    })
-
-    assert len(response.json()["documents"]) == 1
-    assert response.json()["documents"][0]["title"] == "New"
-
-@pytest.mark.asyncio
-async def test_push_creates_documents(auth_client):
-    client, user = auth_client
-
-    response = await client.post("/api/v1/sync/push/wishlists", json={
-        "documents": [
-            {
-                "id": "client-uuid-1",
-                "title": "From Client",
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-                "_deleted": False
-            }
-        ]
-    })
-
-    assert response.status_code == 200
-    assert response.json()["conflicts"] == []
-
-    # Verify created
-    wishlists = await client.get("/api/v1/wishlists")
-    assert any(w["title"] == "From Client" for w in wishlists.json())
 ```
 
 ---
@@ -466,7 +449,7 @@ export default defineConfig({
     }
   ],
   webServer: {
-    command: 'npm run dev',
+    command: 'quasar dev',
     url: 'http://localhost:9000',
     reuseExistingServer: !process.env.CI
   }
@@ -507,7 +490,7 @@ test.describe('Wishlist', () => {
     await page.fill('[data-testid="item-url"]', 'https://example.com/product');
     await page.click('[data-testid="resolve-url"]');
 
-    // Wait for resolution
+    // Wait for resolution (synced via PouchDB)
     await expect(page.locator('[data-testid="item-card"]')).toBeVisible({ timeout: 30000 });
   });
 
@@ -568,12 +551,15 @@ jobs:
   backend:
     runs-on: ubuntu-latest
     services:
-      postgres:
-        image: postgres:16
+      couchdb:
+        image: couchdb:3.3
         env:
-          POSTGRES_PASSWORD: test
+          COUCHDB_USER: admin
+          COUCHDB_PASSWORD: password
+        ports:
+          - 5984:5984
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "curl -f http://localhost:5984/"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -585,6 +571,8 @@ jobs:
       - run: pip install -r requirements.txt
       - run: pytest --cov=app --cov-report=xml
         working-directory: services/core-api
+        env:
+          COUCHDB_URL: http://admin:password@localhost:5984
       - uses: codecov/codecov-action@v4
 
   frontend:

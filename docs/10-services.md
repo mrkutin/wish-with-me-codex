@@ -8,22 +8,40 @@
 
 ### 1.1 Overview
 
-The Item Resolver is a microservice that extracts product information from marketplace URLs using Playwright for page rendering and LLM for data extraction.
+The Item Resolver is a microservice that extracts product information from marketplace URLs using Playwright for page rendering and DeepSeek LLM for text-based data extraction.
 
 **Location**: `/services/item-resolver/`
 
-**Deployment**: Montreal server (158.69.203.3)
-- 2 instances load balanced by nginx using `least_conn`
-- Exposed on port 8001
+**Deployment**: Ubuntu server (176.106.144.182)
+- 2 instances (item-resolver-1, item-resolver-2)
+- Accessed via internal Docker network
 - Each instance has 1 CPU and 2GB memory limit
 
 **Stack**:
 - Python 3.12
 - FastAPI
 - Playwright (Chromium)
-- OpenAI-compatible LLM API
+- DeepSeek API (text-based extraction, no vision)
 
-### 1.2 API Endpoints
+### 1.2 Integration Method
+
+**Item resolver watches CouchDB `_changes` feed** for new pending items:
+
+```python
+# Item resolver polls CouchDB _changes feed
+async def watch_pending_items():
+    while True:
+        changes = await couchdb.get_changes(
+            filter="_selector",
+            selector={"type": "item", "status": "pending"}
+        )
+        for change in changes:
+            await process_item(change["doc"])
+```
+
+This replaces the previous HTTP call pattern - now item resolver proactively watches for work.
+
+### 1.3 API Endpoints
 
 #### Health Check
 
@@ -36,7 +54,7 @@ Response: 200 OK
 }
 ```
 
-#### Resolve URL
+#### Resolve URL (still available for manual resolution)
 
 ```
 POST /resolver/v1/resolve
@@ -95,20 +113,22 @@ Response:
 }
 ```
 
-### 1.3 Environment Variables
+### 1.4 Environment Variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `RU_BEARER_TOKEN` | Yes | Authentication token for API access |
 | `LLM_MODE` | Yes | `live` for real LLM, `stub` for testing |
-| `LLM_BASE_URL` | Yes* | OpenAI-compatible API URL |
-| `LLM_API_KEY` | Yes* | API key for LLM service |
-| `LLM_MODEL` | Yes* | Model name (e.g., `gpt-4o-mini`) |
-| `PORT` | No | Server port (default: 8080) |
+| `LLM_BASE_URL` | Yes* | DeepSeek API URL (https://api.deepseek.com) |
+| `LLM_API_KEY` | Yes* | API key for DeepSeek |
+| `LLM_MODEL` | Yes* | Model name (e.g., `deepseek-chat`) |
+| `LLM_MAX_CHARS` | No | Max characters to send to LLM (default: 50000) |
+| `COUCHDB_URL` | Yes | CouchDB connection URL |
+| `PORT` | No | Server port (default: 8000) |
 
 \* Required when `LLM_MODE=live`
 
-### 1.4 Supported Marketplaces
+### 1.5 Supported Marketplaces
 
 | Marketplace | Domain | Status |
 |-------------|--------|--------|
@@ -119,34 +139,69 @@ Response:
 | Amazon | amazon.com | Supported |
 | Generic | * | Best effort |
 
-### 1.5 Response Handling
-
-| Scenario | Core API Action |
-|----------|-----------------|
-| Success | Update item with resolved data |
-| Timeout | Mark item as `failed`, allow retry |
-| Parse error | Mark item as `failed`, allow retry |
-| Invalid URL | Mark item as `failed` immediately |
-| Service unavailable | Queue for retry |
-
-### 1.6 Integration with Core API
+### 1.6 CouchDB Change Feed Processing
 
 ```python
-# /services/core-api/app/services/item_resolver.py
+# /services/item-resolver/change_watcher.py
 
-import httpx
-from app.config import settings
+import asyncio
+import aiohttp
+from config import settings
 
-async def resolve_item_url(url: str) -> dict:
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            f"{settings.ITEM_RESOLVER_URL}/resolver/v1/resolve",
-            headers={"Authorization": f"Bearer {settings.ITEM_RESOLVER_TOKEN}"},
-            json={"url": url},
-            timeout=60.0
-        )
-        response.raise_for_status()
-        return response.json()
+async def watch_changes():
+    """Watch CouchDB _changes feed for pending items."""
+    last_seq = "now"
+
+    while True:
+        async with aiohttp.ClientSession() as session:
+            url = f"{settings.COUCHDB_URL}/wishwithme/_changes"
+            params = {
+                "feed": "longpoll",
+                "since": last_seq,
+                "filter": "_selector",
+                "include_docs": "true"
+            }
+            data = {
+                "selector": {
+                    "type": "item",
+                    "status": "pending"
+                }
+            }
+
+            async with session.post(url, json=data, params=params) as resp:
+                changes = await resp.json()
+                last_seq = changes["last_seq"]
+
+                for change in changes["results"]:
+                    if not change.get("deleted"):
+                        await process_item(change["doc"])
+
+async def process_item(item: dict):
+    """Process a pending item."""
+    item_id = item["_id"]
+
+    # Mark as resolving
+    item["status"] = "resolving"
+    await update_document(item)
+
+    try:
+        # Resolve the URL
+        result = await resolve_url(item["source_url"])
+
+        # Update item with resolved data
+        item.update({
+            "status": "resolved",
+            "title": result["title"],
+            "description": result.get("description"),
+            "price_amount": result.get("price"),
+            "price_currency": result.get("currency"),
+            "image_base64": result.get("image_base64")
+        })
+    except Exception as e:
+        item["status"] = "failed"
+        item["resolution_error"] = {"message": str(e)}
+
+    await update_document(item)
 ```
 
 ### 1.7 Docker Configuration
@@ -163,141 +218,124 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-EXPOSE 8080
+EXPOSE 8000
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["python", "-m", "main"]
 ```
 
 ---
 
-## 2. Redis Cache
+## 2. CouchDB Database
 
 ### 2.1 Purpose
 
-- JWT token blocklist (for logout/revocation)
-- Rate limiting counters
-- Session storage
-- SSE event pub/sub (enables real-time updates across multiple core-api instances)
-- Temporary data cache
+- Primary data store for all application data
+- Native sync protocol for PouchDB clients
+- `_changes` feed for item resolver
+- JWT authentication support
 
-### 2.2 Key Patterns
+### 2.2 Configuration
 
-| Pattern | Purpose | TTL |
-|---------|---------|-----|
-| `blocklist:{token_jti}` | Revoked access tokens | 15 min |
-| `rate:{ip}:{endpoint}` | Rate limit counters | 1 min |
-| `session:{session_id}` | User sessions | 30 days |
-| `resolve:{url_hash}` | Cached item resolutions | 24 hours |
-| `sse:events:{user_id}` | SSE event pub/sub channel | N/A (pub/sub) |
+```ini
+# /couchdb/local.ini
 
-### 2.3 Configuration
+[chttpd]
+port = 5984
+bind_address = 0.0.0.0
 
-```python
-# /services/core-api/app/redis_client.py
+[chttpd_auth]
+authentication_handlers = {chttpd_auth, jwt_authentication_handler}, {chttpd_auth, cookie_authentication_handler}
 
-import redis.asyncio as redis
-from app.config import settings
+[jwt_auth]
+required_claims = exp, sub
+algorithms = HS256
 
-redis_client = redis.from_url(
-    settings.REDIS_URL,
-    encoding="utf-8",
-    decode_responses=True
-)
+[jwt_keys]
+hmac:_default = ${JWT_SECRET_KEY}
 
-async def add_to_blocklist(jti: str, ttl_seconds: int = 900):
-    await redis_client.setex(f"blocklist:{jti}", ttl_seconds, "1")
+[cors]
+origins = https://wishwith.me, http://localhost:9000
+credentials = true
+methods = GET, PUT, POST, DELETE, OPTIONS
+headers = accept, authorization, content-type, origin, referer
 
-async def is_blocklisted(jti: str) -> bool:
-    return await redis_client.exists(f"blocklist:{jti}") > 0
+[couchdb]
+single_node = true
+max_document_size = 8388608  # 8MB for base64 images
 ```
 
----
-
-## 3. PostgreSQL Database
-
-### 3.1 Connection Configuration
+### 2.3 Connection in Python
 
 ```python
-# /services/core-api/app/db.py
+# /services/core-api/app/couchdb.py
 
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker, declarative_base
+import aiohttp
 from app.config import settings
 
-engine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=settings.DEBUG,
-    pool_size=20,
-    max_overflow=10,
-    pool_pre_ping=True
+class CouchDBClient:
+    def __init__(self, base_url: str, database: str):
+        self.base_url = base_url
+        self.database = database
+        self.db_url = f"{base_url}/{database}"
+
+    async def get(self, doc_id: str) -> dict:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{self.db_url}/{doc_id}") as resp:
+                if resp.status == 404:
+                    return None
+                resp.raise_for_status()
+                return await resp.json()
+
+    async def put(self, doc: dict) -> dict:
+        async with aiohttp.ClientSession() as session:
+            doc_id = doc["_id"]
+            async with session.put(
+                f"{self.db_url}/{doc_id}",
+                json=doc
+            ) as resp:
+                resp.raise_for_status()
+                return await resp.json()
+
+    async def find(self, selector: dict) -> list:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{self.db_url}/_find",
+                json={"selector": selector}
+            ) as resp:
+                resp.raise_for_status()
+                result = await resp.json()
+                return result["docs"]
+
+couchdb = CouchDBClient(
+    settings.COUCHDB_URL,
+    settings.COUCHDB_DATABASE
 )
 
-async_session = sessionmaker(
-    engine, class_=AsyncSession, expire_on_commit=False
-)
-
-Base = declarative_base()
-
-async def get_db():
-    async with async_session() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
+def get_couchdb() -> CouchDBClient:
+    return couchdb
 ```
 
-### 3.2 Migrations (Alembic)
+### 2.4 Database Setup Commands
 
-```python
-# /services/core-api/alembic/env.py
-
-from alembic import context
-from sqlalchemy.ext.asyncio import create_async_engine
-from app.db import Base
-from app.config import settings
-
-# Import all models to register with Base
-from app.models import *
-
-target_metadata = Base.metadata
-
-def run_migrations_online():
-    connectable = create_async_engine(settings.DATABASE_URL)
-
-    async def do_run_migrations(connection):
-        await connection.run_sync(do_run_migrations_sync)
-
-    def do_run_migrations_sync(connection):
-        context.configure(
-            connection=connection,
-            target_metadata=target_metadata
-        )
-        with context.begin_transaction():
-            context.run_migrations()
-
-    import asyncio
-    asyncio.run(do_run_migrations(connectable))
-```
-
-**Commands**:
 ```bash
-# Create migration
-alembic revision --autogenerate -m "Add notifications table"
+# Create database
+curl -X PUT http://admin:password@localhost:5984/wishwithme
 
-# Run migrations
-alembic upgrade head
+# Create indexes
+curl -X POST http://admin:password@localhost:5984/wishwithme/_index \
+  -H "Content-Type: application/json" \
+  -d '{"index": {"fields": ["type", "access"]}, "name": "type-access-idx"}'
 
-# Rollback
-alembic downgrade -1
+curl -X POST http://admin:password@localhost:5984/wishwithme/_index \
+  -H "Content-Type: application/json" \
+  -d '{"index": {"fields": ["type", "status"]}, "name": "type-status-idx"}'
 ```
 
 ---
 
-## 4. Service Dependencies
+## 3. Service Dependencies
 
-### 4.1 Production Architecture (Split Servers)
+### 3.1 Production Architecture
 
 **Ubuntu Server (docker-compose.ubuntu.yml)**:
 ```yaml
@@ -307,46 +345,27 @@ services:
     ports:
       - "80:80"
       - "443:443"
-    # Uses ip_hash for SSE sticky sessions
 
   core-api-1:
     build: ./services/core-api
     environment:
-      - DATABASE_URL=postgresql+asyncpg://user:pass@postgres:5432/wishwithme
-      - REDIS_URL=redis://redis:6379/0
-      - ITEM_RESOLVER_URL=http://158.69.203.3:8001  # Montreal server
+      - COUCHDB_URL=http://couchdb:5984
+      - COUCHDB_DATABASE=wishwithme
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
 
   core-api-2:
     build: ./services/core-api
     # Same config as core-api-1
 
-  frontend:
-    build: ./services/frontend
-
-  postgres:
-    image: postgres:16-alpine
-
-  redis:
-    image: redis:7-alpine
-```
-
-**Montreal Server (docker-compose.montreal.yml)**:
-```yaml
-services:
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "8001:8001"
-    # Uses least_conn for load balancing
-
   item-resolver-1:
     build: ./services/item-resolver
     environment:
+      - COUCHDB_URL=http://couchdb:5984
       - RU_BEARER_TOKEN=${RU_BEARER_TOKEN}
       - LLM_MODE=live
-      - LLM_BASE_URL=${LLM_BASE_URL}
+      - LLM_BASE_URL=https://api.deepseek.com
       - LLM_API_KEY=${LLM_API_KEY}
-      - LLM_MODEL=gpt-4o-mini
+      - LLM_MODEL=deepseek-chat
     shm_size: '1gb'
     deploy:
       resources:
@@ -357,12 +376,27 @@ services:
   item-resolver-2:
     build: ./services/item-resolver
     # Same config as item-resolver-1
+
+  frontend:
+    build: ./services/frontend
+
+  couchdb:
+    image: couchdb:3.3
+    environment:
+      - COUCHDB_USER=admin
+      - COUCHDB_PASSWORD=${COUCHDB_PASSWORD}
+    volumes:
+      - couchdb_data:/opt/couchdb/data
+      - ./couchdb/local.ini:/opt/couchdb/etc/local.d/local.ini
+
+volumes:
+  couchdb_data:
 ```
 
-### 4.2 Local Development (docker-compose.yml)
+### 3.2 Local Development (docker-compose.yml)
 
 ```yaml
-# docker-compose.yml - for local development (all services on one machine)
+# docker-compose.yml - for local development
 
 version: '3.8'
 
@@ -372,88 +406,70 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql+asyncpg://user:pass@postgres:5432/wishwithme
-      - REDIS_URL=redis://redis:6379/0
-      - ITEM_RESOLVER_URL=http://item-resolver:8080
+      - COUCHDB_URL=http://couchdb:5984
+      - COUCHDB_DATABASE=wishwithme
+      - JWT_SECRET_KEY=dev-secret-key-min-32-characters
     depends_on:
-      - postgres
-      - redis
+      - couchdb
       - item-resolver
 
   item-resolver:
     build: ./services/item-resolver
     ports:
-      - "8080:8080"
+      - "8080:8000"
     environment:
-      - RU_BEARER_TOKEN=${ITEM_RESOLVER_TOKEN}
-      - LLM_MODE=live
-      - LLM_BASE_URL=${LLM_BASE_URL}
-      - LLM_API_KEY=${LLM_API_KEY}
-      - LLM_MODEL=gpt-4o-mini
+      - COUCHDB_URL=http://couchdb:5984
+      - RU_BEARER_TOKEN=dev-token
+      - LLM_MODE=stub  # Use stub mode for local dev
 
   frontend:
     build: ./services/frontend
     ports:
       - "9000:80"
+    environment:
+      - API_URL=http://localhost:8000
+      - COUCHDB_URL=http://localhost:5984
     depends_on:
       - core-api
 
-  postgres:
-    image: postgres:16-alpine
+  couchdb:
+    image: couchdb:3.3
     environment:
-      - POSTGRES_USER=user
-      - POSTGRES_PASSWORD=pass
-      - POSTGRES_DB=wishwithme
+      - COUCHDB_USER=admin
+      - COUCHDB_PASSWORD=password
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - couchdb_data:/opt/couchdb/data
     ports:
-      - "5432:5432"
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
+      - "5984:5984"
 
 volumes:
-  postgres_data:
-  redis_data:
+  couchdb_data:
 ```
 
 ---
 
-## 5. Health Checks
+## 4. Health Checks
 
-### 5.1 Core API Health
+### 4.1 Core API Health
 
 ```python
 # /services/core-api/app/routers/health.py
 
-from fastapi import APIRouter, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text
-from app.db import get_db
-from app.redis_client import redis_client
+from fastapi import APIRouter
+from app.couchdb import couchdb
 
 router = APIRouter(tags=["health"])
 
 @router.get("/healthz")
-async def health_check(db: AsyncSession = Depends(get_db)):
+async def health_check():
     checks = {
-        "database": False,
-        "redis": False
+        "couchdb": False
     }
 
     try:
-        await db.execute(text("SELECT 1"))
-        checks["database"] = True
-    except Exception:
-        pass
-
-    try:
-        await redis_client.ping()
-        checks["redis"] = True
+        # Check CouchDB connection
+        await couchdb.get("_design/app")
+        checks["couchdb"] = True
     except Exception:
         pass
 
@@ -462,9 +478,14 @@ async def health_check(db: AsyncSession = Depends(get_db)):
         "status": "ok" if healthy else "degraded",
         "checks": checks
     }
+
+@router.get("/live")
+async def liveness():
+    """Kubernetes liveness probe."""
+    return {"status": "ok"}
 ```
 
-### 5.2 Docker Health Checks
+### 4.2 Docker Health Checks
 
 ```yaml
 # In docker-compose.yml
@@ -478,17 +499,60 @@ services:
       retries: 3
       start_period: 40s
 
-  postgres:
+  couchdb:
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user -d wishwithme"]
+      test: ["CMD", "curl", "-f", "http://localhost:5984/"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  redis:
+  item-resolver:
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 ```
+
+---
+
+## 5. Data Flow
+
+### 5.1 Item Resolution Flow
+
+```
+User pastes URL in frontend
+         |
+         v
+PouchDB saves item (status: pending)
+         |
+         v
+PouchDB syncs to CouchDB
+         |
+         v
+Item resolver sees change in _changes feed
+         |
+         v
+Item resolver: Playwright fetches page
+         |
+         v
+Item resolver: DeepSeek extracts data (text-based)
+         |
+         v
+Item resolver updates item in CouchDB (status: resolved)
+         |
+         v
+CouchDB syncs to PouchDB
+         |
+         v
+Frontend UI updates automatically
+```
+
+### 5.2 Real-Time Updates
+
+All real-time updates are handled by PouchDB live sync:
+- No SSE endpoints
+- No WebSocket connections
+- No Redis pub/sub
+
+PouchDB maintains a persistent connection to CouchDB and automatically syncs changes in both directions.

@@ -29,7 +29,7 @@
 │   ├── boot/                     # Quasar boot files (plugins)
 │   │   ├── axios.ts              # Axios configuration
 │   │   ├── i18n.ts               # Vue-i18n setup
-│   │   ├── rxdb.ts               # RxDB database init
+│   │   ├── pouchdb.ts            # PouchDB database init
 │   │   └── auth.ts               # Auth initialization
 │   │
 │   ├── components/
@@ -108,29 +108,20 @@
 │   │   ├── api/
 │   │   │   ├── client.ts         # Axios instance
 │   │   │   ├── auth.ts
-│   │   │   ├── wishlists.ts
-│   │   │   ├── items.ts
-│   │   │   ├── share.ts
-│   │   │   └── sync.ts
-│   │   └── rxdb/
-│   │       ├── index.ts          # RxDB database instance
-│   │       ├── schemas/
-│   │       │   ├── wishlist.ts   # Wishlist collection schema
-│   │       │   ├── item.ts       # Item collection schema
-│   │       │   └── syncMeta.ts   # Sync metadata schema
-│   │       └── replication.ts    # Replication with PostgreSQL backend
+│   │   │   └── share.ts
+│   │   └── pouchdb/
+│   │       ├── index.ts          # PouchDB database instance
+│   │       ├── sync.ts           # Live sync with CouchDB
+│   │       └── documents.ts      # Document CRUD helpers
 │   │
 │   ├── stores/                   # Pinia stores
 │   │   ├── index.ts
 │   │   ├── auth.ts
-│   │   ├── wishlists.ts
 │   │   ├── sync.ts
 │   │   └── notifications.ts
 │   │
 │   ├── types/
-│   │   ├── user.ts
-│   │   ├── wishlist.ts
-│   │   ├── item.ts
+│   │   ├── documents.ts          # PouchDB document types
 │   │   ├── api.ts
 │   │   └── sync.ts
 │   │
@@ -149,7 +140,7 @@
 ├── .env.example
 ├── .env
 ├── package.json
-├── quasar.config.ts              # Quasar configuration
+├── quasar.config.js              # Quasar configuration (Webpack)
 ├── tsconfig.json
 └── README.md
 ```
@@ -167,23 +158,24 @@
     "vue-router": "^4.3.0",
     "vue-i18n": "^9.10.0",
     "axios": "^1.6.0",
-    "rxdb": "^15.25.0",
-    "rxjs": "^7.8.0",
+    "pouchdb-browser": "^8.0.0",
+    "pouchdb-find": "^8.0.0",
     "@vueuse/core": "^10.9.0",
-    "@vueuse/rxjs": "^10.9.0",
     "date-fns": "^3.3.0",
-    "qrcode": "^1.5.0"
+    "qrcode": "^1.5.0",
+    "uuid": "^9.0.0"
   },
   "devDependencies": {
-    "@quasar/app-vite": "^1.8.0",
+    "@quasar/app-webpack": "^3.12.0",
     "@quasar/extras": "^1.16.0",
     "typescript": "^5.3.0",
     "@types/node": "^20.11.0",
+    "@types/pouchdb-browser": "^6.1.0",
+    "@types/pouchdb-find": "^7.3.0",
     "@vue/test-utils": "^2.4.0",
     "vitest": "^1.2.0",
     "@vitest/coverage-v8": "^1.2.0",
     "happy-dom": "^13.0.0",
-    "fake-indexeddb": "^5.0.0",
     "workbox-build": "^7.0.0",
     "workbox-core": "^7.0.0",
     "workbox-precaching": "^7.0.0",
@@ -197,14 +189,14 @@
 
 ## 3. Quasar Configuration
 
-```typescript
-// /services/frontend/quasar.config.ts
+```javascript
+// /services/frontend/quasar.config.js
 
-import { configure } from 'quasar/wrappers';
+const { configure } = require('quasar/wrappers');
 
-export default configure((/* ctx */) => {
+module.exports = configure(function (/* ctx */) {
   return {
-    boot: ['i18n', 'axios', 'rxdb', 'auth'],
+    boot: ['i18n', 'axios', 'pouchdb', 'auth'],
 
     css: ['app.sass'],
 
@@ -215,22 +207,16 @@ export default configure((/* ctx */) => {
     ],
 
     build: {
-      target: {
-        browser: ['es2019', 'edge88', 'firefox78', 'chrome87', 'safari13.1'],
-        node: 'node20'
-      },
       vueRouterMode: 'history',
       env: {
         API_URL: process.env.API_URL || 'https://api.wishwith.me',
+        COUCHDB_URL: process.env.COUCHDB_URL || 'https://api.wishwith.me/couchdb',
       },
-      typescript: {
-        strict: true,
-        vueShim: true
-      }
     },
 
     devServer: {
-      open: true
+      open: true,
+      port: 9000
     },
 
     framework: {
@@ -240,7 +226,7 @@ export default configure((/* ctx */) => {
           secondary: '#26A69A',
           accent: '#9C27B0',
           dark: '#1d1d1d',
-          positive: '#1a9f38',  // Darkened for WCAG contrast
+          positive: '#1a9f38',
           negative: '#C10015',
           info: '#31CCEC',
           warning: '#F2C037'
@@ -274,9 +260,8 @@ export default configure((/* ctx */) => {
       extendGenerateSWOptions(cfg) {
         cfg.skipWaiting = true;
         cfg.clientsClaim = true;
-        // IMPORTANT: Exclude /api/ from navigation fallback for OAuth redirects
-        // See "PWA Service Worker & OAuth" section below
-        cfg.navigateFallbackDenylist = [/^\/api\//];
+        // Exclude /api/ from navigation fallback for OAuth redirects
+        cfg.navigateFallbackDenylist = [/^\/api\//, /^\/couchdb\//];
       },
       manifest: {
         name: 'Wish With Me',
@@ -386,174 +371,394 @@ export default routes;
 
 ---
 
-## 5. RxDB Setup
+## 5. PouchDB Setup
 
-### 5.1 Collection Schemas
-
-```typescript
-// /services/frontend/src/services/rxdb/schemas/wishlist.ts
-
-import { RxJsonSchema } from 'rxdb';
-
-export interface WishlistDocType {
-  id: string;
-  owner_id: string;
-  title: string;
-  description?: string;
-  cover_image_base64?: string;
-  item_count: number;
-  created_at: string;
-  updated_at: string;
-  _deleted?: boolean;
-}
-
-export const wishlistSchema: RxJsonSchema<WishlistDocType> = {
-  version: 0,
-  primaryKey: 'id',
-  type: 'object',
-  properties: {
-    id: { type: 'string', maxLength: 36 },
-    owner_id: { type: 'string', maxLength: 36 },
-    title: { type: 'string', maxLength: 200 },
-    description: { type: 'string' },
-    cover_image_base64: { type: 'string' },
-    item_count: { type: 'integer', minimum: 0, default: 0 },
-    created_at: { type: 'string', format: 'date-time' },
-    updated_at: { type: 'string', format: 'date-time' },
-    _deleted: { type: 'boolean' }
-  },
-  required: ['id', 'owner_id', 'title', 'created_at', 'updated_at'],
-  indexes: ['owner_id', 'updated_at']
-};
-```
+### 5.1 Database Service
 
 ```typescript
-// /services/frontend/src/services/rxdb/schemas/item.ts
+// /services/frontend/src/services/pouchdb/index.ts
 
-import { RxJsonSchema } from 'rxdb';
+import PouchDB from 'pouchdb-browser';
+import PouchDBFind from 'pouchdb-find';
 
-export type ItemStatus = 'pending' | 'resolving' | 'resolved' | 'failed' | 'manual';
+PouchDB.plugin(PouchDBFind);
 
-export interface ItemDocType {
-  id: string;
-  wishlist_id: string;
-  source_url?: string;
-  title: string;
-  description?: string;
-  price_amount?: number;
-  price_currency?: string;
-  image_url?: string;
-  image_base64?: string;
-  quantity: number;
-  marked_quantity: number;
-  status: ItemStatus;
-  resolution_error?: Record<string, unknown>;
-  sort_order: number;
-  created_at: string;
-  updated_at: string;
-  _deleted?: boolean;
+let localDB: PouchDB.Database | null = null;
+
+export function getDatabase(): PouchDB.Database {
+  if (!localDB) {
+    throw new Error('Database not initialized. Call initDatabase first.');
+  }
+  return localDB;
 }
 
-export const itemSchema: RxJsonSchema<ItemDocType> = {
-  version: 0,
-  primaryKey: 'id',
-  type: 'object',
-  properties: {
-    id: { type: 'string', maxLength: 36 },
-    wishlist_id: { type: 'string', maxLength: 36 },
-    source_url: { type: 'string' },
-    title: { type: 'string', maxLength: 500 },
-    description: { type: 'string' },
-    price_amount: { type: 'number' },
-    price_currency: { type: 'string', maxLength: 3 },
-    image_url: { type: 'string' },
-    image_base64: { type: 'string' },
-    quantity: { type: 'integer', minimum: 1, default: 1 },
-    marked_quantity: { type: 'integer', minimum: 0, default: 0 },
-    status: { type: 'string', enum: ['pending', 'resolving', 'resolved', 'failed', 'manual'] },
-    resolution_error: { type: 'object' },
-    sort_order: { type: 'integer', default: 0 },
-    created_at: { type: 'string', format: 'date-time' },
-    updated_at: { type: 'string', format: 'date-time' },
-    _deleted: { type: 'boolean' }
-  },
-  required: ['id', 'wishlist_id', 'title', 'quantity', 'status', 'created_at', 'updated_at'],
-  indexes: ['wishlist_id', 'status', 'updated_at']
-};
-```
+export async function initDatabase(): Promise<PouchDB.Database> {
+  if (localDB) {
+    return localDB;
+  }
 
-### 5.2 Database Initialization
+  localDB = new PouchDB('wishwithme_local');
 
-```typescript
-// /services/frontend/src/services/rxdb/index.ts
-
-import {
-  createRxDatabase,
-  RxDatabase,
-  RxCollection,
-  addRxPlugin
-} from 'rxdb';
-import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie';
-import { RxDBDevModePlugin } from 'rxdb/plugins/dev-mode';
-import { RxDBQueryBuilderPlugin } from 'rxdb/plugins/query-builder';
-import { RxDBUpdatePlugin } from 'rxdb/plugins/update';
-import { RxDBLeaderElectionPlugin } from 'rxdb/plugins/leader-election';
-
-import { wishlistSchema, WishlistDocType } from './schemas/wishlist';
-import { itemSchema, ItemDocType } from './schemas/item';
-
-// Add plugins
-if (import.meta.env.DEV) {
-  addRxPlugin(RxDBDevModePlugin);
-}
-addRxPlugin(RxDBQueryBuilderPlugin);
-addRxPlugin(RxDBUpdatePlugin);
-addRxPlugin(RxDBLeaderElectionPlugin);
-
-// Type definitions
-export type WishlistCollection = RxCollection<WishlistDocType>;
-export type ItemCollection = RxCollection<ItemDocType>;
-
-export interface DatabaseCollections {
-  wishlists: WishlistCollection;
-  items: ItemCollection;
-}
-
-export type WishWithMeDatabase = RxDatabase<DatabaseCollections>;
-
-let dbPromise: Promise<WishWithMeDatabase> | null = null;
-
-export async function getDatabase(): Promise<WishWithMeDatabase> {
-  if (dbPromise) return dbPromise;
-
-  dbPromise = createRxDatabase<DatabaseCollections>({
-    name: 'wishwithme',
-    storage: getRxStorageDexie(),
-    multiInstance: true,
-    eventReduce: true,
-    cleanupPolicy: {
-      minimumDeletedTime: 1000 * 60 * 60 * 24 * 7,
-      minimumCollectionAge: 1000 * 60,
-      runEach: 1000 * 60 * 5,
-      awaitReplicationsInSync: true,
-      waitForLeadership: true
-    }
-  }).then(async (db) => {
-    await db.addCollections({
-      wishlists: { schema: wishlistSchema },
-      items: { schema: itemSchema }
-    });
-    return db;
+  // Create indexes for common queries
+  await localDB.createIndex({
+    index: { fields: ['type', 'access'] }
   });
 
-  return dbPromise;
+  await localDB.createIndex({
+    index: { fields: ['type', 'wishlist_id', 'sort_order'] }
+  });
+
+  await localDB.createIndex({
+    index: { fields: ['type', 'status'] }
+  });
+
+  return localDB;
 }
 
-export let db: WishWithMeDatabase;
+export async function destroyDatabase(): Promise<void> {
+  if (localDB) {
+    await localDB.destroy();
+    localDB = null;
+  }
+}
+```
 
-export async function initDatabase(): Promise<WishWithMeDatabase> {
-  db = await getDatabase();
-  return db;
+### 5.2 Sync Service
+
+```typescript
+// /services/frontend/src/services/pouchdb/sync.ts
+
+import PouchDB from 'pouchdb-browser';
+import { getDatabase } from './index';
+import { useAuthStore } from '@/stores/auth';
+
+let syncHandler: PouchDB.Replication.Sync<{}> | null = null;
+
+export interface SyncStatus {
+  isActive: boolean;
+  isPaused: boolean;
+  lastSync: Date | null;
+  error: Error | null;
+}
+
+const syncStatus: SyncStatus = {
+  isActive: false,
+  isPaused: false,
+  lastSync: null,
+  error: null
+};
+
+export function getSyncStatus(): SyncStatus {
+  return { ...syncStatus };
+}
+
+export async function startSync(): Promise<void> {
+  const authStore = useAuthStore();
+
+  if (!authStore.isAuthenticated || !authStore.token) {
+    console.log('[Sync] Not authenticated, skipping sync');
+    return;
+  }
+
+  if (syncHandler) {
+    console.log('[Sync] Already running');
+    return;
+  }
+
+  const localDB = getDatabase();
+  const couchdbUrl = process.env.COUCHDB_URL || 'https://api.wishwith.me/couchdb';
+  const userId = authStore.user?.id;
+
+  const remoteDB = new PouchDB(`${couchdbUrl}/wishwithme`, {
+    fetch: (url, opts) => {
+      (opts!.headers as Headers).set('Authorization', `Bearer ${authStore.token}`);
+      return fetch(url, opts);
+    }
+  });
+
+  // Live sync with filtered replication
+  syncHandler = localDB.sync(remoteDB, {
+    live: true,
+    retry: true,
+    // Only sync documents the user has access to
+    selector: {
+      access: { $elemMatch: { $eq: userId } }
+    }
+  });
+
+  syncHandler.on('change', (info) => {
+    console.log('[Sync] Change:', info.direction, info.change.docs.length, 'docs');
+    syncStatus.lastSync = new Date();
+    syncStatus.error = null;
+  });
+
+  syncHandler.on('paused', (err) => {
+    syncStatus.isPaused = true;
+    if (err) {
+      console.error('[Sync] Paused with error:', err);
+      syncStatus.error = err;
+    }
+  });
+
+  syncHandler.on('active', () => {
+    syncStatus.isActive = true;
+    syncStatus.isPaused = false;
+    console.log('[Sync] Active');
+  });
+
+  syncHandler.on('denied', (err) => {
+    console.error('[Sync] Denied:', err);
+    syncStatus.error = err;
+  });
+
+  syncHandler.on('complete', (info) => {
+    console.log('[Sync] Complete:', info);
+    syncStatus.isActive = false;
+  });
+
+  syncHandler.on('error', (err) => {
+    console.error('[Sync] Error:', err);
+    syncStatus.error = err;
+    syncStatus.isActive = false;
+  });
+
+  syncStatus.isActive = true;
+  console.log('[Sync] Started live sync');
+}
+
+export function stopSync(): void {
+  if (syncHandler) {
+    syncHandler.cancel();
+    syncHandler = null;
+    syncStatus.isActive = false;
+    syncStatus.isPaused = false;
+    console.log('[Sync] Stopped');
+  }
+}
+```
+
+### 5.3 Document Helpers
+
+```typescript
+// /services/frontend/src/services/pouchdb/documents.ts
+
+import { getDatabase } from './index';
+import { v4 as uuidv4 } from 'uuid';
+import type { Wishlist, Item, Mark } from '@/types/documents';
+
+// Wishlist operations
+export async function createWishlist(
+  userId: string,
+  data: { title: string; description?: string; icon?: string }
+): Promise<Wishlist> {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+
+  const doc: Wishlist = {
+    _id: `wishlist:${uuidv4()}`,
+    type: 'wishlist',
+    owner_id: userId,
+    title: data.title,
+    description: data.description || '',
+    icon: data.icon || '',
+    item_count: 0,
+    created_at: now,
+    updated_at: now,
+    deleted_at: null,
+    access: [userId]
+  };
+
+  await db.put(doc);
+  return doc;
+}
+
+export async function getWishlists(userId: string): Promise<Wishlist[]> {
+  const db = getDatabase();
+  const result = await db.find({
+    selector: {
+      type: 'wishlist',
+      access: { $elemMatch: { $eq: userId } },
+      deleted_at: { $eq: null }
+    },
+    sort: [{ updated_at: 'desc' }]
+  });
+  return result.docs as Wishlist[];
+}
+
+export async function updateWishlist(
+  id: string,
+  updates: Partial<Wishlist>
+): Promise<Wishlist> {
+  const db = getDatabase();
+  const doc = await db.get(id) as Wishlist;
+
+  const updated = {
+    ...doc,
+    ...updates,
+    updated_at: new Date().toISOString()
+  };
+
+  await db.put(updated);
+  return updated;
+}
+
+export async function deleteWishlist(id: string): Promise<void> {
+  const db = getDatabase();
+  const doc = await db.get(id) as Wishlist;
+
+  await db.put({
+    ...doc,
+    deleted_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  });
+}
+
+// Item operations
+export async function createItem(
+  userId: string,
+  wishlistId: string,
+  data: Partial<Item>
+): Promise<Item> {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+
+  // Get wishlist to copy access array
+  const wishlist = await db.get(wishlistId) as Wishlist;
+
+  // Count existing items for sort order
+  const existingItems = await db.find({
+    selector: {
+      type: 'item',
+      wishlist_id: wishlistId,
+      deleted_at: { $eq: null }
+    }
+  });
+
+  const doc: Item = {
+    _id: `item:${uuidv4()}`,
+    type: 'item',
+    wishlist_id: wishlistId,
+    owner_id: userId,
+    title: data.title || 'Loading...',
+    description: data.description || null,
+    price_amount: data.price_amount || null,
+    price_currency: data.price_currency || null,
+    source_url: data.source_url || null,
+    image_url: null,
+    image_base64: data.image_base64 || null,
+    status: data.source_url ? 'pending' : 'manual',
+    quantity: data.quantity ?? 1,
+    marked_quantity: 0,
+    resolution_error: null,
+    sort_order: existingItems.docs.length,
+    created_at: now,
+    updated_at: now,
+    deleted_at: null,
+    access: wishlist.access
+  };
+
+  await db.put(doc);
+
+  // Update wishlist item_count
+  await updateWishlist(wishlistId, {
+    item_count: wishlist.item_count + 1
+  });
+
+  return doc;
+}
+
+export async function getItems(wishlistId: string): Promise<Item[]> {
+  const db = getDatabase();
+  const result = await db.find({
+    selector: {
+      type: 'item',
+      wishlist_id: wishlistId,
+      deleted_at: { $eq: null }
+    },
+    sort: [{ sort_order: 'asc' }]
+  });
+  return result.docs as Item[];
+}
+
+export async function updateItem(
+  id: string,
+  updates: Partial<Item>
+): Promise<Item> {
+  const db = getDatabase();
+  const doc = await db.get(id) as Item;
+
+  const updated = {
+    ...doc,
+    ...updates,
+    updated_at: new Date().toISOString()
+  };
+
+  await db.put(updated);
+  return updated;
+}
+
+export async function deleteItem(id: string): Promise<void> {
+  const db = getDatabase();
+  const doc = await db.get(id) as Item;
+
+  await db.put({
+    ...doc,
+    deleted_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  });
+
+  // Update wishlist item_count
+  const wishlist = await db.get(doc.wishlist_id) as Wishlist;
+  await updateWishlist(doc.wishlist_id, {
+    item_count: Math.max(0, wishlist.item_count - 1)
+  });
+}
+
+// Mark operations (for viewers)
+export async function createMark(
+  viewerId: string,
+  item: Item,
+  wishlist: Wishlist,
+  quantity: number
+): Promise<Mark> {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+
+  // Access includes all viewers EXCEPT owner (surprise mode)
+  const viewerAccess = wishlist.access.filter(id => id !== wishlist.owner_id);
+
+  const doc: Mark = {
+    _id: `mark:${uuidv4()}`,
+    type: 'mark',
+    item_id: item._id,
+    wishlist_id: wishlist._id,
+    owner_id: wishlist.owner_id,
+    marked_by: viewerId,
+    quantity,
+    created_at: now,
+    updated_at: now,
+    access: viewerAccess
+  };
+
+  await db.put(doc);
+
+  // Update item marked_quantity
+  await updateItem(item._id, {
+    marked_quantity: item.marked_quantity + quantity
+  });
+
+  return doc;
+}
+
+export async function getMarks(itemId: string): Promise<Mark[]> {
+  const db = getDatabase();
+  const result = await db.find({
+    selector: {
+      type: 'mark',
+      item_id: itemId
+    }
+  });
+  return result.docs as Mark[];
 }
 ```
 
@@ -561,136 +766,238 @@ export async function initDatabase(): Promise<WishWithMeDatabase> {
 
 ## 6. Vue Composables
 
-### 6.1 useItems
-
-```typescript
-// /services/frontend/src/composables/useItems.ts
-
-import { computed } from 'vue';
-import { useObservable } from '@vueuse/rxjs';
-import { useOnline } from '@vueuse/core';
-import { db } from '@/services/rxdb';
-import type { ItemDocType } from '@/services/rxdb/schemas/item';
-
-export function useItems(wishlistId: string) {
-  const isOnline = useOnline();
-
-  const items = useObservable(
-    db.items
-      .find({
-        selector: {
-          wishlist_id: wishlistId,
-          _deleted: { $ne: true }
-        },
-        sort: [{ sort_order: 'asc' }]
-      })
-      .$,
-    { initialValue: [] as ItemDocType[] }
-  );
-
-  async function createItem(data: Partial<ItemDocType>): Promise<ItemDocType> {
-    const now = new Date().toISOString();
-    const item: ItemDocType = {
-      id: crypto.randomUUID(),
-      wishlist_id: wishlistId,
-      title: data.title || 'Loading...',
-      description: data.description,
-      price_amount: data.price_amount,
-      price_currency: data.price_currency,
-      source_url: data.source_url,
-      image_base64: data.image_base64,
-      status: data.source_url ? 'pending' : 'manual',
-      quantity: data.quantity ?? 1,
-      marked_quantity: 0,
-      sort_order: items.value.length,
-      created_at: now,
-      updated_at: now
-    };
-    const doc = await db.items.insert(item);
-    return doc.toJSON();
-  }
-
-  async function updateItem(id: string, updates: Partial<ItemDocType>) {
-    const doc = await db.items.findOne(id).exec();
-    if (doc) {
-      await doc.patch({ ...updates, updated_at: new Date().toISOString() });
-    }
-  }
-
-  async function deleteItem(id: string) {
-    const doc = await db.items.findOne(id).exec();
-    if (doc) {
-      await doc.patch({ _deleted: true, updated_at: new Date().toISOString() });
-    }
-  }
-
-  return {
-    items: computed(() => items.value),
-    isOnline,
-    createItem,
-    updateItem,
-    deleteItem
-  };
-}
-```
-
-### 6.2 useWishlists
+### 6.1 useWishlists
 
 ```typescript
 // /services/frontend/src/composables/useWishlists.ts
 
-import { computed } from 'vue';
-import { useObservable } from '@vueuse/rxjs';
-import { db } from '@/services/rxdb';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { getDatabase } from '@/services/pouchdb';
+import { createWishlist, getWishlists, deleteWishlist } from '@/services/pouchdb/documents';
 import { useAuthStore } from '@/stores/auth';
-import type { WishlistDocType } from '@/services/rxdb/schemas/wishlist';
+import type { Wishlist } from '@/types/documents';
 
 export function useWishlists() {
   const authStore = useAuthStore();
+  const wishlists = ref<Wishlist[]>([]);
+  const loading = ref(true);
+  const error = ref<Error | null>(null);
 
-  const wishlists = useObservable(
-    db.wishlists
-      .find({
-        selector: {
-          owner_id: authStore.user?.id,
-          _deleted: { $ne: true }
-        },
-        sort: [{ updated_at: 'desc' }]
-      })
-      .$,
-    { initialValue: [] as WishlistDocType[] }
-  );
+  let changesHandler: PouchDB.Core.Changes<{}> | null = null;
 
-  async function createWishlist(data: { title: string; description?: string }) {
-    const now = new Date().toISOString();
-    const wishlist: WishlistDocType = {
-      id: crypto.randomUUID(),
-      owner_id: authStore.user!.id,
-      title: data.title,
-      description: data.description,
-      item_count: 0,
-      created_at: now,
-      updated_at: now
-    };
-    await db.wishlists.insert(wishlist);
-    return wishlist;
-  }
+  async function fetchWishlists() {
+    if (!authStore.user) return;
 
-  async function deleteWishlist(id: string) {
-    const doc = await db.wishlists.findOne(id).exec();
-    if (doc) {
-      await doc.patch({ _deleted: true, updated_at: new Date().toISOString() });
-      const items = await db.items.find({ selector: { wishlist_id: id } }).exec();
-      await Promise.all(
-        items.map(item => item.patch({ _deleted: true, updated_at: new Date().toISOString() }))
-      );
+    try {
+      wishlists.value = await getWishlists(authStore.user.id);
+    } catch (err) {
+      error.value = err as Error;
     }
   }
 
+  async function create(data: { title: string; description?: string }) {
+    if (!authStore.user) throw new Error('Not authenticated');
+
+    const wishlist = await createWishlist(authStore.user.id, data);
+    await fetchWishlists();
+    return wishlist;
+  }
+
+  async function remove(id: string) {
+    await deleteWishlist(id);
+    await fetchWishlists();
+  }
+
+  onMounted(async () => {
+    try {
+      await fetchWishlists();
+
+      // Watch for changes (live updates from sync)
+      const db = getDatabase();
+      changesHandler = db.changes({
+        since: 'now',
+        live: true,
+        include_docs: true,
+        selector: { type: 'wishlist' }
+      }).on('change', () => {
+        fetchWishlists();
+      });
+    } catch (err) {
+      error.value = err as Error;
+    } finally {
+      loading.value = false;
+    }
+  });
+
+  onUnmounted(() => {
+    if (changesHandler) {
+      changesHandler.cancel();
+    }
+  });
+
   return {
     wishlists: computed(() => wishlists.value),
-    createWishlist,
-    deleteWishlist
+    loading: computed(() => loading.value),
+    error: computed(() => error.value),
+    create,
+    remove,
+    refetch: fetchWishlists
+  };
+}
+```
+
+### 6.2 useItems
+
+```typescript
+// /services/frontend/src/composables/useItems.ts
+
+import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { getDatabase } from '@/services/pouchdb';
+import { createItem, getItems, updateItem, deleteItem } from '@/services/pouchdb/documents';
+import { useAuthStore } from '@/stores/auth';
+import type { Item } from '@/types/documents';
+
+export function useItems(wishlistId: string) {
+  const authStore = useAuthStore();
+  const items = ref<Item[]>([]);
+  const loading = ref(true);
+  const error = ref<Error | null>(null);
+
+  let changesHandler: PouchDB.Core.Changes<{}> | null = null;
+
+  async function fetchItems() {
+    try {
+      items.value = await getItems(wishlistId);
+    } catch (err) {
+      error.value = err as Error;
+    }
+  }
+
+  async function create(data: Partial<Item>) {
+    if (!authStore.user) throw new Error('Not authenticated');
+
+    const item = await createItem(authStore.user.id, wishlistId, data);
+    await fetchItems();
+    return item;
+  }
+
+  async function update(id: string, updates: Partial<Item>) {
+    const item = await updateItem(id, updates);
+    await fetchItems();
+    return item;
+  }
+
+  async function remove(id: string) {
+    await deleteItem(id);
+    await fetchItems();
+  }
+
+  onMounted(async () => {
+    try {
+      await fetchItems();
+
+      // Watch for changes (live updates from sync)
+      const db = getDatabase();
+      changesHandler = db.changes({
+        since: 'now',
+        live: true,
+        include_docs: true,
+        selector: { type: 'item', wishlist_id: wishlistId }
+      }).on('change', () => {
+        fetchItems();
+      });
+    } catch (err) {
+      error.value = err as Error;
+    } finally {
+      loading.value = false;
+    }
+  });
+
+  onUnmounted(() => {
+    if (changesHandler) {
+      changesHandler.cancel();
+    }
+  });
+
+  return {
+    items: computed(() => items.value),
+    loading: computed(() => loading.value),
+    error: computed(() => error.value),
+    create,
+    update,
+    remove,
+    refetch: fetchItems
+  };
+}
+```
+
+### 6.3 useSync
+
+```typescript
+// /services/frontend/src/composables/useSync.ts
+
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { useOnline } from '@vueuse/core';
+import { startSync, stopSync, getSyncStatus } from '@/services/pouchdb/sync';
+import { useAuthStore } from '@/stores/auth';
+
+export function useSync() {
+  const authStore = useAuthStore();
+  const isOnline = useOnline();
+
+  const isSyncing = ref(false);
+  const lastSync = ref<Date | null>(null);
+  const syncError = ref<Error | null>(null);
+
+  let pollInterval: ReturnType<typeof setInterval> | null = null;
+
+  function updateStatus() {
+    const status = getSyncStatus();
+    isSyncing.value = status.isActive && !status.isPaused;
+    lastSync.value = status.lastSync;
+    syncError.value = status.error;
+  }
+
+  // Start/stop sync based on auth state
+  watch(
+    () => authStore.isAuthenticated,
+    (authenticated) => {
+      if (authenticated && isOnline.value) {
+        startSync();
+      } else {
+        stopSync();
+      }
+    }
+  );
+
+  // Start/stop sync based on online state
+  watch(isOnline, (online) => {
+    if (online && authStore.isAuthenticated) {
+      startSync();
+    }
+    // Note: PouchDB handles offline gracefully, no need to stop
+  });
+
+  onMounted(() => {
+    if (authStore.isAuthenticated && isOnline.value) {
+      startSync();
+    }
+
+    // Poll sync status periodically
+    pollInterval = setInterval(updateStatus, 1000);
+  });
+
+  onUnmounted(() => {
+    if (pollInterval) {
+      clearInterval(pollInterval);
+    }
+  });
+
+  return {
+    isOnline,
+    isSyncing: computed(() => isSyncing.value),
+    lastSync: computed(() => lastSync.value),
+    syncError: computed(() => syncError.value)
   };
 }
 ```
@@ -705,6 +1012,8 @@ export function useWishlists() {
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { api } from '@/services/api/client';
+import { initDatabase, destroyDatabase } from '@/services/pouchdb';
+import { startSync, stopSync } from '@/services/pouchdb/sync';
 
 interface User {
   id: string;
@@ -716,33 +1025,73 @@ interface User {
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null);
-  const accessToken = ref<string | null>(null);
-  const isAuthenticated = computed(() => !!user.value);
+  const token = ref<string | null>(null);
+  const isAuthenticated = computed(() => !!user.value && !!token.value);
 
   async function login(email: string, password: string) {
     const response = await api.post('/api/v1/auth/login', { email, password });
     user.value = response.data.user;
-    accessToken.value = response.data.access_token;
+    token.value = response.data.access_token;
+
+    // Initialize PouchDB and start sync
+    await initDatabase();
+    startSync();
+  }
+
+  async function register(data: { email: string; password: string; name: string }) {
+    const response = await api.post('/api/v1/auth/register', data);
+    user.value = response.data.user;
+    token.value = response.data.access_token;
+
+    // Initialize PouchDB and start sync
+    await initDatabase();
+    startSync();
   }
 
   async function logout() {
-    await api.post('/api/v1/auth/logout');
+    // Stop sync and destroy local database
+    stopSync();
+    await destroyDatabase();
+
+    // Clear state
     user.value = null;
-    accessToken.value = null;
+    token.value = null;
+
+    await api.post('/api/v1/auth/logout');
   }
 
   async function refreshToken() {
     const response = await api.post('/api/v1/auth/refresh');
-    accessToken.value = response.data.access_token;
+    token.value = response.data.access_token;
+  }
+
+  // Restore session on app load
+  async function restore() {
+    const storedToken = localStorage.getItem('token');
+    if (storedToken) {
+      token.value = storedToken;
+      try {
+        const response = await api.get('/api/v1/users/me');
+        user.value = response.data;
+        await initDatabase();
+        startSync();
+      } catch {
+        // Token invalid, clear state
+        token.value = null;
+        localStorage.removeItem('token');
+      }
+    }
   }
 
   return {
     user,
-    accessToken,
+    token,
     isAuthenticated,
     login,
+    register,
     logout,
-    refreshToken
+    refreshToken,
+    restore
   };
 });
 ```
@@ -755,21 +1104,17 @@ export const useAuthStore = defineStore('auth', () => {
 
 PWA service workers use a **navigation fallback** strategy that serves `index.html` for all navigation requests. This enables SPA routing but breaks OAuth redirect flows that navigate to backend `/api/` endpoints.
 
-**Symptom**: When user navigates to OAuth authorize endpoint (e.g., `/api/v1/oauth/google/authorize`), the service worker intercepts the request and serves cached `index.html` instead of letting it pass through to the backend. This causes Vue Router to try rendering the API URL as a frontend route, resulting in errors like:
-- "QPage needs to be a deep child of QLayout"
-- Blank/empty page at OAuth URLs
-
 ### 8.2 The Solution
 
-Configure `navigateFallbackDenylist` in the Workbox service worker to exclude `/api/` paths:
+Configure `navigateFallbackDenylist` in the Workbox service worker to exclude `/api/` and `/couchdb/` paths:
 
-```typescript
+```javascript
 // quasar.config.js - pwa section
 extendGenerateSWOptions(cfg) {
   cfg.skipWaiting = true;
   cfg.clientsClaim = true;
-  // Exclude /api/ from navigation fallback - let requests pass to server
-  cfg.navigateFallbackDenylist = [/^\/api\//];
+  // Exclude /api/ and /couchdb/ from navigation fallback
+  cfg.navigateFallbackDenylist = [/^\/api\//, /^\/couchdb\//];
 },
 ```
 
@@ -785,26 +1130,6 @@ extendGenerateSWOptions(cfg) {
 7. Backend redirects to: /auth/callback?access_token=...
 8. Frontend AuthCallbackPage processes tokens
 ```
-
-Steps 2-3 and 5-6 require the browser to reach the backend, not the service worker.
-
-### 8.4 When Implementing New OAuth Providers
-
-When adding new OAuth providers (Apple, Yandex, Sber, etc.):
-
-1. **Backend endpoints follow the pattern**: `/api/v1/oauth/{provider}/authorize` and `/api/v1/oauth/{provider}/callback`
-2. **No frontend route changes needed** - the existing `/auth/callback` handles all providers
-3. **Service worker denylist already covers all `/api/` paths** - no changes needed
-4. **Test the full flow** including logout → re-login to ensure service worker doesn't interfere
-
-### 8.5 Debugging Service Worker Issues
-
-If OAuth stops working after frontend deployment:
-
-1. **Check if service worker is intercepting**: Open DevTools → Network → check if OAuth URLs show "(ServiceWorker)" in the Size column
-2. **Verify denylist is in sw.js**: `grep "denylist" dist/pwa/sw.js` should show `/api/` pattern
-3. **Force service worker update**: Users may need to refresh twice or clear cache for new SW to activate
-4. **Test with SW disabled**: DevTools → Application → Service Workers → Bypass for network
 
 ---
 
@@ -826,13 +1151,15 @@ RUN npm ci
 COPY . .
 
 ARG API_URL=https://api.wishwith.me
+ARG COUCHDB_URL=https://api.wishwith.me/couchdb
 ENV API_URL=${API_URL}
+ENV COUCHDB_URL=${COUCHDB_URL}
 RUN quasar build -m pwa
 
 # Production stage
 FROM nginx:alpine
 
-COPY --from=builder /app/dist/spa /usr/share/nginx/html
+COPY --from=builder /app/dist/pwa /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/nginx.conf
 
 EXPOSE 80 443

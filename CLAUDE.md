@@ -7,7 +7,7 @@
 ## Project Context
 
 **Application**: Wish With Me - Offline-first wishlist PWA
-**Stack**: Vue 3 + Quasar (frontend), FastAPI + PostgreSQL (backend), RxDB (offline sync)
+**Stack**: Vue 3 + Quasar + Webpack (frontend), FastAPI + CouchDB (backend), PouchDB (offline sync)
 **Documentation**: See [AGENTS.md](./AGENTS.md) for full specification
 
 ### Key Documentation Files
@@ -128,11 +128,11 @@ The reviewer agent MUST check for:
 - [ ] Clear naming conventions
 
 ### Security (Backend)
-- [ ] No SQL injection vulnerabilities
+- [ ] No injection vulnerabilities (CouchDB Mango queries)
 - [ ] Proper authentication checks
 - [ ] Input validation on all endpoints
 - [ ] No sensitive data exposure
-- [ ] Rate limiting where appropriate
+- [ ] Access control via document `access` arrays
 
 ### Security (Frontend)
 - [ ] No XSS vulnerabilities
@@ -160,16 +160,16 @@ The reviewer agent MUST check for:
 When implementing frontend:
 - Follow Vue 3 Composition API patterns from `docs/04-frontend.md`
 - Use Quasar components (QBtn, QCard, etc.)
-- Implement RxDB queries per `docs/05-offline-sync.md`
+- Implement PouchDB queries per `docs/05-offline-sync.md`
 - Follow visual design from `docs/11-visual-design.md`
 - Support both Russian and English (see `docs/07-i18n.md`)
 
 ### backend-dev Agent
 When implementing backend:
 - Follow FastAPI async patterns
-- Use SQLAlchemy async ORM
+- Use CouchDB async client (`app/couchdb.py`)
 - Implement schemas per `docs/03-api.md`
-- Follow database patterns from `docs/02-database.md`
+- Follow CouchDB document patterns from `docs/02-database.md`
 - Use proper dependency injection
 
 ### reviewer Agent
@@ -198,8 +198,8 @@ When writing tests:
 - **IP Address**: 176.106.144.182
 - **User**: mrkutin
 - **Domain**: wishwith.me, api.wishwith.me
-- **Services**: nginx, frontend, core-api-1, core-api-2, item-resolver-1, item-resolver-2, postgres, redis
-- **Load Balancing**: nginx uses `ip_hash` for SSE sticky sessions
+- **Services**: nginx, frontend, core-api-1, core-api-2, item-resolver-1, item-resolver-2, couchdb
+- **Real-time Sync**: PouchDB ↔ CouchDB native replication
 - **Docker Compose**: `docker-compose.ubuntu.yml`
 - **LLM**: DeepSeek API (text-based extraction for item-resolver)
 
@@ -222,10 +222,10 @@ When writing tests:
 - Manual: `gh workflow run deploy-ubuntu.yml`
 
 **Architecture:**
-- `docker-compose.ubuntu.yml` - All services (nginx, frontend, core-api, item-resolver, postgres, redis)
+- `docker-compose.ubuntu.yml` - All services (nginx, frontend, core-api, item-resolver, couchdb)
 - Core API connects to item-resolver via internal Docker network: `http://item-resolver-1:8000`
-- SSE uses Redis pub/sub for cross-instance communication
-- nginx uses `ip_hash` for SSE sticky sessions
+- Item-resolver watches CouchDB `_changes` feed for pending items
+- PouchDB on frontend syncs directly with CouchDB for real-time updates
 - Services use shared network: `wishwithme-network`
 
 See `docs/13-deployment.md` for full deployment documentation.
@@ -264,23 +264,23 @@ If the workflow gets stuck:
 
 ```
 services/
-├── frontend/           # Vue 3 + Quasar PWA
+├── frontend/           # Vue 3 + Quasar PWA (Webpack)
 │   ├── src/
 │   │   ├── components/ # Reusable Vue components
 │   │   ├── pages/      # Route pages
 │   │   ├── composables/# Vue composables
 │   │   ├── stores/     # Pinia stores
-│   │   └── services/   # RxDB, API clients
+│   │   └── services/   # PouchDB, API clients
 │   └── e2e/            # Playwright tests
 │
 ├── core-api/           # FastAPI backend
 │   ├── app/
 │   │   ├── routers/    # API route handlers
-│   │   ├── models.py   # SQLAlchemy models
-│   │   └── schemas.py  # Pydantic schemas
+│   │   ├── couchdb.py  # CouchDB async client
+│   │   └── schemas/    # Pydantic schemas
 │   └── tests/          # pytest tests
 │
-└── item-resolver/      # URL metadata service
+└── item-resolver/      # URL metadata service (watches CouchDB _changes)
 ```
 
 ---

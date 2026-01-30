@@ -12,10 +12,9 @@
 | 2 | Core Features | Week 3-4 |
 | 3 | OAuth | Week 5 |
 | 4 | Marking System | Week 6-7 |
-| 5 | Offline & PWA | Week 8-9 |
-| 6 | Real-Time Updates (SSE) | Week 10 |
-| 7 | i18n & Polish | Week 11 |
-| 8 | Deploy | Week 12-13 |
+| 5 | Offline & PWA (PouchDB/CouchDB) | Week 8-9 |
+| 6 | i18n & Polish | Week 10 |
+| 7 | Deploy | Week 11-12 |
 
 ---
 
@@ -25,20 +24,20 @@
 
 ### Deliverables
 
-- [x] Quasar project setup with TypeScript
-- [x] FastAPI project setup with async SQLAlchemy
-- [x] PostgreSQL schema + Alembic migrations
-- [x] Redis connection for sessions
+- [x] Quasar project setup with TypeScript (Webpack)
+- [x] FastAPI project setup
+- [x] CouchDB setup with document schemas
 - [x] Basic auth (email/password)
 - [x] User CRUD endpoints
 - [x] JWT token flow (access + refresh)
+- [x] CouchDB JWT authentication
 - [x] Docker Compose for local dev
 
 ### Success Criteria
 
 - User can register, login, logout
 - JWT refresh works correctly
-- Migrations run cleanly
+- CouchDB accepts JWT tokens
 
 ---
 
@@ -52,8 +51,8 @@
 - [x] Wishlist UI (list, create, edit, delete)
 - [x] Item CRUD endpoints (manual entry)
 - [x] Item UI (list, add, edit, delete)
-- [x] Item resolver integration
-- [x] URL paste → resolve flow
+- [x] Item resolver integration (CouchDB change feed)
+- [x] URL paste -> resolve flow
 - [x] Item status states (pending, resolving, resolved, failed)
 - [x] Basic error handling
 
@@ -80,6 +79,7 @@
 - [x] Social login buttons UI
 - [x] Profile with connected accounts
 - [x] Avatar download from OAuth provider
+- [x] Auto-link existing users by email
 
 ### Success Criteria
 
@@ -98,9 +98,9 @@
 - [x] Share link generation
 - [x] Share link access (authenticated)
 - [x] QR code generation
-- [x] Mark/unmark endpoints
+- [x] Mark/unmark via CouchDB documents
 - [x] Partial quantity marking
-- [x] Surprise mode (hide marks from owner)
+- [x] Surprise mode (hide marks from owner via access arrays)
 - [x] Mark UI for viewers
 - [x] Shared wishlist view
 - [x] In-app notifications (item resolved, wishlist shared)
@@ -114,86 +114,49 @@
 
 ---
 
-## Phase 5: Offline & PWA (Week 8-9)
+## Phase 5: Offline & PWA with PouchDB/CouchDB (Week 8-9)
 
-**Goal**: Full offline-first support
+**Goal**: Full offline-first support with native sync
 
 ### Deliverables
 
-- [x] RxDB setup with schemas
-- [x] Wishlist collection + replication
-- [x] Item collection + replication
-- [x] Sync endpoints (pull/push)
-- [x] Conflict resolution (LWW)
+- [x] PouchDB setup with document types
+- [x] CouchDB database with indexes
+- [x] PouchDB live sync to CouchDB
+- [x] Filtered replication (user access arrays)
+- [x] Conflict resolution (CouchDB revisions)
 - [x] Service worker with Workbox
-- [x] Live replication (auto-sync)
 - [x] PWA manifest
 - [x] Offline banner UI
 - [x] Sync status indicator
 - [x] App install prompt
 
+### Architecture Notes
+
+**Previous (RxDB + PostgreSQL + SSE)**:
+- RxDB for client-side storage
+- PostgreSQL for server-side storage
+- Custom sync endpoints (pull/push)
+- SSE for real-time updates
+- Redis for pub/sub
+
+**Current (PouchDB + CouchDB)**:
+- PouchDB for client-side storage
+- CouchDB for server-side storage
+- Native sync protocol (no custom endpoints)
+- Live sync for real-time updates (replaces SSE)
+- No Redis needed
+
 ### Success Criteria
 
 - App works fully offline
-- Changes sync when online
-- Conflicts resolved correctly
+- Changes sync automatically when online
+- Conflicts resolved via CouchDB revisions
 - PWA installable on mobile
 
 ---
 
-## Phase 6: Real-Time Updates via SSE (Week 10)
-
-**Goal**: Server-to-client real-time notifications for instant UI updates
-
-> Full specification: [docs/14-realtime-sse.md](./14-realtime-sse.md)
-
-### Deliverables
-
-**Backend:**
-- [x] EventChannelManager service (`app/services/events.py`)
-- [x] SSE endpoint (`/api/v1/events/stream`)
-- [x] Event publishing on item resolution
-- [x] Event publishing on sync push
-- [x] Keepalive ping (30s interval)
-- [x] Multi-device support (multiple SSE connections per user)
-- [x] Real-time mark sync for shared wishlists
-- [x] SSE notifications to owner + markers + bookmarked users
-
-**Frontend:**
-- [x] `useRealtimeSync` composable with EventSource
-- [x] Automatic reconnection with exponential backoff
-- [x] RxDB pull trigger on events
-- [x] Integration in App.vue
-- [x] Offline-aware SSE (close connection when offline to prevent error spam)
-- [x] Custom DOM events for shared wishlist mark updates
-- [x] Optimized mark updates (only re-render affected item, not entire list)
-
-**Infrastructure:**
-- [x] Nginx SSE configuration (disable buffering)
-- [x] Montreal server verification
-
-### Event Types
-
-| Event | Trigger | Action |
-|-------|---------|--------|
-| `items:updated` | Item created/modified | Pull items |
-| `items:resolved` | Resolution complete | Pull items |
-| `wishlists:updated` | Wishlist modified | Pull wishlists |
-| `marks:updated` | Mark added/removed | Pull marks, refresh shared wishlist view |
-| `sync:ping` | Keepalive (30s) | None |
-
-### Success Criteria
-
-- [x] Item added by URL resolves and updates UI without refresh
-- [x] Cross-device edits appear within seconds
-- [x] Connection auto-reconnects after network drop
-- [x] App works normally if SSE unavailable (graceful degradation)
-- [x] Multiple devices with same account receive SSE events simultaneously
-- [x] Shared wishlist viewers see mark changes in real-time
-
----
-
-## Phase 7: i18n & Polish (Week 11)
+## Phase 6: i18n & Polish (Week 10)
 
 **Goal**: Localization and UI polish
 
@@ -219,14 +182,15 @@
 
 ---
 
-## Phase 8: Deploy & Production Hardening (Week 12-13)
+## Phase 7: Deploy & Production Hardening (Week 11-12)
 
 **Goal**: Production deployment and operational readiness
 
 ### Deliverables
 
-- [x] Frontend Dockerfile (Quasar PWA)
+- [x] Frontend Dockerfile (Quasar PWA with Webpack)
 - [x] Backend Dockerfile (FastAPI)
+- [x] CouchDB Dockerfile with config
 - [x] CI/CD pipeline (GitHub Actions with smart change detection, health checks, auto-rollback)
 - [x] Domain + SSL setup (wishwith.me, api.wishwith.me)
 - [x] Backup strategy (documented in docs/13-deployment.md)

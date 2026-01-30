@@ -22,14 +22,15 @@
 
 - **Type**: JWT
 - **Expiry**: 15 minutes
-- **Storage**: In-memory (Pinia store)
+- **Storage**: In-memory (Pinia store) + localStorage for persistence
 - **Claims**: `sub` (user_id), `exp`, `iat`
+- **CouchDB Compatible**: Used for direct CouchDB authentication
 
 ### 2.2 Refresh Token
 
 - **Type**: Opaque random string
 - **Expiry**: 30 days
-- **Storage**: httpOnly cookie + hashed in DB
+- **Storage**: httpOnly cookie + hashed in CouchDB user document
 - **Rotation**: New token on each refresh
 
 ### 2.3 Token Flow
@@ -38,27 +39,47 @@
 sequenceDiagram
     participant Client
     participant API
-    participant DB
-    participant Redis
+    participant CouchDB
 
     Client->>API: POST /auth/login
-    API->>DB: Verify credentials
-    API->>DB: Create refresh_token record
-    API->>Redis: Store access_token in blocklist (for revocation)
+    API->>CouchDB: Verify credentials (user document)
+    API->>CouchDB: Store refresh_token hash in user doc
     API-->>Client: { access_token, refresh_token }
 
-    Note over Client: Store access_token in memory
+    Note over Client: Store access_token in memory + localStorage
     Note over Client: Store refresh_token in httpOnly cookie
 
-    Client->>API: GET /wishlists (with access_token)
-    API->>Redis: Check blocklist
-    API-->>Client: 200 OK
+    Client->>CouchDB: Sync with access_token (JWT)
+    CouchDB-->>Client: 200 OK (sync data)
 
     Note over Client: Access token expires after 15 min
 
     Client->>API: POST /auth/refresh (with refresh_token cookie)
-    API->>DB: Verify refresh_token, rotate
+    API->>CouchDB: Verify refresh_token, rotate
     API-->>Client: { new_access_token, new_refresh_token }
+```
+
+### 2.4 CouchDB JWT Authentication
+
+CouchDB natively supports JWT authentication. The JWT must contain:
+
+```json
+{
+  "sub": "user:uuid-123",
+  "exp": 1234567890,
+  "iat": 1234567800,
+  "_couchdb.roles": []
+}
+```
+
+**CouchDB Configuration** (`local.ini`):
+```ini
+[jwt_auth]
+required_claims = exp, sub
+algorithms = HS256
+
+[jwt_keys]
+hmac:_default = your-256-bit-secret
 ```
 
 ---
@@ -130,6 +151,26 @@ oauth.register(
 )
 ```
 
+### 3.5 OAuth Auto-Link Feature
+
+When a user logs in via OAuth with an email that matches an existing account, the system automatically links the social account to the existing user (instead of showing an error).
+
+```python
+# In OAuth callback handler
+existing_user = await get_user_by_email(oauth_email)
+if existing_user:
+    # Link social account to existing user
+    await create_social_account(
+        user_id=existing_user.id,
+        provider=provider,
+        provider_user_id=oauth_user_id
+    )
+    return existing_user
+else:
+    # Create new user
+    return await create_user_from_oauth(...)
+```
+
 ---
 
 ## 4. Password Security
@@ -162,14 +203,11 @@ def verify_password(plain: str, hashed: str) -> bool:
 import secrets
 reset_token = secrets.token_urlsafe(32)
 
-# Store hashed token with expiry (1 hour)
-await db.execute(
-    password_resets.insert().values(
-        user_id=user.id,
-        token_hash=hashlib.sha256(reset_token.encode()).hexdigest(),
-        expires_at=datetime.utcnow() + timedelta(hours=1)
-    )
-)
+# Store hashed token in CouchDB user document with expiry (1 hour)
+user_doc = await couchdb.get(f"user:{user_id}")
+user_doc["password_reset_token"] = hashlib.sha256(reset_token.encode()).hexdigest()
+user_doc["password_reset_expires"] = (datetime.utcnow() + timedelta(hours=1)).isoformat()
+await couchdb.put(user_doc)
 
 # Send email with reset link
 reset_url = f"https://wishwith.me/password-reset/{reset_token}"
@@ -185,14 +223,19 @@ reset_url = f"https://wishwith.me/password-reset/{reset_token}"
 from datetime import datetime, timedelta
 from jose import jwt
 
-SECRET_KEY = settings.JWT_SECRET_KEY
+SECRET_KEY = settings.JWT_SECRET_KEY  # Same as CouchDB JWT secret
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 15
 
-def create_access_token(data: dict) -> str:
-    to_encode = data.copy()
+def create_access_token(user_id: str) -> str:
+    """Create JWT compatible with CouchDB authentication."""
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire, "iat": datetime.utcnow()})
+    to_encode = {
+        "sub": user_id,  # e.g., "user:abc123"
+        "exp": expire,
+        "iat": datetime.utcnow(),
+        "_couchdb.roles": []  # Required by CouchDB
+    }
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 def decode_access_token(token: str) -> dict:
@@ -204,6 +247,8 @@ def decode_access_token(token: str) -> dict:
 ## 6. API Security
 
 ### 6.1 Rate Limiting
+
+Rate limiting is implemented using in-memory storage (per instance) with slowapi:
 
 ```python
 from slowapi import Limiter
@@ -221,6 +266,8 @@ async def login(request: Request, credentials: LoginRequest):
 async def register(request: Request, data: RegisterRequest):
     ...
 ```
+
+**Note**: With multiple core-api instances, each maintains its own rate limit counters. This is acceptable for basic protection.
 
 ### 6.2 CORS Configuration
 
@@ -260,7 +307,20 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 ## 7. Authorization
 
-### 7.1 Wishlist Access Rules
+### 7.1 Access Control via Document Access Arrays
+
+CouchDB documents use `access[]` arrays to control who can read/write:
+
+```javascript
+{
+  "_id": "wishlist:abc123",
+  "access": ["user:owner-id", "user:viewer-id"]
+}
+```
+
+PouchDB filtered replication ensures users only sync documents they have access to.
+
+### 7.2 Wishlist Access Rules
 
 | Role | View | Edit | Delete | Mark |
 |------|------|------|--------|------|
@@ -268,7 +328,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 | Viewer (via share link) | Yes | No | No | Yes |
 | Non-authenticated | No | No | No | No |
 
-### 7.2 Surprise Mode
+### 7.3 Surprise Mode
 
 Wishlist owners MUST NOT see:
 - `marked_quantity` on items
@@ -276,12 +336,24 @@ Wishlist owners MUST NOT see:
 - Mark timestamps
 
 ```python
-def serialize_item(item: Item, is_owner: bool) -> dict:
-    data = item.dict()
+def serialize_item(item: dict, is_owner: bool) -> dict:
     if is_owner:
         # Hide marking info from owner (surprise mode)
-        data.pop('marked_quantity', None)
-    return data
+        item.pop('marked_quantity', None)
+    return item
+```
+
+Mark documents have `access[]` arrays that exclude the wishlist owner:
+
+```javascript
+{
+  "_id": "mark:xyz789",
+  "type": "mark",
+  "item_id": "item:abc123",
+  "owner_id": "user:wishlist-owner",  // For reference only
+  "marked_by": "user:viewer-id",
+  "access": ["user:viewer-id"]  // Owner NOT included
+}
 ```
 
 ---
@@ -290,7 +362,7 @@ def serialize_item(item: Item, is_owner: bool) -> dict:
 
 ```bash
 # Authentication
-JWT_SECRET_KEY=your-secret-key-min-32-chars
+JWT_SECRET_KEY=your-secret-key-min-32-chars  # Same for API and CouchDB
 JWT_ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=15
 REFRESH_TOKEN_EXPIRE_DAYS=30
@@ -313,6 +385,31 @@ YANDEX_CLIENT_SECRET=xxx
 SBER_CLIENT_ID=xxx
 SBER_CLIENT_SECRET=xxx
 
-# Redis (for token blocklist)
-REDIS_URL=redis://localhost:6379/0
+# CouchDB
+COUCHDB_URL=http://couchdb:5984
+COUCHDB_DATABASE=wishwithme
+COUCHDB_ADMIN_USER=admin
+COUCHDB_ADMIN_PASSWORD=xxx
 ```
+
+---
+
+## 9. Token Revocation
+
+Without Redis, token revocation is handled by:
+
+1. **Short-lived access tokens** (15 minutes) - natural expiration
+2. **Refresh token rotation** - old tokens become invalid
+3. **On logout** - Clear client-side storage, delete refresh token from user document
+
+```python
+async def logout(user_id: str):
+    # Remove refresh token from user document
+    user_doc = await couchdb.get(f"user:{user_id}")
+    user_doc["refresh_token_hash"] = None
+    await couchdb.put(user_doc)
+
+    # Clear client-side: frontend destroys PouchDB and clears localStorage
+```
+
+For forced token revocation (e.g., password change), the user document can store a `tokens_valid_after` timestamp. JWTs issued before this time are rejected.

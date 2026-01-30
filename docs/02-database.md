@@ -4,378 +4,424 @@
 
 ---
 
-## 1. Entity-Relationship Diagram
+## 1. Overview
 
-```mermaid
-erDiagram
-    USERS ||--o{ WISHLISTS : owns
-    USERS ||--o{ SOCIAL_ACCOUNTS : has
-    USERS ||--o{ REFRESH_TOKENS : has
-    WISHLISTS ||--o{ ITEMS : contains
-    WISHLISTS ||--o{ SHARE_LINKS : has
-    ITEMS ||--o{ MARKS : has
-    USERS ||--o{ MARKS : creates
-    USERS ||--o{ NOTIFICATIONS : receives
+**Database**: CouchDB 3.x (document database with native sync protocol)
 
-    USERS {
-        uuid id PK
-        string email UK
-        string password_hash NULL
-        string name
-        text avatar_base64
-        text bio NULL
-        string public_url_slug UK NULL
-        jsonb social_links NULL
-        string locale
-        timestamp created_at
-        timestamp updated_at
-        timestamp deleted_at NULL
-    }
+**Key Features**:
+- Document-oriented storage (JSON)
+- Native sync protocol for PouchDB
+- _changes feed for item resolver
+- Revision-based conflict resolution
+- JWT authentication support
 
-    SOCIAL_ACCOUNTS {
-        uuid id PK
-        uuid user_id FK
-        string provider
-        string provider_user_id
-        string email NULL
-        jsonb profile_data
-        timestamp created_at
-    }
+---
 
-    REFRESH_TOKENS {
-        uuid id PK
-        uuid user_id FK
-        string token_hash UK
-        string device_info NULL
-        timestamp expires_at
-        timestamp created_at
-        boolean revoked
-    }
+## 2. Document Types
 
-    WISHLISTS {
-        uuid id PK
-        uuid owner_id FK
-        string title
-        text description NULL
-        string cover_image_base64 NULL
-        integer item_count
-        timestamp created_at
-        timestamp updated_at
-        timestamp deleted_at NULL
-        bigint sync_version
-    }
+### 2.1 Entity Relationships
 
-    ITEMS {
-        uuid id PK
-        uuid wishlist_id FK
-        string source_url NULL
-        string title
-        text description NULL
-        decimal price_amount NULL
-        string price_currency NULL
-        text image_url NULL
-        text image_base64 NULL
-        integer quantity
-        integer marked_quantity
-        string status
-        jsonb resolution_error NULL
-        integer sort_order
-        timestamp created_at
-        timestamp updated_at
-        timestamp deleted_at NULL
-        bigint sync_version
-    }
+```
+USER --owns--> WISHLIST --contains--> ITEM
+  |               |                      |
+  |               +--has--> SHARE        +--has--> MARK
+  |
+  +--has--> SOCIAL_ACCOUNT
+```
 
-    SHARE_LINKS {
-        uuid id PK
-        uuid wishlist_id FK
-        string token UK
-        string link_type
-        timestamp expires_at NULL
-        integer access_count
-        timestamp created_at
-        boolean revoked
-    }
+### 2.2 Access Control Model
 
-    MARKS {
-        uuid id PK
-        uuid item_id FK
-        uuid user_id FK
-        integer quantity
-        timestamp created_at
-        timestamp updated_at
-    }
+Each document has an `access[]` array containing user IDs who can read/write the document.
+PouchDB uses filtered replication to sync only documents the user has access to.
 
-    NOTIFICATIONS {
-        uuid id PK
-        uuid user_id FK
-        string type
-        jsonb payload
-        boolean read
-        timestamp created_at
-    }
+```javascript
+// Example: Wishlist accessible by owner and one viewer
+{
+  "_id": "wishlist:abc123",
+  "access": ["user:owner-id", "user:viewer-id"]
+}
 ```
 
 ---
 
-## 2. Schema Definitions
+## 3. Document Schemas
 
-### 2.1 Users Table
+### 3.1 User Document
 
-```sql
-CREATE TABLE users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    email VARCHAR(255) NOT NULL UNIQUE,
-    password_hash VARCHAR(255),  -- NULL for social-only users
-    name VARCHAR(100) NOT NULL,
-    avatar_base64 TEXT NOT NULL,  -- Required, default provided on registration
-    bio TEXT,
-    public_url_slug VARCHAR(50) UNIQUE,  -- e.g., "john-doe" for /u/john-doe
-    social_links JSONB DEFAULT '{}',  -- {"instagram": "...", "telegram": "..."}
-    locale VARCHAR(10) NOT NULL DEFAULT 'ru',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    deleted_at TIMESTAMPTZ,
-
-    CONSTRAINT email_format CHECK (email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'),
-    CONSTRAINT slug_format CHECK (public_url_slug IS NULL OR public_url_slug ~* '^[a-z0-9-]+$')
-);
-
-CREATE INDEX idx_users_email ON users(email) WHERE deleted_at IS NULL;
-CREATE INDEX idx_users_public_url_slug ON users(public_url_slug) WHERE deleted_at IS NULL AND public_url_slug IS NOT NULL;
+```javascript
+{
+  "_id": "user:<uuid>",
+  "_rev": "1-abc123",
+  "type": "user",
+  "email": "user@example.com",
+  "password_hash": "$2b$12$...",  // bcrypt hash
+  "name": "John Doe",
+  "avatar_base64": "data:image/png;base64,...",
+  "bio": "Love making wishlists!",
+  "public_url_slug": "john-doe",
+  "social_links": {
+    "telegram": "@johndoe",
+    "instagram": "johndoe"
+  },
+  "locale": "ru",
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": "2024-01-01T00:00:00Z",
+  "deleted_at": null,
+  "access": ["user:<uuid>"]  // Only self can access
+}
 ```
 
-### 2.2 Social Accounts Table
+**Fields**:
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `_id` | string | Yes | `user:<uuid>` format |
+| `type` | string | Yes | Always `"user"` |
+| `email` | string | Yes | Unique email address |
+| `password_hash` | string | No | bcrypt hash (null for social-only) |
+| `name` | string | Yes | Display name (1-100 chars) |
+| `avatar_base64` | string | Yes | Base64 encoded avatar image |
+| `bio` | string | No | User bio (max 500 chars) |
+| `public_url_slug` | string | No | Unique URL slug for public profile |
+| `social_links` | object | No | Social media links |
+| `locale` | string | Yes | `ru` or `en` |
+| `access` | array | Yes | User IDs with access (self only) |
 
-```sql
-CREATE TABLE social_accounts (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    provider VARCHAR(20) NOT NULL,  -- 'google', 'apple', 'yandex', 'sber'
-    provider_user_id VARCHAR(255) NOT NULL,
-    email VARCHAR(255),
-    profile_data JSONB DEFAULT '{}',  -- Store available social data for future features
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+### 3.2 Social Account Document
 
-    CONSTRAINT unique_provider_user UNIQUE (provider, provider_user_id)
-);
-
-CREATE INDEX idx_social_accounts_user_id ON social_accounts(user_id);
-CREATE INDEX idx_social_accounts_provider_lookup ON social_accounts(provider, provider_user_id);
+```javascript
+{
+  "_id": "social:<uuid>",
+  "_rev": "1-abc123",
+  "type": "social_account",
+  "user_id": "user:<uuid>",
+  "provider": "google",  // google | apple | yandex | sber
+  "provider_user_id": "12345678901234567890",
+  "email": "user@gmail.com",
+  "profile_data": {
+    "name": "John Doe",
+    "picture": "https://..."
+  },
+  "created_at": "2024-01-01T00:00:00Z",
+  "access": ["user:<uuid>"]
+}
 ```
 
-### 2.3 Refresh Tokens Table
+### 3.3 Wishlist Document
 
-```sql
-CREATE TABLE refresh_tokens (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    token_hash VARCHAR(64) NOT NULL UNIQUE,  -- SHA-256 hash
-    device_info VARCHAR(255),
-    expires_at TIMESTAMPTZ NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    revoked BOOLEAN NOT NULL DEFAULT FALSE
-);
-
-CREATE INDEX idx_refresh_tokens_user_id ON refresh_tokens(user_id);
-CREATE INDEX idx_refresh_tokens_expires_at ON refresh_tokens(expires_at) WHERE NOT revoked;
+```javascript
+{
+  "_id": "wishlist:<uuid>",
+  "_rev": "2-def456",
+  "type": "wishlist",
+  "owner_id": "user:<uuid>",
+  "title": "Birthday 2024",
+  "description": "Things I want for my birthday",
+  "cover_image_base64": "data:image/jpeg;base64,...",
+  "icon": "🎂",
+  "item_count": 5,  // Denormalized for display
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": "2024-01-15T10:30:00Z",
+  "deleted_at": null,
+  "access": ["user:<owner-uuid>", "user:<viewer-uuid>"]
+}
 ```
 
-### 2.4 Wishlists Table
+**Fields**:
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `_id` | string | Yes | `wishlist:<uuid>` format |
+| `type` | string | Yes | Always `"wishlist"` |
+| `owner_id` | string | Yes | Reference to user document |
+| `title` | string | Yes | Wishlist title (1-200 chars) |
+| `description` | string | No | Description (max 2000 chars) |
+| `cover_image_base64` | string | No | Cover image |
+| `icon` | string | No | Emoji icon |
+| `item_count` | integer | Yes | Denormalized item count |
+| `access` | array | Yes | User IDs with access |
 
-```sql
-CREATE TABLE wishlists (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    title VARCHAR(200) NOT NULL,
-    description TEXT,
-    cover_image_base64 TEXT,
-    item_count INTEGER NOT NULL DEFAULT 0,  -- Denormalized for performance
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    deleted_at TIMESTAMPTZ,
-    sync_version BIGINT NOT NULL DEFAULT 0  -- For offline sync conflict detection
-);
+### 3.4 Item Document
 
-CREATE INDEX idx_wishlists_owner_id ON wishlists(owner_id) WHERE deleted_at IS NULL;
-CREATE INDEX idx_wishlists_updated_at ON wishlists(updated_at);
+```javascript
+{
+  "_id": "item:<uuid>",
+  "_rev": "3-ghi789",
+  "type": "item",
+  "wishlist_id": "wishlist:<uuid>",
+  "owner_id": "user:<uuid>",  // Denormalized from wishlist
+  "source_url": "https://ozon.ru/product/123456",
+  "title": "Wireless Headphones",
+  "description": "Great sound quality, noise canceling",
+  "price_amount": 5990.00,
+  "price_currency": "RUB",
+  "image_url": "https://cdn.ozon.ru/...",
+  "image_base64": "data:image/jpeg;base64,...",
+  "quantity": 2,
+  "marked_quantity": 1,  // Denormalized, hidden from owner
+  "status": "resolved",  // pending | resolving | resolved | failed | manual
+  "resolution_error": null,
+  "sort_order": 0,
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": "2024-01-15T10:30:00Z",
+  "deleted_at": null,
+  "access": ["user:<owner-uuid>", "user:<viewer-uuid>"]  // Inherited from wishlist
+}
 ```
 
-### 2.5 Items Table
+**Status Values**:
+| Status | Description |
+|--------|-------------|
+| `pending` | Waiting to be resolved |
+| `resolving` | Currently being processed |
+| `resolved` | Successfully extracted data |
+| `failed` | Resolution failed |
+| `manual` | Manually created item |
 
-```sql
-CREATE TYPE item_status AS ENUM ('pending', 'resolving', 'resolved', 'failed', 'manual');
+### 3.5 Mark Document
 
-CREATE TABLE items (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    wishlist_id UUID NOT NULL REFERENCES wishlists(id) ON DELETE CASCADE,
-    source_url TEXT,  -- Original marketplace URL
-    title VARCHAR(500) NOT NULL,
-    description TEXT,
-    price_amount DECIMAL(12, 2),
-    price_currency VARCHAR(3),  -- ISO 4217
-    image_url TEXT,  -- Original image URL (for reference)
-    image_base64 TEXT,  -- Stored image data
-    quantity INTEGER NOT NULL DEFAULT 1,
-    marked_quantity INTEGER NOT NULL DEFAULT 0,  -- Denormalized
-    status item_status NOT NULL DEFAULT 'manual',
-    resolution_error JSONB,  -- Store error details if resolution failed
-    sort_order INTEGER NOT NULL DEFAULT 0,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    deleted_at TIMESTAMPTZ,
-    sync_version BIGINT NOT NULL DEFAULT 0,
-
-    CONSTRAINT quantity_positive CHECK (quantity > 0),
-    CONSTRAINT marked_quantity_valid CHECK (marked_quantity >= 0 AND marked_quantity <= quantity)
-);
-
-CREATE INDEX idx_items_wishlist_id ON items(wishlist_id) WHERE deleted_at IS NULL;
-CREATE INDEX idx_items_status ON items(status) WHERE status IN ('pending', 'resolving');
-CREATE INDEX idx_items_updated_at ON items(updated_at);
+```javascript
+{
+  "_id": "mark:<uuid>",
+  "_rev": "1-jkl012",
+  "type": "mark",
+  "item_id": "item:<uuid>",
+  "wishlist_id": "wishlist:<uuid>",  // Denormalized
+  "owner_id": "user:<uuid>",  // Wishlist owner (excluded from access)
+  "marked_by": "user:<uuid>",  // Who created this mark
+  "quantity": 1,
+  "created_at": "2024-01-15T12:00:00Z",
+  "updated_at": "2024-01-15T12:00:00Z",
+  "access": ["user:<viewer1>", "user:<viewer2>"]  // All viewers EXCEPT owner
+}
 ```
 
-### 2.6 Share Links Table
+**Important**: Mark documents have access arrays that EXCLUDE the wishlist owner.
+This implements "surprise mode" - owners cannot see who marked their items.
 
-```sql
-CREATE TYPE share_link_type AS ENUM ('view', 'mark');  -- Future: 'edit', 'admin'
+### 3.6 Share Document
 
-CREATE TABLE share_links (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    wishlist_id UUID NOT NULL REFERENCES wishlists(id) ON DELETE CASCADE,
-    token VARCHAR(32) NOT NULL UNIQUE,  -- URL-safe random token
-    link_type share_link_type NOT NULL DEFAULT 'mark',
-    expires_at TIMESTAMPTZ,  -- NULL = never expires
-    access_count INTEGER NOT NULL DEFAULT 0,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    revoked BOOLEAN NOT NULL DEFAULT FALSE
-);
-
-CREATE INDEX idx_share_links_token ON share_links(token) WHERE NOT revoked;
-CREATE INDEX idx_share_links_wishlist_id ON share_links(wishlist_id);
+```javascript
+{
+  "_id": "share:<uuid>",
+  "_rev": "1-mno345",
+  "type": "share",
+  "wishlist_id": "wishlist:<uuid>",
+  "owner_id": "user:<uuid>",
+  "token": "abc123def456ghi789",  // 32-char URL-safe token
+  "link_type": "mark",  // view | mark
+  "expires_at": "2024-06-01T00:00:00Z",  // null = never
+  "access_count": 5,
+  "revoked": false,
+  "revoked_at": null,
+  "granted_users": ["user:<viewer1>", "user:<viewer2>"],
+  "created_at": "2024-01-01T00:00:00Z",
+  "access": ["user:<owner-uuid>"]  // Only owner sees share docs
+}
 ```
 
-### 2.7 Marks Table
+### 3.7 Notification Document
 
-```sql
-CREATE TABLE marks (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    item_id UUID NOT NULL REFERENCES items(id) ON DELETE CASCADE,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    quantity INTEGER NOT NULL DEFAULT 1,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-    CONSTRAINT unique_user_item_mark UNIQUE (item_id, user_id),
-    CONSTRAINT mark_quantity_positive CHECK (quantity > 0)
-);
-
-CREATE INDEX idx_marks_item_id ON marks(item_id);
-CREATE INDEX idx_marks_user_id ON marks(user_id);
+```javascript
+{
+  "_id": "notification:<uuid>",
+  "_rev": "1-pqr678",
+  "type": "notification",
+  "user_id": "user:<uuid>",
+  "notification_type": "item_resolved",
+  "payload": {
+    "wishlist_id": "wishlist:<uuid>",
+    "item_id": "item:<uuid>",
+    "item_title": "Wireless Headphones"
+  },
+  "read": false,
+  "created_at": "2024-01-15T10:30:00Z",
+  "access": ["user:<uuid>"]
+}
 ```
 
-### 2.8 Notifications Table
+**Notification Types**:
+| Type | Description |
+|------|-------------|
+| `wishlist_shared` | Someone accessed a shared wishlist |
+| `item_marked` | An item was marked (only for marks, not owner) |
+| `item_unmarked` | An item was unmarked |
+| `item_resolved` | Item resolution completed |
+| `item_resolution_failed` | Item resolution failed |
 
-```sql
-CREATE TYPE notification_type AS ENUM (
-    'wishlist_shared',
-    'item_marked',
-    'item_unmarked',
-    'item_resolved',
-    'item_resolution_failed'
-);
+---
 
-CREATE TABLE notifications (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    type notification_type NOT NULL,
-    payload JSONB NOT NULL DEFAULT '{}',
-    read BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+## 4. Indexes
 
-CREATE INDEX idx_notifications_user_id ON notifications(user_id, created_at DESC);
-CREATE INDEX idx_notifications_unread ON notifications(user_id) WHERE NOT read;
+### 4.1 Mango Indexes
+
+```javascript
+// Index for access-based filtering (primary use case)
+{
+  "index": {
+    "fields": ["access", "type"]
+  },
+  "name": "access-type-index",
+  "type": "json"
+}
+
+// Index for items by wishlist
+{
+  "index": {
+    "fields": ["wishlist_id", "type", "sort_order"]
+  },
+  "name": "items-by-wishlist-index",
+  "type": "json"
+}
+
+// Index for pending items (for item resolver)
+{
+  "index": {
+    "fields": ["type", "status"]
+  },
+  "name": "items-by-status-index",
+  "type": "json"
+}
+
+// Index for marks by item
+{
+  "index": {
+    "fields": ["item_id", "type"]
+  },
+  "name": "marks-by-item-index",
+  "type": "json"
+}
+```
+
+### 4.2 Design Documents
+
+```javascript
+// _design/app
+{
+  "_id": "_design/app",
+  "views": {
+    "by_type": {
+      "map": "function(doc) { if(doc.type) emit(doc.type, null); }"
+    },
+    "pending_items": {
+      "map": "function(doc) { if(doc.type === 'item' && doc.status === 'pending') emit(doc._id, null); }"
+    },
+    "items_by_wishlist": {
+      "map": "function(doc) { if(doc.type === 'item' && !doc.deleted_at) emit([doc.wishlist_id, doc.sort_order], null); }"
+    }
+  }
+}
 ```
 
 ---
 
-## 3. Pydantic Models (Python)
+## 5. TypeScript Types (Frontend)
 
-### 3.1 User Models
+```typescript
+// /services/frontend/src/types/documents.ts
 
-```python
-# /services/core-api/app/models/user.py
+export interface BaseDocument {
+  _id: string;
+  _rev?: string;
+  type: string;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string | null;
+  access: string[];
+}
 
-from datetime import datetime
-from typing import Optional
-from uuid import UUID
+export interface User extends BaseDocument {
+  type: 'user';
+  email: string;
+  password_hash?: string;
+  name: string;
+  avatar_base64: string;
+  bio?: string;
+  public_url_slug?: string;
+  social_links?: Record<string, string>;
+  locale: 'ru' | 'en';
+}
 
-from pydantic import BaseModel, EmailStr, Field, HttpUrl
+export interface Wishlist extends BaseDocument {
+  type: 'wishlist';
+  owner_id: string;
+  title: string;
+  description?: string;
+  cover_image_base64?: string;
+  icon?: string;
+  item_count: number;
+}
 
+export type ItemStatus = 'pending' | 'resolving' | 'resolved' | 'failed' | 'manual';
 
-class SocialLinks(BaseModel):
-    instagram: Optional[str] = None
-    telegram: Optional[str] = None
-    vk: Optional[str] = None
-    twitter: Optional[str] = None
-    facebook: Optional[str] = None
+export interface Item extends BaseDocument {
+  type: 'item';
+  wishlist_id: string;
+  owner_id: string;
+  source_url?: string;
+  title: string;
+  description?: string;
+  price_amount?: number;
+  price_currency?: string;
+  image_url?: string;
+  image_base64?: string;
+  quantity: number;
+  marked_quantity: number;
+  status: ItemStatus;
+  resolution_error?: Record<string, unknown>;
+  sort_order: number;
+}
 
+export interface Mark extends BaseDocument {
+  type: 'mark';
+  item_id: string;
+  wishlist_id: string;
+  owner_id: string;
+  marked_by: string;
+  quantity: number;
+}
 
-class UserBase(BaseModel):
-    email: EmailStr
-    name: str = Field(..., min_length=1, max_length=100)
-    bio: Optional[str] = Field(None, max_length=500)
-    public_url_slug: Optional[str] = Field(None, pattern=r'^[a-z0-9-]+$', max_length=50)
-    social_links: Optional[SocialLinks] = None
-    locale: str = Field(default='ru', pattern=r'^(ru|en)$')
+export type ShareLinkType = 'view' | 'mark';
 
+export interface Share extends BaseDocument {
+  type: 'share';
+  wishlist_id: string;
+  owner_id: string;
+  token: string;
+  link_type: ShareLinkType;
+  expires_at?: string | null;
+  access_count: number;
+  revoked: boolean;
+  revoked_at?: string | null;
+  granted_users: string[];
+}
 
-class UserCreate(UserBase):
-    password: Optional[str] = Field(None, min_length=8)
-    avatar_base64: Optional[str] = None  # Default avatar assigned if not provided
+export type NotificationType =
+  | 'wishlist_shared'
+  | 'item_marked'
+  | 'item_unmarked'
+  | 'item_resolved'
+  | 'item_resolution_failed';
 
-
-class UserUpdate(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=100)
-    bio: Optional[str] = Field(None, max_length=500)
-    public_url_slug: Optional[str] = Field(None, pattern=r'^[a-z0-9-]+$', max_length=50)
-    social_links: Optional[SocialLinks] = None
-    avatar_base64: Optional[str] = None
-    locale: Optional[str] = Field(None, pattern=r'^(ru|en)$')
-
-
-class UserResponse(UserBase):
-    id: UUID
-    avatar_base64: str
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-class UserPublicProfile(BaseModel):
-    """Public profile visible to other users"""
-    id: UUID
-    name: str
-    avatar_base64: str
-    bio: Optional[str]
-    social_links: Optional[SocialLinks]
+export interface Notification extends BaseDocument {
+  type: 'notification';
+  user_id: string;
+  notification_type: NotificationType;
+  payload: Record<string, unknown>;
+  read: boolean;
+}
 ```
 
-### 3.2 Wishlist & Item Models
+---
+
+## 6. Python Models (Backend)
 
 ```python
-# /services/core-api/app/models/wishlist.py
+# /services/core-api/app/schemas.py
 
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Optional, List
-from uuid import UUID
-
-from pydantic import BaseModel, Field, HttpUrl
+from typing import Optional
+from pydantic import BaseModel, EmailStr, Field
 
 
 class ItemStatus(str, Enum):
@@ -386,191 +432,188 @@ class ItemStatus(str, Enum):
     MANUAL = 'manual'
 
 
-class WishlistBase(BaseModel):
-    title: str = Field(..., min_length=1, max_length=200)
-    description: Optional[str] = Field(None, max_length=2000)
-
-
-class WishlistCreate(WishlistBase):
-    cover_image_base64: Optional[str] = None
-
-
-class WishlistUpdate(BaseModel):
-    title: Optional[str] = Field(None, min_length=1, max_length=200)
-    description: Optional[str] = Field(None, max_length=2000)
-    cover_image_base64: Optional[str] = None
-
-
-class WishlistResponse(WishlistBase):
-    id: UUID
-    owner_id: UUID
-    cover_image_base64: Optional[str]
-    item_count: int
-    created_at: datetime
-    updated_at: datetime
-    sync_version: int
-
-    class Config:
-        from_attributes = True
-
-
-class ItemBase(BaseModel):
-    title: str = Field(..., min_length=1, max_length=500)
-    description: Optional[str] = Field(None, max_length=5000)
-    price_amount: Optional[Decimal] = Field(None, ge=0, decimal_places=2)
-    price_currency: Optional[str] = Field(None, pattern=r'^[A-Z]{3}$')
-    quantity: int = Field(default=1, ge=1, le=999)
-
-
-class ItemCreateFromUrl(BaseModel):
-    source_url: HttpUrl
-    quantity: int = Field(default=1, ge=1, le=999)
-
-
-class ItemCreateManual(ItemBase):
-    image_base64: Optional[str] = None
-
-
-class ItemUpdate(BaseModel):
-    title: Optional[str] = Field(None, min_length=1, max_length=500)
-    description: Optional[str] = Field(None, max_length=5000)
-    price_amount: Optional[Decimal] = Field(None, ge=0)
-    price_currency: Optional[str] = Field(None, pattern=r'^[A-Z]{3}$')
-    image_base64: Optional[str] = None
-    quantity: Optional[int] = Field(None, ge=1, le=999)
-    sort_order: Optional[int] = None
-
-
-class ItemResponse(ItemBase):
-    id: UUID
-    wishlist_id: UUID
-    source_url: Optional[str]
-    image_url: Optional[str]
-    image_base64: Optional[str]
-    status: ItemStatus
-    resolution_error: Optional[dict]
-    marked_quantity: int  # Visible to all EXCEPT owner
-    sort_order: int
-    created_at: datetime
-    updated_at: datetime
-    sync_version: int
-
-    class Config:
-        from_attributes = True
-
-
-class ItemResponseForOwner(ItemBase):
-    """Item response for wishlist owner - marked_quantity hidden"""
-    id: UUID
-    wishlist_id: UUID
-    source_url: Optional[str]
-    image_url: Optional[str]
-    image_base64: Optional[str]
-    status: ItemStatus
-    resolution_error: Optional[dict]
-    sort_order: int
-    created_at: datetime
-    updated_at: datetime
-    sync_version: int
-
-    class Config:
-        from_attributes = True
-
-
-class MarkCreate(BaseModel):
-    quantity: int = Field(default=1, ge=1)
-
-
-class MarkResponse(BaseModel):
-    id: UUID
-    item_id: UUID
-    user_id: UUID
-    quantity: int
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
-```
-
-### 3.3 Share Link Models
-
-```python
-# /services/core-api/app/models/share.py
-
-from datetime import datetime
-from enum import Enum
-from typing import Optional
-from uuid import UUID
-
-from pydantic import BaseModel, Field
-
-
 class ShareLinkType(str, Enum):
     VIEW = 'view'
     MARK = 'mark'
 
 
-class ShareLinkCreate(BaseModel):
+# User Schemas
+class UserCreate(BaseModel):
+    email: EmailStr
+    password: Optional[str] = Field(None, min_length=8)
+    name: str = Field(..., min_length=1, max_length=100)
+    locale: str = Field(default='ru', pattern=r'^(ru|en)$')
+
+
+class UserResponse(BaseModel):
+    id: str
+    email: str
+    name: str
+    avatar_base64: str
+    bio: Optional[str] = None
+    public_url_slug: Optional[str] = None
+    social_links: Optional[dict] = None
+    locale: str
+    created_at: datetime
+    updated_at: datetime
+
+
+# Wishlist Schemas
+class WishlistCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    description: Optional[str] = Field(None, max_length=2000)
+    cover_image_base64: Optional[str] = None
+    icon: Optional[str] = None
+
+
+class WishlistResponse(BaseModel):
+    id: str
+    owner_id: str
+    title: str
+    description: Optional[str]
+    cover_image_base64: Optional[str]
+    icon: Optional[str]
+    item_count: int
+    created_at: datetime
+    updated_at: datetime
+
+
+# Item Schemas
+class ItemCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=500)
+    description: Optional[str] = Field(None, max_length=5000)
+    price_amount: Optional[Decimal] = Field(None, ge=0)
+    price_currency: Optional[str] = Field(None, pattern=r'^[A-Z]{3}$')
+    image_base64: Optional[str] = None
+    quantity: int = Field(default=1, ge=1, le=999)
+    source_url: Optional[str] = None
+
+
+class ItemResponse(BaseModel):
+    id: str
+    wishlist_id: str
+    source_url: Optional[str]
+    title: str
+    description: Optional[str]
+    price_amount: Optional[Decimal]
+    price_currency: Optional[str]
+    image_url: Optional[str]
+    image_base64: Optional[str]
+    quantity: int
+    marked_quantity: int  # Hidden from owner
+    status: ItemStatus
+    resolution_error: Optional[dict]
+    sort_order: int
+    created_at: datetime
+    updated_at: datetime
+
+
+# Share Schemas
+class ShareCreate(BaseModel):
     link_type: ShareLinkType = ShareLinkType.MARK
     expires_in_days: Optional[int] = Field(None, ge=1, le=365)
 
 
-class ShareLinkResponse(BaseModel):
-    id: UUID
-    wishlist_id: UUID
+class ShareResponse(BaseModel):
+    id: str
+    wishlist_id: str
     token: str
     link_type: ShareLinkType
     expires_at: Optional[datetime]
     access_count: int
     created_at: datetime
-    share_url: str  # Full URL constructed by API
+    share_url: str
 
-    class Config:
-        from_attributes = True
+
+# Mark Schemas
+class MarkCreate(BaseModel):
+    quantity: int = Field(default=1, ge=1)
+
+
+class MarkResponse(BaseModel):
+    id: str
+    item_id: str
+    marked_by: str
+    quantity: int
+    created_at: datetime
 ```
 
-### 3.4 Sync Models
+---
 
-```python
-# /services/core-api/app/models/sync.py
+## 7. CouchDB Configuration
 
-from datetime import datetime
-from typing import List, Optional
-from uuid import UUID
+### 7.1 Local Configuration
 
-from pydantic import BaseModel
+```ini
+# /couchdb/local.ini
 
+[chttpd]
+port = 5984
+bind_address = 0.0.0.0
 
-class SyncPullRequest(BaseModel):
-    """Request to pull changes from server"""
-    last_sync_at: Optional[datetime] = None
-    wishlist_ids: Optional[List[UUID]] = None  # None = all user's wishlists
+[chttpd_auth]
+authentication_handlers = {chttpd_auth, jwt_authentication_handler}, {chttpd_auth, cookie_authentication_handler}, {chttpd_auth, default_authentication_handler}
 
+[jwt_auth]
+required_claims = exp, sub
+algorithms = HS256
 
-class SyncPushRequest(BaseModel):
-    """Request to push local changes to server"""
-    wishlists: List[dict]  # WishlistUpdate with id and sync_version
-    items: List[dict]  # ItemUpdate with id, wishlist_id, and sync_version
-    deleted_wishlist_ids: List[UUID] = []
-    deleted_item_ids: List[UUID] = []
-    client_timestamp: datetime
+[cors]
+origins = https://wishwith.me, http://localhost:9000
+credentials = true
+methods = GET, PUT, POST, DELETE, OPTIONS
+headers = accept, authorization, content-type, origin, referer
 
-
-class SyncConflict(BaseModel):
-    entity_type: str  # 'wishlist' or 'item'
-    entity_id: UUID
-    client_version: int
-    server_version: int
-    server_data: dict
-    resolution: str = 'server_wins'  # For LWW, always server if newer
-
-
-class SyncResponse(BaseModel):
-    wishlists: List[dict]
-    items: List[dict]
-    deleted_wishlist_ids: List[UUID]
-    deleted_item_ids: List[UUID]
-    conflicts: List[SyncConflict]
-    server_timestamp: datetime
+[couchdb]
+single_node = true
+max_document_size = 8388608  # 8MB for base64 images
 ```
+
+### 7.2 Database Setup
+
+```bash
+# Create database
+curl -X PUT http://admin:password@localhost:5984/wishwithme
+
+# Create indexes
+curl -X POST http://admin:password@localhost:5984/wishwithme/_index \
+  -H "Content-Type: application/json" \
+  -d '{"index": {"fields": ["access", "type"]}, "name": "access-type-index"}'
+
+# Upload design document
+curl -X PUT http://admin:password@localhost:5984/wishwithme/_design/app \
+  -H "Content-Type: application/json" \
+  -d @design-doc.json
+```
+
+---
+
+## 8. Data Integrity
+
+### 8.1 Soft Deletes
+
+All documents use `deleted_at` field for soft deletes:
+- `null` = active
+- ISO timestamp = deleted
+
+Queries must filter: `deleted_at: { $eq: null }`
+
+### 8.2 Denormalization
+
+For performance, some data is denormalized:
+- `item_count` on wishlists
+- `marked_quantity` on items
+- `owner_id` on items (from wishlist)
+
+Update triggers must maintain consistency.
+
+### 8.3 Access Array Consistency
+
+When sharing a wishlist:
+1. Add user to wishlist's `access[]`
+2. Add user to all items' `access[]`
+3. Add user to share's `granted_users[]`
+
+When revoking:
+1. Remove user from all related documents
+2. Set share's `revoked = true`

@@ -13,8 +13,7 @@
 - **User**: mrkutin
 - **Location**: /home/mrkutin/wish-with-me-codex
 - **Domain**: wishwith.me, api.wishwith.me
-- **Services**: nginx, frontend, core-api-1, core-api-2, item-resolver-1, item-resolver-2, postgres, redis
-- **Load Balancing**: nginx uses `ip_hash` for SSE sticky sessions
+- **Services**: nginx, frontend, core-api-1, core-api-2, item-resolver-1, item-resolver-2, couchdb
 - **SSH Key Secret**: `SSH_PRIVATE_KEY_UBUNTU`
 
 **DEPLOYMENT IS ALWAYS:**
@@ -31,7 +30,7 @@
 
 | File | Services |
 |------|----------|
-| `docker-compose.ubuntu.yml` | nginx, frontend, core-api-1, core-api-2, item-resolver-1, item-resolver-2, postgres, redis |
+| `docker-compose.ubuntu.yml` | nginx, frontend, core-api-1, core-api-2, item-resolver-1, item-resolver-2, couchdb |
 
 ### 1.2 Components
 
@@ -41,39 +40,33 @@
 | Frontend (Quasar PWA) | `wishwithme-frontend` | Via nginx |
 | Core API (FastAPI) | `wishwithme-core-api-1`, `wishwithme-core-api-2` | Via nginx (api.wishwith.me), load balanced |
 | Item Resolver (DeepSeek + Playwright) | `wishwithme-item-resolver-1`, `wishwithme-item-resolver-2` | Internal Docker network |
-| PostgreSQL | `wishwithme-postgres` | Internal only |
-| Redis | `wishwithme-redis` | Internal only |
+| CouchDB | `wishwithme-couchdb` | Internal only (sync via nginx proxy) |
 
 ### 1.3 Service Communication
 
 ```
 Internet
-    ↓
+    |
 Ubuntu Server (176.106.144.182)
-┌──────────────────────────────────────────────────────────────────┐
-│ Nginx (443/80) - ip_hash LB                                      │
-│     ↓                                                            │
-│ ┌─────────┬───────────────────────┬─────────────────────────────┐│
-│ │         │                       │                             ││
-│ │Frontend │   Core API (2x)       │   Item Resolver (2x)        ││
-│ │         │   ┌─────────────────┐ │   ┌─────────────────────┐   ││
-│ │         │   │ core-api-1     ├─┼───┤ item-resolver-1     │   ││
-│ │         │   │ core-api-2     │ │   │ item-resolver-2     │   ││
-│ │         │   └────────┬────────┘ │   │ (Playwright+DeepSeek)   ││
-│ │         │            │          │   └─────────────────────┘   ││
-│ │         │            ↓          │                             ││
-│ │         │   Redis:6379 (pub/sub)│                             ││
-│ │         │            │          │                             ││
-│ │         │            ↓          │                             ││
-│ │         │   Postgres:5432       │                             ││
-│ └─────────┴───────────────────────┴─────────────────────────────┘│
-└──────────────────────────────────────────────────────────────────┘
++------------------------------------------------------------------+
+| Nginx (443/80) - Load Balancer                                    |
+|     |                                                             |
+| +--------+-------------------+-------------------+---------------+|
+| |        |                   |                   |               ||
+| |Frontend|   Core API (2x)   |   Item Resolver   |   CouchDB     ||
+| |        |   +-------------+ |   +-------------+ |   +--------+  ||
+| |        |   | core-api-1  | |   | resolver-1  | |   | :5984  |  ||
+| |        |   | core-api-2  | |   | resolver-2  | |   +--------+  ||
+| |        |   +-------------+ |   | (DeepSeek)  | |               ||
+| |        |                   |   +-------------+ |               ||
+| +--------+-------------------+-------------------+---------------+|
++------------------------------------------------------------------+
 
 Key Features:
-- SSE uses Redis pub/sub for cross-instance communication
-- nginx ip_hash ensures SSE connections stick to same core-api instance
-- Item resolver accessed via internal Docker network (http://item-resolver-1:8000)
-- DeepSeek API used for product data extraction (text-based, no vision)
+- PouchDB syncs directly with CouchDB (via nginx proxy)
+- Item resolver watches CouchDB _changes feed
+- No Redis, no PostgreSQL - simplified architecture
+- DeepSeek API used for product data extraction (text-based)
 ```
 
 ---
@@ -97,6 +90,7 @@ docker logs wishwithme-item-resolver-1 --tail=100
 docker logs wishwithme-item-resolver-2 --tail=100
 docker logs wishwithme-frontend --tail=100
 docker logs wishwithme-nginx --tail=100
+docker logs wishwithme-couchdb --tail=100
 
 # Check service status
 docker-compose -f docker-compose.ubuntu.yml ps
@@ -133,7 +127,7 @@ cd wish-with-me-codex
 git remote set-url origin https://github.com/mrkutin/wish-with-me-codex.git
 
 # 7. Create production directories
-mkdir -p /home/mrkutin/wishwithme-data/{postgres,redis}
+mkdir -p /home/mrkutin/wishwithme-data/couchdb
 
 # 8. Create .env file with production secrets
 cp .env.example .env
@@ -209,10 +203,10 @@ All secrets are stored in `.env` file on the server, NOT in GitHub secrets.
 JWT_SECRET_KEY=your-production-secret-min-32-chars
 RU_BEARER_TOKEN=your-item-resolver-token
 
-# Database
-POSTGRES_USER=wishwithme
-POSTGRES_PASSWORD=your-db-password
-POSTGRES_DB=wishwithme
+# CouchDB
+COUCHDB_USER=admin
+COUCHDB_PASSWORD=your-couchdb-password
+COUCHDB_DATABASE=wishwithme
 
 # DeepSeek LLM (for item-resolver)
 LLM_BASE_URL=https://api.deepseek.com
@@ -278,38 +272,41 @@ docker-compose -f docker-compose.ubuntu.yml restart core-api-1 core-api-2
 # Restart item-resolver instances
 docker-compose -f docker-compose.ubuntu.yml restart item-resolver-1 item-resolver-2
 
-# Run database migrations
-docker-compose -f docker-compose.ubuntu.yml exec core-api-1 alembic upgrade head
-
-# Access database
-docker-compose -f docker-compose.ubuntu.yml exec postgres psql -U wishwithme wishwithme
+# Access CouchDB Fauxton UI (via SSH tunnel)
+ssh -L 5984:localhost:5984 mrkutin@176.106.144.182
+# Then open http://localhost:5984/_utils
 ```
 
 ---
 
 ## 6. Database Management
 
-### 6.1 Migrations
+### 6.1 CouchDB Administration
 
 ```bash
-# Apply migrations
-docker-compose -f docker-compose.ubuntu.yml exec core-api-1 alembic upgrade head
+# Access CouchDB shell
+docker exec -it wishwithme-couchdb bash
 
-# Rollback migration
-docker-compose -f docker-compose.ubuntu.yml exec core-api-1 alembic downgrade -1
+# Curl commands from within server
+curl http://admin:$COUCHDB_PASSWORD@localhost:5984/wishwithme
+
+# Create index
+curl -X POST http://admin:$COUCHDB_PASSWORD@localhost:5984/wishwithme/_index \
+  -H "Content-Type: application/json" \
+  -d '{"index": {"fields": ["type", "access"]}, "name": "type-access-idx"}'
 ```
 
 ### 6.2 Backups
 
 ```bash
-# Create backup
-docker-compose -f docker-compose.ubuntu.yml exec -T postgres \
-  pg_dump -U wishwithme wishwithme | gzip > backup_$(date +%Y%m%d_%H%M%S).sql.gz
+# Create backup (all docs)
+curl http://admin:$COUCHDB_PASSWORD@localhost:5984/wishwithme/_all_docs?include_docs=true | gzip > backup_$(date +%Y%m%d_%H%M%S).json.gz
 
 # Restore backup
-gunzip -c backup_20260123_120000.sql.gz | \
-  docker-compose -f docker-compose.ubuntu.yml exec -T postgres \
-  psql -U wishwithme wishwithme
+gunzip -c backup_20260123_120000.json.gz | \
+  curl -X POST http://admin:$COUCHDB_PASSWORD@localhost:5984/wishwithme/_bulk_docs \
+  -H "Content-Type: application/json" \
+  -d @-
 ```
 
 ---
@@ -322,6 +319,7 @@ gunzip -c backup_20260123_120000.sql.gz | \
 |----------|-------------|
 | `https://wishwith.me/health` | Main app health |
 | `https://api.wishwith.me/live` | API liveness |
+| `https://api.wishwith.me/healthz` | API + CouchDB health |
 
 ### 7.2 Test Item Resolver
 
@@ -342,6 +340,7 @@ docker exec wishwithme-item-resolver-1 wget -qO- --header="Authorization: Bearer
 | SSL certificate error | Expired cert | Run certbot renewal |
 | Item resolver timeout | DeepSeek API slow | Check LLM_TIMEOUT_S setting |
 | Out of memory | Playwright instances | Reduce MAX_CONCURRENCY |
+| Sync not working | CouchDB CORS issue | Check nginx proxy config |
 
 ### 7.4 Debug Mode
 
@@ -354,6 +353,9 @@ docker exec -it wishwithme-core-api-1 bash
 
 # View real-time resource usage
 docker stats
+
+# Check CouchDB replication status
+curl http://admin:$COUCHDB_PASSWORD@localhost:5984/_active_tasks
 ```
 
 ---
@@ -392,6 +394,8 @@ sudo ufw enable
 - All secrets in `.env` file (never committed to git)
 - `RU_BEARER_TOKEN` protects item-resolver endpoints
 - `LLM_API_KEY` for DeepSeek API access
+- `COUCHDB_PASSWORD` for database access
+- `JWT_SECRET_KEY` shared between core-api and CouchDB
 - Rotate secrets periodically
 
 ---
@@ -406,6 +410,7 @@ When something goes wrong:
 - [ ] Check health: `curl https://wishwith.me/health`
 - [ ] Verify disk space: `df -h`
 - [ ] Check .env file exists and has correct values
+- [ ] Test CouchDB: `curl http://localhost:5984/`
 
 ---
 

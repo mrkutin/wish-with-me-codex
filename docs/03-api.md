@@ -15,8 +15,10 @@
 | `/api/v1/wishlists/{id}/items` | Item CRUD |
 | `/api/v1/wishlists/{id}/share` | Share link management |
 | `/api/v1/shared/{token}` | Shared wishlist access |
-| `/api/v1/sync` | Offline sync |
 | `/api/v1/notifications` | In-app notifications |
+| `/couchdb/` | CouchDB sync (proxied via nginx) |
+
+**Note**: Data synchronization is handled directly by PouchDB <-> CouchDB native sync protocol, not custom API endpoints. The frontend PouchDB syncs directly with CouchDB (proxied through nginx).
 
 ---
 
@@ -746,64 +748,53 @@ Unmark item.
 
 ---
 
-## 8. Sync Endpoints
+## 8. Data Synchronization
 
-### POST `/api/v1/sync/pull/wishlists`
+**Important**: Data synchronization is handled by PouchDB/CouchDB native sync protocol, NOT custom API endpoints.
 
-Pull wishlist changes from server (RxDB replication).
+### How It Works
 
-**Headers**: `Authorization: Bearer <access_token>`
+```
+Frontend (PouchDB) <---> CouchDB (via nginx proxy)
+```
 
-**Query Parameters**:
-- `checkpoint_updated_at`: ISO timestamp (optional)
-- `checkpoint_id`: UUID (optional)
-- `limit`: int (default: 50)
+1. PouchDB on the frontend maintains a live sync connection to CouchDB
+2. All document changes are automatically replicated in both directions
+3. Filtered replication ensures users only sync documents they have `access` to
+4. Real-time updates happen automatically (no SSE/WebSocket needed)
 
-**Response** `200 OK`:
-```json
-{
-  "documents": [ ... ],
-  "checkpoint": {
-    "updated_at": "2026-01-21T10:00:00Z",
-    "id": "uuid"
+### CouchDB Sync URL
+
+```
+https://api.wishwith.me/couchdb/wishwithme
+```
+
+### Authentication
+
+CouchDB accepts the same JWT tokens used for the REST API. PouchDB includes the token in fetch requests:
+
+```typescript
+const remoteDB = new PouchDB('https://api.wishwith.me/couchdb/wishwithme', {
+  fetch: (url, opts) => {
+    opts.headers.set('Authorization', `Bearer ${jwt}`);
+    return fetch(url, opts);
   }
-}
+});
 ```
 
-### POST `/api/v1/sync/push/wishlists`
+### Filtered Replication
 
-Push wishlist changes to server (RxDB replication).
+Users only sync documents they have access to (via `access[]` array):
 
-**Headers**: `Authorization: Bearer <access_token>`
-
-**Request Body**:
-```json
-{
-  "documents": [
-    {
-      "id": "uuid",
-      "title": "Updated locally",
-      "updated_at": "2026-01-21T09:00:00Z",
-      "_deleted": false
-    }
-  ]
-}
+```typescript
+localDB.sync(remoteDB, {
+  live: true,
+  retry: true,
+  selector: {
+    access: { $elemMatch: { $eq: `user:${userId}` } }
+  }
+});
 ```
-
-**Response** `200 OK`:
-```json
-{
-  "conflicts": []
-}
-```
-
-### POST `/api/v1/sync/pull/items`
-
-Pull item changes from server (RxDB replication).
-
-### POST `/api/v1/sync/push/items`
-
-Push item changes to server (RxDB replication).
 
 ---
 
