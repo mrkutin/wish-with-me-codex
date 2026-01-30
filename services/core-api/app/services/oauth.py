@@ -253,6 +253,8 @@ class OAuthService:
             if user_updated:
                 user["updated_at"] = datetime.now(timezone.utc).isoformat()
                 await self.db.put(user)
+                # Re-fetch to get the latest _rev for subsequent saves
+                user = await self.db.get(user["_id"])
 
             auth_response = await self._create_auth_response(user, device_info)
             return auth_response, False
@@ -291,6 +293,8 @@ class OAuthService:
                 if user_updated:
                     user["updated_at"] = datetime.now(timezone.utc).isoformat()
                     await self.db.put(user)
+                    # Re-fetch to get the latest _rev for subsequent saves
+                    user = await self.db.get(user["_id"])
 
                 auth_response = await self._create_auth_response(user, device_info)
                 return auth_response, False
