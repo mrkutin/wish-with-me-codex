@@ -88,9 +88,11 @@ async def pull_collection(
     doc_type = type_map[collection]
 
     # Find all documents of this type that user has access to
+    # IMPORTANT: Exclude deleted documents to prevent phantom items reappearing
     selector = {
         "type": doc_type,
         "access": {"$elemMatch": {"$eq": user_id}},
+        "_deleted": {"$ne": True},
     }
 
     # For marks, also exclude marks where user is the wishlist owner

@@ -151,14 +151,27 @@ async function pullFromServer(
 
       // Upsert each document to local database
       for (const doc of docs) {
+        // Skip deleted documents from server (defense in depth)
+        if (doc._deleted) {
+          continue;
+        }
+
         try {
           // Check if document exists locally
           let existingRev: string | undefined;
+          let localDeleted = false;
           try {
             const existing = await localDb.get(doc._id);
             existingRev = existing._rev;
+            localDeleted = existing._deleted === true;
           } catch {
             // Document doesn't exist locally
+          }
+
+          // Don't overwrite local deletion with server's non-deleted version
+          // The local deletion should be pushed to server instead
+          if (localDeleted) {
+            continue;
           }
 
           await localDb.put({
@@ -210,12 +223,16 @@ async function pushToServer(
 
   for (const collection of collections) {
     try {
-      // Get all local documents of this type
-      const docs = await find<CouchDBDoc>({
-        selector: {
-          type: typeMap[collection],
-        },
-      });
+      // Get all local documents of this type INCLUDING deleted ones
+      // This ensures deletions are synced to the server
+      const localDb = getDatabase();
+      const allDocsResult = await localDb.allDocs({ include_docs: true });
+      const docs = allDocsResult.rows
+        .map((row) => row.doc)
+        .filter((doc): doc is CouchDBDoc => {
+          if (!doc) return false;
+          return doc.type === typeMap[collection];
+        });
 
       if (docs.length === 0) continue;
 
