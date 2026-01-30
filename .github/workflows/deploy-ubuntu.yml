@@ -185,12 +185,12 @@ jobs:
             echo "=== Building services: $REBUILD_SERVICES ==="
 
             if [ -n "$REBUILD_SERVICES" ]; then
-              # Build the changed services
-              docker compose -f docker-compose.ubuntu.yml build $REBUILD_SERVICES
+              # Build the changed services (no-cache to ensure fresh build)
+              docker compose -f docker-compose.ubuntu.yml build --no-cache $REBUILD_SERVICES
 
-              # Restart the changed services
+              # Restart the changed services (force-recreate to ensure new containers)
               echo "=== Restarting services: $REBUILD_SERVICES ==="
-              docker compose -f docker-compose.ubuntu.yml up -d --no-deps $REBUILD_SERVICES
+              docker compose -f docker-compose.ubuntu.yml up -d --no-deps --force-recreate $REBUILD_SERVICES
             else
               echo "No services to rebuild"
             fi
