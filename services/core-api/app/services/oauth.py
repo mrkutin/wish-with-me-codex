@@ -264,11 +264,36 @@ class OAuthService:
                 "email": user_info.email.lower(),
             })
             if existing_users:
-                raise EmailConflictError(
-                    email=user_info.email,
-                    user_id=existing_users[0]["_id"],
-                    provider=user_info.provider,
-                )
+                # Email exists - auto-link OAuth account and login
+                # This is safe because Google/Yandex verify email ownership
+                user = existing_users[0]
+                logger.info(f"Auto-linking {user_info.provider.value} to existing user {user['_id']}")
+
+                # Create the social account link
+                await self._create_social_account(user["_id"], user_info)
+
+                # Update user profile from OAuth if beneficial
+                user_updated = False
+                if user_info.name and not user.get("name"):
+                    user["name"] = user_info.name
+                    user_updated = True
+
+                if user_info.avatar_url and user.get("avatar_base64") == DEFAULT_AVATAR_BASE64:
+                    downloaded = await _download_avatar(user_info.avatar_url)
+                    if downloaded:
+                        user["avatar_base64"] = downloaded
+                        user_updated = True
+
+                if user_info.birthday and not user.get("birthday"):
+                    user["birthday"] = user_info.birthday.isoformat()
+                    user_updated = True
+
+                if user_updated:
+                    user["updated_at"] = datetime.now(timezone.utc).isoformat()
+                    await self.db.put(user)
+
+                auth_response = await self._create_auth_response(user, device_info)
+                return auth_response, False
 
         # Create new user
         user = await self._create_oauth_user(user_info)
