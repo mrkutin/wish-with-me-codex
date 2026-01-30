@@ -43,7 +43,6 @@ const loginRedirect = computed(() => ({
   query: isEmailExistsError.value ? { redirect: '/settings' } : undefined,
 }));
 
-const REFRESH_TOKEN_KEY = 'refresh_token';
 const PENDING_SHARE_TOKEN_KEY = 'pending_share_token';
 
 function getErrorMessage(error: string, email?: string, provider?: string): string {
@@ -94,13 +93,13 @@ async function processCallback(): Promise<void> {
   const isNewUser = query.new_user === 'true';
 
   if (accessToken && refreshToken) {
-    // Store tokens
-    LocalStorage.set(REFRESH_TOKEN_KEY, refreshToken);
-
-    // Initialize auth store with OAuth tokens
+    // Initialize auth store with OAuth tokens directly
     try {
-      // Use the refresh token to properly initialize the auth store
-      await authStore.initializeAuth();
+      // Use the access token directly instead of refreshing immediately
+      await authStore.setTokensFromOAuth({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      });
 
       if (isNewUser) {
         successMessage.value = t('oauth.accountCreated');

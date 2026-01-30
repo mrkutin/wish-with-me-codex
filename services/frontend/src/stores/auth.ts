@@ -108,6 +108,22 @@ export const useAuthStore = defineStore('auth', () => {
     LocalStorage.set(REFRESH_TOKEN_KEY, data.refresh_token);
   }
 
+  /**
+   * Set tokens from OAuth callback and fetch user data.
+   * Used when we have tokens from URL params but no user data yet.
+   */
+  async function setTokensFromOAuth(tokens: {
+    access_token: string;
+    refresh_token: string;
+  }): Promise<void> {
+    accessToken.value = tokens.access_token;
+    refreshTokenValue.value = tokens.refresh_token;
+    LocalStorage.set(REFRESH_TOKEN_KEY, tokens.refresh_token);
+
+    // Fetch user data with the access token
+    await fetchCurrentUser();
+  }
+
   function clearAuth(): void {
     user.value = null;
     accessToken.value = null;
@@ -136,5 +152,6 @@ export const useAuthStore = defineStore('auth', () => {
     logout,
     fetchCurrentUser,
     getAccessToken,
+    setTokensFromOAuth,
   };
 });
