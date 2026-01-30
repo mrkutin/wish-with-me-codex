@@ -37,7 +37,6 @@ from app.routers import (
     events_router,
 )
 from app.routers.auth_couchdb import router as auth_couchdb_router
-from app.routers.share_couchdb import router as share_couchdb_router
 from app.routers.sync_couchdb import router as sync_couchdb_router
 
 
@@ -107,7 +106,6 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(auth_couchdb_router)  # CouchDB-based auth (v2)
-app.include_router(share_couchdb_router)  # CouchDB-based sharing (v2)
 app.include_router(users_router)
 app.include_router(wishlists_router)
 app.include_router(items_router)

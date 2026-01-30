@@ -1,4 +1,8 @@
-"""CouchDB-based sync endpoints for PouchDB replication."""
+"""CouchDB-based sync endpoints for PouchDB clients.
+
+Note: This is an API-based pull/push sync, not native CouchDB replication protocol.
+The frontend's PouchDB uses these endpoints to sync data with the CouchDB backend.
+"""
 
 import logging
 from datetime import datetime, timezone

@@ -61,7 +61,7 @@ class Settings(BaseSettings):
         "http://localhost:8080",
         "http://127.0.0.1:9000",
         "http://127.0.0.1:8080",
-        "http://158.69.203.3:9000",  # Montreal production server (direct IP access)
+        "http://176.106.144.182:9000",  # Production server (direct IP access)
         "https://wishwith.me",
         "https://www.wishwith.me",
         "https://api.wishwith.me",  # API subdomain (for CORS preflight)

@@ -119,7 +119,7 @@ self.addEventListener('sync', (event) => {
 });
 
 async function syncPendingChanges(): Promise<void> {
-  // RxDB handles most sync, this is for edge cases
+  // PouchDB handles most sync, this is for edge cases
   console.log('[SW] Background sync triggered');
 }
 
