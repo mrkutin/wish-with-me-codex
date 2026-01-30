@@ -80,13 +80,9 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function fetchCurrentUser(): Promise<void> {
-    // User data is returned in auth response, but we can also fetch via sync
-    // For now, user info is set from auth response
-    // This function is kept for compatibility with OAuth callback
-    const response = await api.get<TokenResponse>(`/api/${API_VERSION}/auth/refresh`, {
-      params: { refresh_token: refreshTokenValue.value }
-    });
-    // User comes from auth response
+    // Fetch user data from /me endpoint using access token
+    const response = await api.get<User>(`/api/${API_VERSION}/auth/me`);
+    user.value = response.data;
   }
 
   async function logout(): Promise<void> {
@@ -111,7 +107,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   /**
    * Set tokens from OAuth callback and fetch user data.
-   * OAuth still uses v1 endpoint for provider integration.
+   * OAuth tokens are already valid - no need to refresh immediately.
    */
   async function setTokensFromOAuth(tokens: {
     access_token: string;
@@ -121,8 +117,8 @@ export const useAuthStore = defineStore('auth', () => {
     refreshTokenValue.value = tokens.refresh_token;
     LocalStorage.set(REFRESH_TOKEN_KEY, tokens.refresh_token);
 
-    // Refresh to get user data
-    await refreshToken();
+    // Fetch user data using the access token
+    await fetchCurrentUser();
   }
 
   function clearAuth(): void {

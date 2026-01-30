@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, HTTPException, Request, status
 
+from app.dependencies import CurrentUser
 from app.schemas.auth import (
     AuthResponse,
     LoginRequest,
@@ -10,6 +11,7 @@ from app.schemas.auth import (
     RegisterRequest,
     TokenResponse,
 )
+from app.schemas.user import UserResponse
 from app.services.auth_couchdb import CouchDBAuthService
 
 router = APIRouter(prefix="/api/v2/auth", tags=["authentication-v2"])
@@ -136,3 +138,28 @@ async def logout(
 
     auth_service = CouchDBAuthService()
     await auth_service.logout(user_id, data.refresh_token)
+
+
+@router.get(
+    "/me",
+    response_model=UserResponse,
+    responses={
+        401: {"description": "Not authenticated"},
+    },
+)
+async def get_current_user_info(
+    current_user: CurrentUser,
+) -> UserResponse:
+    """Get current authenticated user's information."""
+    return UserResponse(
+        id=current_user["_id"],
+        email=current_user["email"],
+        name=current_user["name"],
+        avatar_base64=current_user.get("avatar_base64"),
+        bio=current_user.get("bio"),
+        public_url_slug=current_user.get("public_url_slug"),
+        locale=current_user.get("locale", "en"),
+        birthday=current_user.get("birthday"),
+        created_at=current_user.get("created_at"),
+        updated_at=current_user.get("updated_at"),
+    )
