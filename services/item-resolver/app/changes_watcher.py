@@ -5,6 +5,7 @@ import base64
 import logging
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 from urllib.parse import urljoin
 
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
@@ -196,7 +197,7 @@ class ChangesWatcher:
 
     async def _resolve_url(self, url: str) -> dict | None:
         """Resolve a URL to extract product metadata."""
-        state_path = storage_state_path(self.storage_state_dir, url)
+        state_path = storage_state_path(Path(self.storage_state_dir), url)
 
         async with self.manager.semaphore:
             context = await self.manager.make_context(
