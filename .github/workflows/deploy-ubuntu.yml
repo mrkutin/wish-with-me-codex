@@ -162,14 +162,20 @@ jobs:
               fi
             fi
 
-            # Build only changed services
+            # Build changed services
+            # IMPORTANT: Always rebuild frontend when it changes OR when core-api changes
+            # to ensure frontend uses latest API types/contracts
             REBUILD_SERVICES=""
 
-            if [ "${{ needs.detect-changes.outputs.frontend }}" == "true" ]; then
+            FRONTEND_CHANGED="${{ needs.detect-changes.outputs.frontend }}"
+            CORE_API_CHANGED="${{ needs.detect-changes.outputs.core-api }}"
+
+            # Rebuild frontend if it changed OR if core-api changed (API contract updates)
+            if [ "$FRONTEND_CHANGED" == "true" ] || [ "$CORE_API_CHANGED" == "true" ]; then
               REBUILD_SERVICES="$REBUILD_SERVICES frontend"
             fi
 
-            if [ "${{ needs.detect-changes.outputs.core-api }}" == "true" ]; then
+            if [ "$CORE_API_CHANGED" == "true" ]; then
               REBUILD_SERVICES="$REBUILD_SERVICES core-api-1 core-api-2"
             fi
 

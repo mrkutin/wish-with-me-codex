@@ -99,11 +99,14 @@ async def pull_collection(
         selector["owner_id"] = {"$ne": user_id}
 
     try:
+        # Note: CouchDB Mango with $elemMatch doesn't work well with indexes,
+        # so we fetch without sort and sort in Python
         documents = await db.find(
             selector=selector,
-            sort=[{"updated_at": "desc"}],
             limit=1000,  # Reasonable limit for initial sync
         )
+        # Sort by updated_at descending in Python
+        documents.sort(key=lambda d: d.get("updated_at", ""), reverse=True)
         return PullResponse(documents=documents)
     except Exception as e:
         logger.error(f"Pull error for {collection}: {e}")
