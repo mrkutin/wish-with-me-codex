@@ -3,9 +3,6 @@
 </template>
 
 <script setup lang="ts">
-import { useRealtimeSync } from '@/composables/useRealtimeSync';
-
-// Initialize SSE connection for real-time updates
-// This connects when user is authenticated and online
-useRealtimeSync();
+// PouchDB handles real-time sync natively via live replication
+// No SSE needed - all sync happens through CouchDB/PouchDB
 </script>

@@ -1,14 +1,11 @@
-"""OAuth authentication router."""
+"""OAuth authentication router - CouchDB-based."""
 
 import logging
-from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.database import get_db
 from app.dependencies import CurrentUser
 from app.oauth.providers import get_configured_providers, is_provider_configured
 from app.oauth.schemas import (
@@ -41,21 +38,16 @@ async def get_available_providers() -> dict:
 async def oauth_authorize(
     request: Request,
     provider: OAuthProvider,
-    db: Annotated[AsyncSession, Depends(get_db)],
     redirect: bool = Query(True, description="Redirect to provider if true, return URL if false"),
 ):
-    """Initiate OAuth login flow.
-
-    If redirect=true (default), redirects to the OAuth provider.
-    If redirect=false, returns the authorization URL.
-    """
+    """Initiate OAuth login flow."""
     if not is_provider_configured(provider):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"OAuth provider '{provider.value}' is not configured",
         )
 
-    service = OAuthService(db)
+    service = OAuthService()
 
     try:
         auth_url, state = await service.get_authorization_url(
@@ -79,18 +71,12 @@ async def oauth_authorize(
 async def oauth_callback(
     request: Request,
     provider: OAuthProvider,
-    db: Annotated[AsyncSession, Depends(get_db)],
     code: str = Query(...),
     state: str = Query(...),
     error: str | None = Query(None),
     error_description: str | None = Query(None),
 ) -> RedirectResponse:
-    """Handle OAuth callback from provider.
-
-    Exchanges the authorization code for tokens, authenticates or creates the user,
-    and redirects to the frontend with tokens.
-    """
-    # Handle OAuth errors from provider
+    """Handle OAuth callback from provider."""
     if error:
         logger.warning(f"OAuth error from {provider.value}: {error} - {error_description}")
         error_msg = error_description or error
@@ -99,10 +85,9 @@ async def oauth_callback(
             status_code=status.HTTP_302_FOUND,
         )
 
-    service = OAuthService(db)
+    service = OAuthService()
 
     try:
-        # Exchange code for tokens and user info
         user_info, state_data = await service.exchange_code(
             request=request,
             provider=provider,
@@ -113,28 +98,22 @@ async def oauth_callback(
         action = state_data.get("action", "login")
 
         if action == "link":
-            # This is an account linking flow
             user_id = state_data.get("user_id")
             if not user_id:
                 raise ValueError("Invalid state for link action")
 
             await service.link_account(user_id, user_info)
-            await db.commit()
 
-            # Redirect to settings page with success
             return RedirectResponse(
                 url=f"{settings.frontend_callback_url}?linked={provider.value}",
                 status_code=status.HTTP_302_FOUND,
             )
 
-        # Login/register flow
         auth_response, is_new = await service.authenticate_or_create(
             user_info=user_info,
             device_info=request.headers.get("user-agent"),
         )
-        await db.commit()
 
-        # Build redirect URL with tokens
         redirect_url = (
             f"{settings.frontend_callback_url}"
             f"?access_token={auth_response.access_token}"
@@ -168,7 +147,6 @@ async def oauth_callback(
 
     except Exception as e:
         logger.exception(f"Unexpected OAuth error: {e}")
-        await db.rollback()
         return RedirectResponse(
             url=f"{settings.frontend_callback_url}?error=server_error",
             status_code=status.HTTP_302_FOUND,
@@ -180,27 +158,22 @@ async def oauth_link_initiate(
     request: Request,
     provider: OAuthProvider,
     current_user: CurrentUser,
-    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict:
-    """Initiate OAuth account linking flow.
-
-    Requires authentication. Returns the authorization URL for the frontend
-    to redirect to. This approach is more secure than accepting tokens in URL.
-    """
+    """Initiate OAuth account linking flow."""
     if not is_provider_configured(provider):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"OAuth provider '{provider.value}' is not configured",
         )
 
-    service = OAuthService(db)
+    service = OAuthService()
 
     try:
         auth_url, state = await service.get_authorization_url(
             request=request,
             provider=provider,
             action="link",
-            user_id=current_user.id,
+            user_id=current_user["_id"],
         )
     except ValueError as e:
         raise HTTPException(
@@ -215,17 +188,12 @@ async def oauth_link_initiate(
 async def oauth_unlink(
     provider: OAuthProvider,
     current_user: CurrentUser,
-    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict:
-    """Unlink an OAuth provider from the current user's account.
-
-    Will fail if this is the user's only authentication method.
-    """
-    service = OAuthService(db)
+    """Unlink an OAuth provider from the current user's account."""
+    service = OAuthService()
 
     try:
-        await service.unlink_account(current_user.id, provider)
-        await db.commit()
+        await service.unlink_account(current_user["_id"], provider)
         return {"message": f"Successfully unlinked {provider.value}"}
 
     except ProviderNotLinkedError:
@@ -244,20 +212,19 @@ async def oauth_unlink(
 @router.get("/connected")
 async def get_connected_accounts(
     current_user: CurrentUser,
-    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict:
     """Get list of connected OAuth accounts for the current user."""
-    service = OAuthService(db)
-    accounts = await service.get_user_social_accounts(current_user.id)
+    service = OAuthService()
+    accounts = await service.get_user_social_accounts(current_user["_id"])
 
     return {
         "accounts": [
             ConnectedAccountResponse(
-                provider=acc.provider,
-                email=acc.email,
-                connected_at=acc.created_at.isoformat(),
+                provider=acc["provider"],
+                email=acc.get("email"),
+                connected_at=acc.get("created_at", ""),
             )
             for acc in accounts
         ],
-        "has_password": current_user.password_hash is not None,
+        "has_password": current_user.get("password_hash") is not None,
     }

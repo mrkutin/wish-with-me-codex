@@ -1,6 +1,9 @@
-"""Business logic services."""
+"""Services - CouchDB-based."""
 
-from app.services.auth import AuthService
-from app.services.user import UserService
+from app.services.auth_couchdb import CouchDBAuthService
+from app.services.oauth import OAuthService
 
-__all__ = ["AuthService", "UserService"]
+__all__ = [
+    "CouchDBAuthService",
+    "OAuthService",
+]

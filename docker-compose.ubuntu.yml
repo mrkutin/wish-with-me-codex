@@ -1,11 +1,11 @@
 # Ubuntu Server (176.106.144.182) - Main Application
-# Hosts: nginx, frontend, core-api, postgres, redis, couchdb
-# Domain: wishwith.me (points to this server)
+# Hosts: nginx, frontend, core-api, couchdb, item-resolver
+# Domain: wishwith.me
 #
 # Usage: docker-compose -f docker-compose.ubuntu.yml up -d
 #
-# CouchDB Migration: CouchDB is added for PouchDB sync. After migration,
-# postgres and redis will be removed.
+# CouchDB is the primary database for all operations.
+# PouchDB on frontend syncs directly with CouchDB.
 
 services:
   # Nginx reverse proxy
@@ -37,42 +37,7 @@ services:
     networks:
       - wishwithme
 
-  # PostgreSQL Database
-  postgres:
-    image: postgres:16-alpine
-    container_name: wishwithme-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-wishwithme}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-wishwithme}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wishwithme} -d ${POSTGRES_DB:-wishwithme}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - wishwithme
-
-  # Redis Cache
-  redis:
-    image: redis:7-alpine
-    container_name: wishwithme-redis
-    restart: unless-stopped
-    command: redis-server --appendonly yes
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - wishwithme
-
-  # CouchDB (for PouchDB sync - migration from PostgreSQL)
+  # CouchDB - Primary database
   couchdb:
     image: couchdb:3.3
     container_name: wishwithme-couchdb
@@ -91,7 +56,7 @@ services:
     networks:
       - wishwithme
 
-  # Core API Instance 1 (FastAPI)
+  # Core API Instance 1 (FastAPI + CouchDB)
   core-api-1:
     build:
       context: ./services/core-api
@@ -99,16 +64,11 @@ services:
     container_name: wishwithme-core-api-1
     restart: unless-stopped
     environment:
-      # Database (PostgreSQL - legacy, will be removed after migration)
-      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://wishwithme:postgres@postgres:5432/wishwithme}
-      # Redis
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-      # Security - MUST be set in production
+      # Security
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-INSECURE_DEV_ONLY_REPLACE_IN_PRODUCTION_MIN_32_CHARS}
       - DEBUG=false
-      # CORS
       - CORS_ALLOW_ALL=false
-      # Item Resolver - internal Docker network
+      # Item Resolver
       - ITEM_RESOLVER_URL=${ITEM_RESOLVER_URL:-http://item-resolver-1:8000}
       - ITEM_RESOLVER_TOKEN=${RU_BEARER_TOKEN:-ru_secret}
       # OAuth - Google
@@ -117,16 +77,12 @@ services:
       # OAuth - Yandex
       - YANDEX_CLIENT_ID=${YANDEX_CLIENT_ID:-}
       - YANDEX_CLIENT_SECRET=${YANDEX_CLIENT_SECRET:-}
-      # CouchDB (new primary database)
+      # CouchDB
       - COUCHDB_URL=http://couchdb:5984
       - COUCHDB_DATABASE=wishwithme
       - COUCHDB_ADMIN_USER=${COUCHDB_ADMIN_USER:-admin}
       - COUCHDB_ADMIN_PASSWORD=${COUCHDB_ADMIN_PASSWORD:-couchdb_admin_password}
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
       couchdb:
         condition: service_healthy
       item-resolver-1:
@@ -140,7 +96,7 @@ services:
     networks:
       - wishwithme
 
-  # Core API Instance 2 (FastAPI)
+  # Core API Instance 2 (FastAPI + CouchDB)
   core-api-2:
     build:
       context: ./services/core-api
@@ -148,16 +104,11 @@ services:
     container_name: wishwithme-core-api-2
     restart: unless-stopped
     environment:
-      # Database (PostgreSQL - legacy, will be removed after migration)
-      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://wishwithme:postgres@postgres:5432/wishwithme}
-      # Redis
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-      # Security - MUST be set in production
+      # Security
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-INSECURE_DEV_ONLY_REPLACE_IN_PRODUCTION_MIN_32_CHARS}
       - DEBUG=false
-      # CORS
       - CORS_ALLOW_ALL=false
-      # Item Resolver - internal Docker network
+      # Item Resolver
       - ITEM_RESOLVER_URL=${ITEM_RESOLVER_URL:-http://item-resolver-1:8000}
       - ITEM_RESOLVER_TOKEN=${RU_BEARER_TOKEN:-ru_secret}
       # OAuth - Google
@@ -166,16 +117,12 @@ services:
       # OAuth - Yandex
       - YANDEX_CLIENT_ID=${YANDEX_CLIENT_ID:-}
       - YANDEX_CLIENT_SECRET=${YANDEX_CLIENT_SECRET:-}
-      # CouchDB (new primary database)
+      # CouchDB
       - COUCHDB_URL=http://couchdb:5984
       - COUCHDB_DATABASE=wishwithme
       - COUCHDB_ADMIN_USER=${COUCHDB_ADMIN_USER:-admin}
       - COUCHDB_ADMIN_PASSWORD=${COUCHDB_ADMIN_PASSWORD:-couchdb_admin_password}
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
       couchdb:
         condition: service_healthy
       item-resolver-1:
@@ -189,13 +136,12 @@ services:
     networks:
       - wishwithme
 
-  # Frontend (Vue + Quasar PWA)
+  # Frontend (Vue + Quasar PWA with PouchDB)
   frontend:
     build:
       context: ./services/frontend
       dockerfile: Dockerfile
       args:
-        # Production API URL - using dedicated API subdomain
         API_URL: https://api.wishwith.me
     container_name: wishwithme-frontend
     restart: unless-stopped
@@ -212,7 +158,7 @@ services:
       - wishwithme
 
   # Item Resolver Instance 1 (Playwright + DeepSeek)
-  # This instance watches CouchDB for pending items
+  # Watches CouchDB for pending items
   item-resolver-1:
     build:
       context: ./services/item-resolver
@@ -234,7 +180,7 @@ services:
       - LLM_MODEL=${LLM_MODEL:-deepseek-chat}
       - LLM_TIMEOUT_S=${LLM_TIMEOUT_S:-120}
       - LLM_MAX_CHARS=${LLM_MAX_CHARS:-50000}
-      # CouchDB Configuration - watches for pending items
+      # CouchDB - watches for pending items
       - COUCHDB_WATCHER_ENABLED=true
       - COUCHDB_URL=http://couchdb:5984
       - COUCHDB_DATABASE=wishwithme
@@ -251,7 +197,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-    # Playwright needs shared memory
     shm_size: '1gb'
     deploy:
       resources:
@@ -265,7 +210,7 @@ services:
       - wishwithme
 
   # Item Resolver Instance 2 (Playwright + DeepSeek)
-  # This instance does NOT watch CouchDB (only instance 1 does)
+  # Does NOT watch CouchDB (only instance 1 does)
   item-resolver-2:
     build:
       context: ./services/item-resolver
@@ -287,7 +232,7 @@ services:
       - LLM_MODEL=${LLM_MODEL:-deepseek-chat}
       - LLM_TIMEOUT_S=${LLM_TIMEOUT_S:-120}
       - LLM_MAX_CHARS=${LLM_MAX_CHARS:-50000}
-      # CouchDB watcher disabled on instance 2 (only instance 1 watches)
+      # CouchDB watcher disabled
       - COUCHDB_WATCHER_ENABLED=false
     volumes:
       - item_resolver_storage_2:/data/storage_state
@@ -297,7 +242,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-    # Playwright needs shared memory
     shm_size: '1gb'
     deploy:
       resources:
@@ -311,20 +255,6 @@ services:
       - wishwithme
 
 volumes:
-  postgres_data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /home/mrkutin/wishwithme-data/postgres
-
-  redis_data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /home/mrkutin/wishwithme-data/redis
-
   couchdb_data:
     driver: local
     driver_opts:

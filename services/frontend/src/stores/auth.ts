@@ -7,10 +7,8 @@ import type { AuthResponse, TokenResponse, LoginRequest, RegisterRequest } from 
 
 const REFRESH_TOKEN_KEY = 'refresh_token';
 
-// API version to use (v1 = PostgreSQL, where OAuth stores tokens)
-// Note: OAuth creates users and stores refresh tokens in PostgreSQL,
-// so we must use v1 for auth operations to match.
-const API_VERSION = 'v1';
+// API version - v2 uses CouchDB for all operations
+const API_VERSION = 'v2';
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null);
@@ -20,10 +18,9 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => !!user.value && !!accessToken.value);
 
-  // Get user ID (handles both CouchDB _id and PostgreSQL id formats)
+  // Get user ID (CouchDB uses _id)
   const userId = computed(() => {
     if (!user.value) return null;
-    // CouchDB uses _id, PostgreSQL uses id
     return (user.value as { _id?: string; id?: string })._id || user.value.id;
   });
 
@@ -34,7 +31,6 @@ export const useAuthStore = defineStore('auth', () => {
       try {
         await refreshToken();
       } catch {
-        // Refresh failed, clear stored token
         clearAuth();
       }
     }
@@ -84,10 +80,13 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function fetchCurrentUser(): Promise<void> {
-    // v2 returns user in auth response, but we can also fetch via /users/me
-    // For now, keep using v1 endpoint until we create v2 users endpoint
-    const response = await api.get<User>('/api/v1/users/me');
-    user.value = response.data;
+    // User data is returned in auth response, but we can also fetch via sync
+    // For now, user info is set from auth response
+    // This function is kept for compatibility with OAuth callback
+    const response = await api.get<TokenResponse>(`/api/${API_VERSION}/auth/refresh`, {
+      params: { refresh_token: refreshTokenValue.value }
+    });
+    // User comes from auth response
   }
 
   async function logout(): Promise<void> {
@@ -112,7 +111,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   /**
    * Set tokens from OAuth callback and fetch user data.
-   * Used when we have tokens from URL params but no user data yet.
+   * OAuth still uses v1 endpoint for provider integration.
    */
   async function setTokensFromOAuth(tokens: {
     access_token: string;
@@ -122,8 +121,8 @@ export const useAuthStore = defineStore('auth', () => {
     refreshTokenValue.value = tokens.refresh_token;
     LocalStorage.set(REFRESH_TOKEN_KEY, tokens.refresh_token);
 
-    // Fetch user data with the access token
-    await fetchCurrentUser();
+    // Refresh to get user data
+    await refreshToken();
   }
 
   function clearAuth(): void {
@@ -133,10 +132,6 @@ export const useAuthStore = defineStore('auth', () => {
     LocalStorage.remove(REFRESH_TOKEN_KEY);
   }
 
-  /**
-   * Get the current access token.
-   * Used by SSE composable since EventSource doesn't support headers.
-   */
   function getAccessToken(): string | null {
     return accessToken.value;
   }

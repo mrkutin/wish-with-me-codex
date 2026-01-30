@@ -1,4 +1,3 @@
-/* eslint-disable */
 /**
  * THIS FILE IS GENERATED AUTOMATICALLY.
  * DO NOT EDIT.
@@ -245,6 +244,7 @@ import quasarUserOptions from './quasar-user-options.js'
 
 const publicPath = `/`
 
+
 async function start ({
   app,
   router
@@ -348,11 +348,11 @@ createQuasarApp(createApp, quasarUserOptions)
 
     return Promise[ method ]([
       
-      import('boot/i18n'),
+      import(/* webpackMode: "eager" */ 'boot/i18n'),
       
-      import('boot/axios'),
+      import(/* webpackMode: "eager" */ 'boot/axios'),
       
-      import('boot/auth')
+      import(/* webpackMode: "eager" */ 'boot/auth')
       
     ]).then(bootFiles => {
       const boot = mapFn(bootFiles).filter(entry => typeof entry === 'function')
