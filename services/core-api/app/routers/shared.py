@@ -84,48 +84,33 @@ async def grant_access_to_user(db: CouchDBClient, share: dict, user_id: str) -> 
 
     # Auto-create or update bookmark for "Shared with me" tab
     # Important: Only ONE bookmark per wishlist (not per share link)
-    # If user follows multiple share links for same wishlist, keep the "best" permissions
+    # Always use the LAST link's permissions (update share_id to current share)
     wishlist_id = share["wishlist_id"]
 
-    # Find all bookmarks for this user (we'll check wishlist_id via share docs)
+    # Find existing bookmark for this wishlist
     all_user_bookmarks = await db.find({
         "type": "bookmark",
         "user_id": user_id,
     })
     user_bookmarks = [b for b in all_user_bookmarks if not b.get("_deleted")]
 
-    # Find existing bookmark for this wishlist (may be linked to different share)
     existing_bookmark = None
-    existing_share = None
     for bookmark in user_bookmarks:
         try:
             bookmark_share = await db.get(bookmark["share_id"])
             if bookmark_share.get("wishlist_id") == wishlist_id:
                 existing_bookmark = bookmark
-                existing_share = bookmark_share
                 break
         except DocumentNotFoundError:
-            # Share was deleted, skip this bookmark
+            # Share was deleted - check if bookmark has wishlist_id directly
             continue
 
     if existing_bookmark:
-        # Bookmark exists for this wishlist - update it
-        # Use "best" permissions: mark > view
-        current_link_type = existing_share.get("link_type", "view") if existing_share else "view"
-        new_link_type = share.get("link_type", "view")
-
-        # Upgrade to better share link if new one has more permissions
-        should_upgrade = (new_link_type == "mark" and current_link_type == "view")
-
-        if should_upgrade or existing_bookmark["share_id"] == share["_id"]:
-            # Update to new share link (upgrade) or just update timestamp
-            existing_bookmark["share_id"] = share["_id"]
-            existing_bookmark["last_accessed_at"] = now
-            await db.put(existing_bookmark)
-        else:
-            # Keep existing share link but update timestamp
-            existing_bookmark["last_accessed_at"] = now
-            await db.put(existing_bookmark)
+        # Update existing bookmark to use the LAST share link followed
+        existing_bookmark["share_id"] = share["_id"]
+        existing_bookmark["last_accessed_at"] = now
+        await db.put(existing_bookmark)
+        logger.info(f"Updated bookmark {existing_bookmark['_id']} to share {share['_id']}")
     else:
         # Create new bookmark
         bookmark_id = db.generate_id("bookmark")
@@ -139,6 +124,7 @@ async def grant_access_to_user(db: CouchDBClient, share: dict, user_id: str) -> 
             "access": [user_id],
         }
         await db.put(bookmark)
+        logger.info(f"Created bookmark {bookmark_id} for share {share['_id']}")
 
 
 # =============================================================================
