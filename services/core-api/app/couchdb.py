@@ -419,10 +419,12 @@ class CouchDBClient:
         wishlist["access"] = access
         await self.put(wishlist)
 
-        # Update all items in this wishlist
-        items = await self.find(
+        # Update all items in this wishlist (including deleted ones for consistency)
+        all_items = await self.find(
             {"type": "item", "wishlist_id": wishlist_id},
         )
+        # Filter out deleted items - they shouldn't have access updated
+        items = [i for i in all_items if not i.get("_deleted")]
 
         if items:
             for item in items:
