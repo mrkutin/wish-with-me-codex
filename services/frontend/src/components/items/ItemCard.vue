@@ -159,14 +159,14 @@ function formatPrice(price: number, currency: string | null): string {
 .item-card
   overflow: hidden
   border: 1px solid var(--border-subtle)
-  transition: transform var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out)
+  transition: box-shadow var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out)
 
   &:hover
-    transform: translateY(-2px)
     box-shadow: var(--shadow-lg)
+    border-color: rgba(79, 70, 229, 0.15)
 
   &:active
-    transform: translateY(0)
+    box-shadow: var(--shadow-md)
 
 .item-card-inner
   display: flex
@@ -175,13 +175,16 @@ function formatPrice(price: number, currency: string | null): string {
 
 .item-image-container
   flex-shrink: 0
-  width: 96px
-  height: 96px
+  width: 112px
+  height: 112px
+  padding: var(--space-2)
+  background: var(--bg-tertiary)
+  border-radius: var(--radius-md)
 
 .item-image
   width: 100%
   height: 100%
-  border-radius: var(--radius-md)
+  border-radius: var(--radius-sm)
   object-fit: cover
 
 .item-image-placeholder

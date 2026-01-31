@@ -2,22 +2,24 @@
   <q-card class="item-card">
     <div class="row no-wrap">
       <!-- Image -->
-      <div class="col-auto">
-        <q-img
-          v-if="item.image_base64"
-          :src="item.image_base64"
-          :alt="item.title"
-          :ratio="1"
-          width="100px"
-          class="rounded-borders"
-        />
-        <div
-          v-else
-          class="flex flex-center bg-grey-3 rounded-borders"
-          style="width: 100px; height: 100px"
-          aria-hidden="true"
-        >
-          <q-icon name="image" size="40px" color="grey-6" />
+      <div class="col-auto q-pa-sm">
+        <div class="image-container">
+          <q-img
+            v-if="item.image_base64"
+            :src="item.image_base64"
+            :alt="item.title"
+            :ratio="1"
+            width="100px"
+            class="rounded-borders"
+          />
+          <div
+            v-else
+            class="flex flex-center bg-grey-3 rounded-borders"
+            style="width: 100px; height: 100px"
+            aria-hidden="true"
+          >
+            <q-icon name="image" size="40px" color="grey-6" />
+          </div>
         </div>
       </div>
 
@@ -276,11 +278,19 @@ function formatPrice(price: string | null, currency: string | null): string {
 
 <style scoped>
 .item-card {
-  transition: transform 0.2s;
+  transition: box-shadow 0.15s ease-out, border-color 0.15s ease-out;
+  border: 1px solid transparent;
 }
 
 .item-card:hover {
-  transform: translateY(-2px);
+  box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.05);
+  border-color: rgba(79, 70, 229, 0.15);
+}
+
+.image-container {
+  padding: 4px;
+  background: #f5f5f5;
+  border-radius: 8px;
 }
 
 .quantity-selector {

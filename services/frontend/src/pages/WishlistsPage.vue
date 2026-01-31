@@ -139,8 +139,8 @@
               <q-card-section>
                 <div class="row items-start justify-between">
                   <div class="row items-center no-wrap">
-                    <q-icon :name="bookmark.wishlist.icon || 'card_giftcard'" size="24px" color="primary" class="q-mr-sm" />
-                    <div class="text-h6">{{ bookmark.wishlist.title }}</div>
+                    <q-icon :name="bookmark.wishlist.icon || 'card_giftcard'" size="24px" color="primary" class="q-mr-md" />
+                    <div class="text-h6">{{ bookmark.wishlist.title || bookmark.wishlist.name || $t('wishlists.untitled') }}</div>
                   </div>
                   <q-btn
                     flat
