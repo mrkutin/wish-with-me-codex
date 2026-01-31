@@ -199,7 +199,7 @@ async def list_bookmarks(
                 last_accessed_at=datetime.fromisoformat(bookmark.get("last_accessed_at", bookmark["created_at"])),
                 wishlist=SharedWishlistInfo(
                     id=extract_uuid(wishlist["_id"]),
-                    title=wishlist.get("title", ""),
+                    title=wishlist.get("name", wishlist.get("title", "")),
                     description=wishlist.get("description"),
                     icon=wishlist.get("icon", "card_giftcard"),
                     owner=owner_profile,
@@ -254,7 +254,7 @@ async def preview_shared_wishlist(
 
     return SharedWishlistPreview(
         wishlist={
-            "title": wishlist.get("title", "Wishlist"),
+            "title": wishlist.get("name", wishlist.get("title", "")),
             "owner_name": owner_name,
             "item_count": len(items),
         },
@@ -362,7 +362,7 @@ async def get_shared_wishlist(
     return SharedWishlistResponse(
         wishlist=SharedWishlistInfo(
             id=extract_uuid(wishlist["_id"]),
-            title=wishlist.get("title", ""),
+            title=wishlist.get("name", wishlist.get("title", "")),
             description=wishlist.get("description"),
             icon=wishlist.get("icon", "card_giftcard"),
             owner=owner_profile,
