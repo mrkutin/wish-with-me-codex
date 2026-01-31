@@ -126,6 +126,7 @@ import {
   upsert,
   createId,
   softDelete,
+  onSyncComplete,
 } from '@/services/pouchdb';
 import type { ItemDoc, MarkDoc, WishlistDoc } from '@/services/pouchdb';
 import type { SharedItem } from '@/types/share';
@@ -157,6 +158,7 @@ const pouchItems = ref<ItemDoc[]>([]);
 const pouchMarks = ref<MarkDoc[]>([]);
 let unsubscribeItems: (() => void) | null = null;
 let unsubscribeMarks: (() => void) | null = null;
+let unsubscribeSyncComplete: (() => void) | null = null;
 
 const canMark = computed(() => permissions.value.includes('mark'));
 
@@ -311,6 +313,13 @@ function setupSubscriptions() {
     // Re-fetch marks when items change
     loadMarksForItems(items.map(i => i._id));
   });
+
+  // Subscribe to sync complete events to refresh data after background sync
+  // This ensures deleted items are removed from UI when sync reconciliation runs
+  unsubscribeSyncComplete = onSyncComplete(async () => {
+    console.log('[SharedWishlist] Sync complete - refreshing data');
+    await loadFromPouchDB();
+  });
 }
 
 async function loadMarksForItems(itemIds: string[]) {
@@ -441,6 +450,10 @@ function cleanup() {
   if (unsubscribeMarks) {
     unsubscribeMarks();
     unsubscribeMarks = null;
+  }
+  if (unsubscribeSyncComplete) {
+    unsubscribeSyncComplete();
+    unsubscribeSyncComplete = null;
   }
 }
 

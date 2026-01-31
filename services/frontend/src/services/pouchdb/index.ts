@@ -40,8 +40,34 @@ type SyncCallbacks = {
   onStatusChange?: (status: SyncStatus) => void;
   onChange?: (change: PouchDBChange) => void;
   onError?: (error: Error) => void;
+  onSyncComplete?: () => void;
 };
 let syncCallbacks: SyncCallbacks = {};
+
+// Global sync complete listeners for components to subscribe to
+const syncCompleteListeners: Set<() => void> = new Set();
+
+/**
+ * Subscribe to sync completion events.
+ * Returns unsubscribe function.
+ */
+export function onSyncComplete(callback: () => void): () => void {
+  syncCompleteListeners.add(callback);
+  return () => syncCompleteListeners.delete(callback);
+}
+
+/**
+ * Notify all sync complete listeners.
+ */
+function notifySyncComplete(): void {
+  syncCompleteListeners.forEach(cb => {
+    try {
+      cb();
+    } catch (e) {
+      console.error('[PouchDB] Sync complete listener error:', e);
+    }
+  });
+}
 
 /**
  * Get or create the local PouchDB database.
@@ -379,6 +405,7 @@ export function startSync(
       await pushToServer(token, collections);
 
       setSyncStatus('idle');
+      notifySyncComplete();
     } catch (error) {
       if ((error as Error).name === 'AbortError') {
         return; // Sync was cancelled
@@ -442,6 +469,7 @@ export async function triggerSync(token: string): Promise<void> {
       await pushToServer(token, collections);
       await pullFromServer(token, collections);
       setSyncStatus('idle');
+      notifySyncComplete();
     } catch (error) {
       console.error('[PouchDB] Trigger sync error:', error);
       setSyncStatus('error');
