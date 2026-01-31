@@ -549,11 +549,22 @@ export async function find<T extends CouchDBDoc>(
 ): Promise<T[]> {
   const localDb = getDatabase();
 
-  // Ensure _deleted filter is applied
-  const selector = {
-    ...options.selector,
-    _deleted: options.selector._deleted ?? { $ne: true },
-  };
+  // Build selector - use $or to properly handle _deleted field
+  // This matches docs where _deleted doesn't exist OR is explicitly false
+  const baseSelector = options.selector;
+  const selector = options.selector._deleted !== undefined
+    ? baseSelector
+    : {
+        $and: [
+          baseSelector,
+          {
+            $or: [
+              { _deleted: { $exists: false } },
+              { _deleted: false },
+            ],
+          },
+        ],
+      };
 
   const result = await localDb.find({
     selector,
