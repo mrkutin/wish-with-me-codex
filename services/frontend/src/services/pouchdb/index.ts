@@ -224,15 +224,26 @@ async function pushToServer(
   for (const collection of collections) {
     try {
       // Get all local documents of this type INCLUDING deleted ones
-      // This ensures deletions are synced to the server
+      // IMPORTANT: allDocs() does NOT return deleted documents!
+      // We must use the changes feed to get deleted docs
       const localDb = getDatabase();
-      const allDocsResult = await localDb.allDocs({ include_docs: true });
-      const docs = allDocsResult.rows
-        .map((row) => row.doc)
-        .filter((doc): doc is CouchDBDoc => {
-          if (!doc) return false;
-          return doc.type === typeMap[collection];
-        });
+
+      // Use changes feed to get ALL documents including deleted ones
+      const changes = await localDb.changes({
+        since: 0,
+        include_docs: true,
+      });
+
+      // Deduplicate by doc ID (changes may have multiple entries per doc)
+      // Keep only the latest entry for each document
+      const docMap = new Map<string, CouchDBDoc>();
+      for (const change of changes.results) {
+        if (change.doc && change.doc.type === typeMap[collection]) {
+          // Later entries overwrite earlier ones (they're more recent)
+          docMap.set(change.id, change.doc as CouchDBDoc);
+        }
+      }
+      const docs = Array.from(docMap.values());
 
       if (docs.length === 0) continue;
 

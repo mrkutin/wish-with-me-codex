@@ -212,23 +212,30 @@ async def push_collection(
                 server_updated = existing.get("updated_at", "")
 
                 if client_updated <= server_updated:
-                    # Server wins
-                    conflicts.append(ConflictInfo(
-                        document_id=doc_id,
-                        error="Server has newer version",
-                        server_document=existing,
-                    ))
-                    continue
+                    # Server wins - but if client is deleting, allow it
+                    if not doc.get("_deleted"):
+                        conflicts.append(ConflictInfo(
+                            document_id=doc_id,
+                            error="Server has newer version",
+                            server_document=existing,
+                        ))
+                        continue
 
                 # Client wins - update document
                 doc["_rev"] = existing["_rev"]  # Use server's revision
                 doc["updated_at"] = datetime.now(timezone.utc).isoformat()
 
-                # Ensure access array is preserved
-                if "access" not in doc:
+                # Ensure access array is preserved (unless deleting)
+                if "access" not in doc and not doc.get("_deleted"):
                     doc["access"] = existing.get("access", [])
 
             except DocumentNotFoundError:
+                # Document doesn't exist on server
+                # If it's already deleted on client, skip it (nothing to sync)
+                if doc.get("_deleted"):
+                    logger.debug(f"Skipping deleted doc that doesn't exist on server: {doc_id}")
+                    continue
+
                 # New document - ensure required fields
                 doc["updated_at"] = datetime.now(timezone.utc).isoformat()
                 if "created_at" not in doc:
