@@ -70,6 +70,9 @@ async function createIndexes(database: PouchDB.Database<CouchDBDoc>): Promise<vo
     { index: { fields: ['type', 'item_id'] } },
     { index: { fields: ['type', 'updated_at'] } },
     { index: { fields: ['type', 'created_at'] } },
+    // Compound indexes for sorted queries
+    { index: { fields: ['type', 'wishlist_id', 'created_at'] } },  // getItems with sort
+    { index: { fields: ['type', 'owner_id', 'updated_at'] } },     // getWishlists with sort
   ];
 
   for (const idx of indexes) {
@@ -616,13 +619,20 @@ export function subscribeToChanges<T extends CouchDBDoc>(
  * Get all wishlists for a user.
  */
 export async function getWishlists(userId: string): Promise<WishlistDoc[]> {
-  return find<WishlistDoc>({
+  const wishlists = await find<WishlistDoc>({
     selector: {
       type: 'wishlist',
       owner_id: userId,
     },
-    sort: [{ updated_at: 'desc' }],
+    // Note: Sort in JavaScript to avoid PouchDB index issues
   });
+  // Sort by updated_at descending in JavaScript
+  wishlists.sort((a, b) => {
+    const dateA = a.updated_at || '';
+    const dateB = b.updated_at || '';
+    return dateB.localeCompare(dateA);
+  });
+  return wishlists;
 }
 
 /**
@@ -649,7 +659,13 @@ export async function getItems(wishlistId: string): Promise<ItemDoc[]> {
       type: 'item',
       wishlist_id: wishlistId,
     },
-    sort: [{ created_at: 'desc' }],
+    // Note: Sort in JavaScript to avoid PouchDB index issues
+  });
+  // Sort by created_at descending in JavaScript
+  items.sort((a, b) => {
+    const dateA = a.created_at || '';
+    const dateB = b.created_at || '';
+    return dateB.localeCompare(dateA);
   });
   console.log('[PouchDB] getItems result:', items.length, 'items found');
   return items;
