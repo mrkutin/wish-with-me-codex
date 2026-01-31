@@ -149,6 +149,10 @@ async function pullFromServer(
 
       const data = await response.json();
       const docs = data.documents || [];
+      console.log(`[PouchDB] Received ${docs.length} ${collection} from server`);
+      if (collection === 'items' && docs.length > 0) {
+        console.log(`[PouchDB] First item:`, docs[0]._id, docs[0].title, 'wishlist_id:', docs[0].wishlist_id);
+      }
 
       // Upsert each document to local database
       for (const doc of docs) {
@@ -362,24 +366,57 @@ export function startSync(
   console.log('[PouchDB] Sync started for user:', userId);
 }
 
+// Track pending sync promise for waiting
+let currentSyncPromise: Promise<void> | null = null;
+
+/**
+ * Wait for any in-progress sync to complete.
+ */
+async function waitForSyncComplete(): Promise<void> {
+  if (currentSyncPromise) {
+    try {
+      await currentSyncPromise;
+    } catch {
+      // Ignore errors - we just want to wait for completion
+    }
+  }
+}
+
 /**
  * Trigger an immediate sync (e.g., after local write).
+ * If a sync is already in progress, waits for it to complete then performs another sync.
  */
 export async function triggerSync(token: string): Promise<void> {
-  if (syncStatus === 'syncing') return;
+  // If sync is already in progress, wait for it to complete first
+  if (syncStatus === 'syncing') {
+    console.log('[PouchDB] Sync in progress, waiting for completion...');
+    await waitForSyncComplete();
+    // After waiting, check again (another trigger might have started)
+    if (syncStatus === 'syncing') {
+      await waitForSyncComplete();
+      return;
+    }
+  }
 
   const collections: Array<'wishlists' | 'items' | 'marks' | 'bookmarks'> = ['wishlists', 'items', 'marks', 'bookmarks'];
 
-  try {
-    setSyncStatus('syncing');
-    await pushToServer(token, collections);
-    await pullFromServer(token, collections);
-    setSyncStatus('idle');
-  } catch (error) {
-    console.error('[PouchDB] Trigger sync error:', error);
-    setSyncStatus('error');
-    syncCallbacks.onError?.(error as Error);
-  }
+  const doSync = async () => {
+    try {
+      setSyncStatus('syncing');
+      await pushToServer(token, collections);
+      await pullFromServer(token, collections);
+      setSyncStatus('idle');
+    } catch (error) {
+      console.error('[PouchDB] Trigger sync error:', error);
+      setSyncStatus('error');
+      syncCallbacks.onError?.(error as Error);
+    }
+  };
+
+  // Store promise so other callers can wait for it
+  currentSyncPromise = doSync();
+  await currentSyncPromise;
+  currentSyncPromise = null;
 }
 
 /**
@@ -456,6 +493,8 @@ export async function find<T extends CouchDBDoc>(
     _deleted: options.selector._deleted ?? { $ne: true },
   };
 
+  console.log('[PouchDB] find query:', JSON.stringify(selector));
+
   const result = await localDb.find({
     selector,
     sort: options.sort,
@@ -463,6 +502,8 @@ export async function find<T extends CouchDBDoc>(
     skip: options.skip,
     fields: options.fields,
   });
+
+  console.log('[PouchDB] find result:', result.docs.length, 'docs');
 
   return result.docs as T[];
 }
@@ -602,13 +643,16 @@ export async function getSharedWishlists(userId: string): Promise<WishlistDoc[]>
  * Get items for a wishlist.
  */
 export async function getItems(wishlistId: string): Promise<ItemDoc[]> {
-  return find<ItemDoc>({
+  console.log('[PouchDB] getItems called with wishlistId:', wishlistId);
+  const items = await find<ItemDoc>({
     selector: {
       type: 'item',
       wishlist_id: wishlistId,
     },
     sort: [{ created_at: 'desc' }],
   });
+  console.log('[PouchDB] getItems result:', items.length, 'items found');
+  return items;
 }
 
 /**

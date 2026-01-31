@@ -178,9 +178,9 @@ const displayItems = computed<SharedItem[]>(() => {
         id: itemId,
         title: item.title,
         description: item.description || null,
-        url: item.url || null,
-        price_amount: item.price_amount || null,
-        price_currency: item.price_currency || null,
+        url: item.source_url || null,
+        price_amount: item.price != null ? String(item.price) : null,
+        price_currency: item.currency || null,
         image_base64: item.image_base64 || null,
         quantity: item.quantity || 1,
         marked_quantity: totalMarked,
@@ -215,9 +215,12 @@ async function handleRefresh(done: () => void) {
 async function initializeSharedWishlist() {
   isLoading.value = true;
   try {
+    console.log('[SharedWishlist] Starting initialization with token:', token.value);
+
     // Minimal API call to grant access (adds user to access arrays)
     // This is necessary for authorization - not data fetching
     const response = await api.post<GrantAccessResponse>(`/api/v1/shared/${token.value}/grant-access`);
+    console.log('[SharedWishlist] Grant access response:', response.data);
 
     // If current user is the owner, redirect to normal wishlist view
     const wlId = response.data.wishlist_id;
@@ -226,10 +229,13 @@ async function initializeSharedWishlist() {
 
     // Trigger sync to pull the newly accessible documents
     if (authStore.token) {
+      console.log('[SharedWishlist] Triggering sync...');
       await triggerSync(authStore.token);
+      console.log('[SharedWishlist] Sync completed');
     }
 
     // Load from PouchDB
+    console.log('[SharedWishlist] Loading from PouchDB...');
     await loadFromPouchDB();
 
     // Check if user is owner
@@ -240,6 +246,7 @@ async function initializeSharedWishlist() {
     }
 
     // Setup subscriptions for real-time updates
+    console.log('[SharedWishlist] Setting up subscriptions...');
     setupSubscriptions();
 
   } catch (error: any) {
@@ -262,15 +269,22 @@ async function initializeSharedWishlist() {
 }
 
 async function loadFromPouchDB() {
-  if (!wishlistId.value) return;
+  if (!wishlistId.value) {
+    console.log('[SharedWishlist] loadFromPouchDB: no wishlistId');
+    return;
+  }
+
+  console.log('[SharedWishlist] loadFromPouchDB: loading wishlist', wishlistId.value);
 
   // Load wishlist
   const wl = await findById<WishlistDoc>(wishlistId.value);
+  console.log('[SharedWishlist] Wishlist loaded:', wl ? wl._id : 'not found');
   wishlistDoc.value = wl;
 
   // Load owner info
   if (wl?.owner_id) {
     const owner = await findById<any>(wl.owner_id);
+    console.log('[SharedWishlist] Owner loaded:', owner ? owner.name : 'not found');
     if (owner) {
       ownerDoc.value = { name: owner.name, avatar_base64: owner.avatar_base64 };
     }
@@ -278,6 +292,10 @@ async function loadFromPouchDB() {
 
   // Load items
   const items = await getItems(wishlistId.value);
+  console.log('[SharedWishlist] Items loaded:', items.length, 'items');
+  if (items.length > 0) {
+    console.log('[SharedWishlist] First item:', items[0]._id, items[0].title);
+  }
   pouchItems.value = items;
 
   // Load marks for all items
