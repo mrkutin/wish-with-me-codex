@@ -29,6 +29,13 @@ async def get_db() -> CouchDBClient:
     return get_couchdb()
 
 
+def normalize_wishlist_id(wishlist_id: str) -> str:
+    """Normalize wishlist ID to CouchDB format (wishlist:uuid)."""
+    if wishlist_id.startswith("wishlist:"):
+        return wishlist_id
+    return f"wishlist:{wishlist_id}"
+
+
 def generate_token(length: int = 32) -> str:
     """Generate a secure URL-safe token."""
     alphabet = string.ascii_letters + string.digits
@@ -103,13 +110,13 @@ def share_doc_to_response(doc: dict) -> ShareLinkResponse:
     },
 )
 async def list_share_links(
-    wishlist_id: UUID,
+    wishlist_id: str,
     current_user: CurrentUserCouchDB,
     db: Annotated[CouchDBClient, Depends(get_db)],
 ) -> ShareLinkListResponse:
     """List all share links for a wishlist (owner only)."""
     user_id = current_user["_id"]
-    wishlist_doc_id = f"wishlist:{wishlist_id}"
+    wishlist_doc_id = normalize_wishlist_id(wishlist_id)
 
     # Check wishlist exists and user is owner
     try:
@@ -157,14 +164,14 @@ async def list_share_links(
     },
 )
 async def create_share_link(
-    wishlist_id: UUID,
+    wishlist_id: str,
     data: ShareLinkCreate,
     current_user: CurrentUserCouchDB,
     db: Annotated[CouchDBClient, Depends(get_db)],
 ) -> ShareLinkResponse:
     """Create a new share link for a wishlist (owner only)."""
     user_id = current_user["_id"]
-    wishlist_doc_id = f"wishlist:{wishlist_id}"
+    wishlist_doc_id = normalize_wishlist_id(wishlist_id)
 
     # Check wishlist exists and user is owner
     try:
@@ -208,14 +215,19 @@ async def create_share_link(
     },
 )
 async def revoke_share_link(
-    wishlist_id: UUID,
-    share_id: UUID,
+    wishlist_id: str,
+    share_id: str,
     current_user: CurrentUserCouchDB,
     db: Annotated[CouchDBClient, Depends(get_db)],
 ) -> None:
     """Revoke a share link (owner only)."""
     user_id = current_user["_id"]
-    share_doc_id = f"share:{share_id}"
+    # Normalize share_id - handle both 'share:uuid' and plain 'uuid'
+    if share_id.startswith("share:"):
+        share_doc_id = share_id
+    else:
+        share_doc_id = f"share:{share_id}"
+    wishlist_doc_id = normalize_wishlist_id(wishlist_id)
 
     # Get share document
     try:
@@ -234,7 +246,7 @@ async def revoke_share_link(
         )
 
     # Verify it belongs to the right wishlist
-    if share.get("wishlist_id") != f"wishlist:{wishlist_id}":
+    if share.get("wishlist_id") != wishlist_doc_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Share link not found",
