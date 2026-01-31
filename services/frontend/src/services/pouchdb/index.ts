@@ -187,7 +187,6 @@ async function pullFromServer(
 
       const data = await response.json();
       const serverDocs = data.documents || [];
-      console.log(`[PouchDB] Received ${serverDocs.length} ${collection} from server`);
 
       // Build set of IDs from server (non-deleted docs user has access to)
       const serverDocIds = new Set(serverDocs.map((d: CouchDBDoc) => d._id));
@@ -235,7 +234,6 @@ async function pullFromServer(
         for (const localDoc of localResult.docs) {
           if (!serverDocIds.has(localDoc._id)) {
             // This doc exists locally but not on server - it was deleted or access revoked
-            console.log(`[PouchDB] Reconciliation: marking ${localDoc._id} as deleted (not in server response)`);
             try {
               await localDb.put({
                 ...localDoc,
@@ -557,8 +555,6 @@ export async function find<T extends CouchDBDoc>(
     _deleted: options.selector._deleted ?? { $ne: true },
   };
 
-  console.log('[PouchDB] find query:', JSON.stringify(selector));
-
   const result = await localDb.find({
     selector,
     sort: options.sort,
@@ -566,8 +562,6 @@ export async function find<T extends CouchDBDoc>(
     skip: options.skip,
     fields: options.fields,
   });
-
-  console.log('[PouchDB] find result:', result.docs.length, 'docs');
 
   return result.docs as T[];
 }
@@ -714,21 +708,14 @@ export async function getSharedWishlists(userId: string): Promise<WishlistDoc[]>
  * Get items for a wishlist.
  */
 export async function getItems(wishlistId: string): Promise<ItemDoc[]> {
-  console.log('[PouchDB] getItems called with wishlistId:', wishlistId);
   const items = await find<ItemDoc>({
     selector: {
       type: 'item',
       wishlist_id: wishlistId,
     },
-    // Note: Sort in JavaScript to avoid PouchDB index issues
   });
-  // Sort by created_at descending in JavaScript
-  items.sort((a, b) => {
-    const dateA = a.created_at || '';
-    const dateB = b.created_at || '';
-    return dateB.localeCompare(dateA);
-  });
-  console.log('[PouchDB] getItems result:', items.length, 'items found');
+  // Sort by created_at descending in JavaScript (avoids PouchDB index issues)
+  items.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
   return items;
 }
 

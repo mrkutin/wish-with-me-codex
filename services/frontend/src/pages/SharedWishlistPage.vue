@@ -217,30 +217,22 @@ async function handleRefresh(done: () => void) {
 async function initializeSharedWishlist() {
   isLoading.value = true;
   try {
-    console.log('[SharedWishlist] Starting initialization with token:', token.value);
-
     // Minimal API call to grant access (adds user to access arrays)
-    // This is necessary for authorization - not data fetching
     const response = await api.post<GrantAccessResponse>(`/api/v1/shared/${token.value}/grant-access`);
-    console.log('[SharedWishlist] Grant access response:', response.data);
 
-    // If current user is the owner, redirect to normal wishlist view
     const wlId = response.data.wishlist_id;
     wishlistId.value = wlId;
     permissions.value = response.data.permissions;
 
     // Trigger sync to pull the newly accessible documents
     if (authStore.token) {
-      console.log('[SharedWishlist] Triggering sync...');
       await triggerSync(authStore.token);
-      console.log('[SharedWishlist] Sync completed');
     }
 
     // Load from PouchDB
-    console.log('[SharedWishlist] Loading from PouchDB...');
     await loadFromPouchDB();
 
-    // Check if user is owner
+    // Check if user is owner - redirect to normal wishlist view
     if (wishlistDoc.value && authStore.user && wishlistDoc.value.owner_id === `user:${authStore.user.id}`) {
       const id = wishlistId.value.replace('wishlist:', '');
       router.replace({ name: 'wishlist-detail', params: { id } });
@@ -248,11 +240,9 @@ async function initializeSharedWishlist() {
     }
 
     // Setup subscriptions for real-time updates
-    console.log('[SharedWishlist] Setting up subscriptions...');
     setupSubscriptions();
 
   } catch (error: any) {
-    console.error('[SharedWishlist] Error:', error);
     if (error.response?.status === 401) {
       LocalStorage.set(PENDING_SHARE_TOKEN_KEY, token.value);
       router.push({ name: 'login', query: { share_token: token.value } });
@@ -271,22 +261,15 @@ async function initializeSharedWishlist() {
 }
 
 async function loadFromPouchDB() {
-  if (!wishlistId.value) {
-    console.log('[SharedWishlist] loadFromPouchDB: no wishlistId');
-    return;
-  }
-
-  console.log('[SharedWishlist] loadFromPouchDB: loading wishlist', wishlistId.value);
+  if (!wishlistId.value) return;
 
   // Load wishlist
   const wl = await findById<WishlistDoc>(wishlistId.value);
-  console.log('[SharedWishlist] Wishlist loaded:', wl ? wl._id : 'not found');
   wishlistDoc.value = wl;
 
   // Load owner info
   if (wl?.owner_id) {
     const owner = await findById<any>(wl.owner_id);
-    console.log('[SharedWishlist] Owner loaded:', owner ? owner.name : 'not found');
     if (owner) {
       ownerDoc.value = { name: owner.name, avatar_base64: owner.avatar_base64 };
     }
@@ -294,10 +277,6 @@ async function loadFromPouchDB() {
 
   // Load items
   const items = await getItems(wishlistId.value);
-  console.log('[SharedWishlist] Items loaded:', items.length, 'items');
-  if (items.length > 0) {
-    console.log('[SharedWishlist] First item:', items[0]._id, items[0].title);
-  }
   pouchItems.value = items;
 
   // Load marks for all items
@@ -316,10 +295,7 @@ function setupSubscriptions() {
 
   // Subscribe to sync complete events to refresh data after background sync
   // This ensures deleted items are removed from UI when sync reconciliation runs
-  unsubscribeSyncComplete = onSyncComplete(async () => {
-    console.log('[SharedWishlist] Sync complete - refreshing data');
-    await loadFromPouchDB();
-  });
+  unsubscribeSyncComplete = onSyncComplete(() => loadFromPouchDB());
 }
 
 async function loadMarksForItems(itemIds: string[]) {
