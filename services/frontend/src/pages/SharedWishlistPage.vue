@@ -131,6 +131,8 @@ const token = computed(() => route.params.token as string);
 const isLoading = ref(true);
 const sharedWishlist = ref<SharedWishlistResponse | null>(null);
 const markingItemId = ref<string | null>(null);
+let pollIntervalId: ReturnType<typeof setInterval> | null = null;
+const POLL_INTERVAL_MS = 10000; // Poll every 10 seconds for updates
 
 const canMark = computed(() => {
   return sharedWishlist.value?.permissions.includes('mark') ?? false;
@@ -252,49 +254,71 @@ async function unmarkItem(item: SharedItem) {
   }
 }
 
-// Handle SSE marks:updated events for real-time sync
-async function handleMarksUpdated(event: Event) {
-  const customEvent = event as CustomEvent<{ item_id?: string }>;
-  const itemId = customEvent.detail?.item_id;
-
-  if (!sharedWishlist.value || !itemId) return;
-
-  // Find the item in our list
-  const item = sharedWishlist.value.items.find((i) => i.id === itemId);
-  if (!item) return;
-
-  console.log('[SharedWishlist] Updating item due to marks:updated:', itemId);
+// Poll for updates to shared wishlist (items added/removed/changed)
+async function pollForUpdates() {
+  if (!sharedWishlist.value || markingItemId.value) return; // Don't poll while marking
 
   try {
-    // Fetch fresh data
     const response = await api.get<SharedWishlistResponse>(`/api/v1/shared/${token.value}`);
-    const updatedItem = response.data.items.find((i) => i.id === itemId);
 
-    if (updatedItem) {
-      // Only update the mark-related fields of this specific item
-      item.marked_quantity = updatedItem.marked_quantity;
-      item.available_quantity = updatedItem.available_quantity;
-      item.my_mark_quantity = updatedItem.my_mark_quantity;
+    // Update items - merge changes to preserve reactivity
+    const newItems = response.data.items;
+    const currentItems = sharedWishlist.value.items;
+
+    // Check if items have changed
+    const itemsChanged =
+      newItems.length !== currentItems.length ||
+      newItems.some((newItem, idx) => {
+        const currentItem = currentItems.find(i => i.id === newItem.id);
+        if (!currentItem) return true;
+        return (
+          currentItem.title !== newItem.title ||
+          currentItem.quantity !== newItem.quantity ||
+          currentItem.marked_quantity !== newItem.marked_quantity ||
+          currentItem.available_quantity !== newItem.available_quantity ||
+          currentItem.price_amount !== newItem.price_amount
+        );
+      });
+
+    if (itemsChanged) {
+      sharedWishlist.value.items = newItems;
+    }
+
+    // Update wishlist metadata if changed
+    if (sharedWishlist.value.wishlist.title !== response.data.wishlist.title ||
+        sharedWishlist.value.wishlist.description !== response.data.wishlist.description) {
+      sharedWishlist.value.wishlist = response.data.wishlist;
     }
   } catch (error) {
-    console.error('[SharedWishlist] Failed to update item:', error);
+    // Silently ignore polling errors - user can pull-to-refresh
+    console.debug('[SharedWishlist] Poll failed:', error);
   }
 }
 
-onMounted(() => {
+function startPolling() {
+  if (pollIntervalId) return;
+  pollIntervalId = setInterval(pollForUpdates, POLL_INTERVAL_MS);
+}
+
+function stopPolling() {
+  if (pollIntervalId) {
+    clearInterval(pollIntervalId);
+    pollIntervalId = null;
+  }
+}
+
+onMounted(async () => {
   if (!authStore.isAuthenticated) {
     // Store share token so we can redirect back after login
     LocalStorage.set(PENDING_SHARE_TOKEN_KEY, token.value);
     router.push({ name: 'login', query: { share_token: token.value } });
     return;
   }
-  fetchSharedWishlist();
-
-  // Listen for SSE marks:updated events
-  window.addEventListener('sse:marks-updated', handleMarksUpdated);
+  await fetchSharedWishlist();
+  startPolling();
 });
 
 onUnmounted(() => {
-  window.removeEventListener('sse:marks-updated', handleMarksUpdated);
+  stopPolling();
 });
 </script>

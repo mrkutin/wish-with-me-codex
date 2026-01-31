@@ -318,7 +318,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, watch } from 'vue';
+import { ref, reactive, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
 import { useI18n } from 'vue-i18n';
@@ -341,6 +341,8 @@ const showShareDialog = ref(false);
 const sharingWishlist = ref<Wishlist | null>(null);
 const sharedBookmarks = ref<SharedWishlistBookmark[]>([]);
 const isLoadingBookmarks = ref(false);
+let bookmarksPollIntervalId: ReturnType<typeof setInterval> | null = null;
+const BOOKMARK_POLL_INTERVAL_MS = 15000; // Poll every 15 seconds
 
 const iconOptions = [
   { value: 'card_giftcard', label: 'Gift' },
@@ -371,15 +373,33 @@ const editingWishlist = reactive({
   icon: 'card_giftcard',
 });
 
-async function fetchBookmarks() {
-  isLoadingBookmarks.value = true;
+async function fetchBookmarks(silent = false) {
+  if (!silent) {
+    isLoadingBookmarks.value = true;
+  }
   try {
     const response = await api.get<SharedWishlistBookmarkListResponse>('/api/v1/shared/bookmarks');
     sharedBookmarks.value = response.data.items;
   } catch (error) {
-    console.error('Failed to fetch bookmarks:', error);
+    if (!silent) {
+      console.error('Failed to fetch bookmarks:', error);
+    }
   } finally {
-    isLoadingBookmarks.value = false;
+    if (!silent) {
+      isLoadingBookmarks.value = false;
+    }
+  }
+}
+
+function startBookmarksPolling() {
+  if (bookmarksPollIntervalId) return;
+  bookmarksPollIntervalId = setInterval(() => fetchBookmarks(true), BOOKMARK_POLL_INTERVAL_MS);
+}
+
+function stopBookmarksPolling() {
+  if (bookmarksPollIntervalId) {
+    clearInterval(bookmarksPollIntervalId);
+    bookmarksPollIntervalId = null;
   }
 }
 
@@ -537,9 +557,12 @@ watch(activeTab, (newTab) => {
   const newQuery = newTab === 'shared' ? { tab: 'shared' } : {};
   router.replace({ query: newQuery });
 
-  // Fetch bookmarks when switching to shared tab
-  if (newTab === 'shared' && sharedBookmarks.value.length === 0) {
+  // Fetch bookmarks and start polling when switching to shared tab
+  if (newTab === 'shared') {
     fetchBookmarks();
+    startBookmarksPolling();
+  } else {
+    stopBookmarksPolling();
   }
 });
 
@@ -549,8 +572,13 @@ onMounted(() => {
   if (tabParam === 'shared') {
     activeTab.value = 'shared';
     fetchBookmarks();
+    startBookmarksPolling();
   }
   wishlistStore.fetchWishlists();
+});
+
+onUnmounted(() => {
+  stopBookmarksPolling();
 });
 </script>
 
