@@ -289,7 +289,6 @@ function formatPrice(price: string | null, currency: string | null): string {
 
 .image-container {
   padding: 4px;
-  background: #f5f5f5;
   border-radius: 8px;
 }
 
