@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v2/sync", tags=["sync-v2"])
 
-CollectionType = Literal["wishlists", "items", "marks"]
+CollectionType = Literal["wishlists", "items", "marks", "bookmarks"]
 
 
 class SyncDocument(BaseModel):
@@ -84,6 +84,7 @@ async def pull_collection(
         "wishlists": "wishlist",
         "items": "item",
         "marks": "mark",
+        "bookmarks": "bookmark",
     }
     doc_type = type_map[collection]
 
@@ -141,6 +142,7 @@ async def push_collection(
         "wishlists": "wishlist",
         "items": "item",
         "marks": "mark",
+        "bookmarks": "bookmark",
     }
     doc_type = type_map[collection]
 

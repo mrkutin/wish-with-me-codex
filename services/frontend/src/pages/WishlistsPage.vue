@@ -323,7 +323,9 @@ import { useRoute, useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
 import { useI18n } from 'vue-i18n';
 import { useWishlistStore } from '@/stores/wishlist';
+import { useAuthStore } from '@/stores/auth';
 import { api } from '@/boot/axios';
+import { triggerSync, subscribeToBookmarks } from '@/services/pouchdb';
 import ShareDialog from '@/components/ShareDialog.vue';
 import type { Wishlist } from '@/types/wishlist';
 import type { SharedWishlistBookmark, SharedWishlistBookmarkListResponse } from '@/types/share';
@@ -333,6 +335,7 @@ const router = useRouter();
 const $q = useQuasar();
 const { t } = useI18n();
 const wishlistStore = useWishlistStore();
+const authStore = useAuthStore();
 
 const activeTab = ref('my');
 const showCreateDialog = ref(false);
@@ -341,8 +344,7 @@ const showShareDialog = ref(false);
 const sharingWishlist = ref<Wishlist | null>(null);
 const sharedBookmarks = ref<SharedWishlistBookmark[]>([]);
 const isLoadingBookmarks = ref(false);
-let bookmarksPollIntervalId: ReturnType<typeof setInterval> | null = null;
-const BOOKMARK_POLL_INTERVAL_MS = 15000; // Poll every 15 seconds
+let unsubscribeBookmarks: (() => void) | null = null;
 
 const iconOptions = [
   { value: 'card_giftcard', label: 'Gift' },
@@ -378,6 +380,11 @@ async function fetchBookmarks(silent = false) {
     isLoadingBookmarks.value = true;
   }
   try {
+    // Trigger sync first to get latest bookmarks from server
+    if (authStore.token) {
+      await triggerSync(authStore.token);
+    }
+    // Fetch enriched bookmark list via REST (includes wishlist details, owner, item count)
     const response = await api.get<SharedWishlistBookmarkListResponse>('/api/v1/shared/bookmarks');
     sharedBookmarks.value = response.data.items;
   } catch (error) {
@@ -391,15 +398,21 @@ async function fetchBookmarks(silent = false) {
   }
 }
 
-function startBookmarksPolling() {
-  if (bookmarksPollIntervalId) return;
-  bookmarksPollIntervalId = setInterval(() => fetchBookmarks(true), BOOKMARK_POLL_INTERVAL_MS);
+function setupBookmarkSubscription() {
+  if (unsubscribeBookmarks || !authStore.user) return;
+
+  // Subscribe to bookmark changes via PouchDB
+  unsubscribeBookmarks = subscribeToBookmarks(authStore.user.id, () => {
+    // When bookmarks change locally, refresh the list from REST API
+    // (REST provides enriched data with wishlist details)
+    fetchBookmarks(true);
+  });
 }
 
-function stopBookmarksPolling() {
-  if (bookmarksPollIntervalId) {
-    clearInterval(bookmarksPollIntervalId);
-    bookmarksPollIntervalId = null;
+function cleanupBookmarkSubscription() {
+  if (unsubscribeBookmarks) {
+    unsubscribeBookmarks();
+    unsubscribeBookmarks = null;
   }
 }
 
@@ -557,28 +570,27 @@ watch(activeTab, (newTab) => {
   const newQuery = newTab === 'shared' ? { tab: 'shared' } : {};
   router.replace({ query: newQuery });
 
-  // Fetch bookmarks and start polling when switching to shared tab
+  // Fetch bookmarks when switching to shared tab
   if (newTab === 'shared') {
     fetchBookmarks();
-    startBookmarksPolling();
-  } else {
-    stopBookmarksPolling();
   }
 });
 
 onMounted(() => {
+  // Setup PouchDB subscription for real-time bookmark updates
+  setupBookmarkSubscription();
+
   // Check for tab query parameter
   const tabParam = route.query.tab as string;
   if (tabParam === 'shared') {
     activeTab.value = 'shared';
     fetchBookmarks();
-    startBookmarksPolling();
   }
   wishlistStore.fetchWishlists();
 });
 
 onUnmounted(() => {
-  stopBookmarksPolling();
+  cleanupBookmarkSubscription();
 });
 </script>
 

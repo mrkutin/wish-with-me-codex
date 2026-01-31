@@ -8,7 +8,7 @@ export interface BaseDoc {
   _id: string;
   _rev?: string;
   _deleted?: boolean;
-  type: 'user' | 'wishlist' | 'item' | 'mark' | 'share';
+  type: 'user' | 'wishlist' | 'item' | 'mark' | 'share' | 'bookmark';
   access: string[]; // User IDs who can access this document
   created_at: string;
   updated_at: string;
@@ -78,8 +78,21 @@ export interface ShareDoc extends BaseDoc {
   granted_users: string[];
 }
 
+// Bookmark document (user's saved shared wishlists)
+export interface BookmarkDoc {
+  _id: string;
+  _rev?: string;
+  _deleted?: boolean;
+  type: 'bookmark';
+  user_id: string;
+  share_id: string;
+  access: string[];
+  created_at: string;
+  last_accessed_at: string;
+}
+
 // Union type for all documents
-export type CouchDBDoc = UserDoc | WishlistDoc | ItemDoc | MarkDoc | ShareDoc;
+export type CouchDBDoc = UserDoc | WishlistDoc | ItemDoc | MarkDoc | ShareDoc | BookmarkDoc;
 
 // Helper to extract ID without type prefix
 export function extractId(docId: string): string {

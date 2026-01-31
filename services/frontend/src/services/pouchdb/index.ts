@@ -15,6 +15,7 @@ import type {
   WishlistDoc,
   ItemDoc,
   MarkDoc,
+  BookmarkDoc,
   PouchDBFindOptions,
   PouchDBChange,
   SyncStatus,
@@ -123,7 +124,7 @@ function setSyncStatus(status: SyncStatus): void {
  */
 async function pullFromServer(
   token: string,
-  collections: Array<'wishlists' | 'items' | 'marks'>
+  collections: Array<'wishlists' | 'items' | 'marks' | 'bookmarks'>
 ): Promise<void> {
   const localDb = getDatabase();
   const baseUrl = getApiBaseUrl();
@@ -209,7 +210,7 @@ async function pullFromServer(
  */
 async function pushToServer(
   token: string,
-  collections: Array<'wishlists' | 'items' | 'marks'>
+  collections: Array<'wishlists' | 'items' | 'marks' | 'bookmarks'>
 ): Promise<void> {
   const localDb = getDatabase();
   const baseUrl = getApiBaseUrl();
@@ -219,6 +220,7 @@ async function pushToServer(
     wishlists: 'wishlist',
     items: 'item',
     marks: 'mark',
+    bookmarks: 'bookmark',
   };
 
   for (const collection of collections) {
@@ -320,7 +322,7 @@ export function startSync(
   syncAbortController = new AbortController();
 
   const interval = options?.interval || 30000;
-  const collections: Array<'wishlists' | 'items' | 'marks'> = ['wishlists', 'items', 'marks'];
+  const collections: Array<'wishlists' | 'items' | 'marks' | 'bookmarks'> = ['wishlists', 'items', 'marks', 'bookmarks'];
 
   // Initial sync
   const doSync = async () => {
@@ -366,7 +368,7 @@ export function startSync(
 export async function triggerSync(token: string): Promise<void> {
   if (syncStatus === 'syncing') return;
 
-  const collections: Array<'wishlists' | 'items' | 'marks'> = ['wishlists', 'items', 'marks'];
+  const collections: Array<'wishlists' | 'items' | 'marks' | 'bookmarks'> = ['wishlists', 'items', 'marks', 'bookmarks'];
 
   try {
     setSyncStatus('syncing');
@@ -689,6 +691,32 @@ export function subscribeToMarks(
   );
 }
 
+/**
+ * Get bookmarks for a user.
+ */
+export async function getBookmarks(userId: string): Promise<BookmarkDoc[]> {
+  return find<BookmarkDoc>({
+    selector: {
+      type: 'bookmark',
+      user_id: userId,
+    },
+  });
+}
+
+/**
+ * Subscribe to bookmark changes for a user.
+ */
+export function subscribeToBookmarks(
+  userId: string,
+  callback: (bookmarks: BookmarkDoc[]) => void
+): () => void {
+  return subscribeToChanges<BookmarkDoc>(
+    'bookmark',
+    callback,
+    (doc) => doc.user_id === userId
+  );
+}
+
 // Export types and helpers
 export { createId, extractId } from './types';
-export type { CouchDBDoc, WishlistDoc, ItemDoc, MarkDoc, PouchDBChange, SyncStatus };
+export type { CouchDBDoc, WishlistDoc, ItemDoc, MarkDoc, BookmarkDoc, PouchDBChange, SyncStatus };
