@@ -83,12 +83,12 @@ async def grant_access_to_user(db: CouchDBClient, share: dict, user_id: str) -> 
         await db.update_access_arrays(share["wishlist_id"], user_id, action="add")
 
     # Auto-create bookmark for "Shared with me" tab
-    existing_bookmark = await db.find({
+    all_existing = await db.find({
         "type": "bookmark",
         "user_id": user_id,
         "share_id": share["_id"],
-        "_deleted": {"$ne": True},
     })
+    existing_bookmark = [b for b in all_existing if not b.get("_deleted")]
 
     if existing_bookmark:
         # Update last_accessed_at
@@ -314,12 +314,12 @@ async def mark_item(
     wishlist = await db.get(share["wishlist_id"])
     owner_id = wishlist.get("owner_id")
 
-    # Get existing marks for this item
-    marks = await db.find({
+    # Get existing marks for this item (filter _deleted in Python)
+    all_marks = await db.find({
         "type": "mark",
         "item_id": item_doc_id,
-        "_deleted": {"$ne": True},
     })
+    marks = [m for m in all_marks if not m.get("_deleted")]
 
     total_marked = sum(m.get("quantity", 1) for m in marks)
     my_existing_mark = next(
@@ -408,12 +408,12 @@ async def unmark_item(
             detail="Item not found in this wishlist",
         )
 
-    # Get existing marks for this item
-    marks = await db.find({
+    # Get existing marks for this item (filter _deleted in Python)
+    all_marks = await db.find({
         "type": "mark",
         "item_id": item_doc_id,
-        "_deleted": {"$ne": True},
     })
+    marks = [m for m in all_marks if not m.get("_deleted")]
 
     my_mark = next(
         (m for m in marks if m.get("marked_by") == user_id),
@@ -459,20 +459,22 @@ async def list_bookmarks(
     from app.schemas.share import SharedWishlistBookmarkListResponse, SharedWishlistBookmarkResponse
 
     user_id = current_user["_id"]
+    logger.info(f"Fetching bookmarks for user: {user_id}")
 
-    # Find all bookmarks for this user
-    bookmarks = await db.find({
+    # Find all bookmarks for this user (filter _deleted in Python)
+    all_bookmarks = await db.find({
         "type": "bookmark",
         "user_id": user_id,
-        "_deleted": {"$ne": True},
     })
+    bookmarks = [b for b in all_bookmarks if not b.get("_deleted")]
+    logger.info(f"Found {len(bookmarks)} bookmarks for user {user_id}")
 
     items = []
     for bookmark in bookmarks:
         try:
             # Get the share document
             share = await db.get(bookmark["share_id"])
-            if share.get("revoked"):
+            if share.get("revoked") or share.get("_deleted"):
                 continue
 
             # Check expiration
@@ -483,6 +485,8 @@ async def list_bookmarks(
 
             # Get wishlist
             wishlist = await db.get(share["wishlist_id"])
+            if wishlist.get("_deleted"):
+                continue
 
             # Get owner
             try:
@@ -499,12 +503,12 @@ async def list_bookmarks(
                     avatar_base64=None,
                 )
 
-            # Count items
-            wishlist_items = await db.find({
+            # Count items (filter _deleted in Python)
+            all_wishlist_items = await db.find({
                 "type": "item",
                 "wishlist_id": share["wishlist_id"],
-                "_deleted": {"$ne": True},
             })
+            wishlist_items = [i for i in all_wishlist_items if not i.get("_deleted")]
 
             items.append(SharedWishlistBookmarkResponse(
                 id=extract_uuid(bookmark["_id"]),
@@ -540,13 +544,13 @@ async def create_bookmark(
     user_id = current_user["_id"]
     share = await get_share_by_token(db, token)
 
-    # Check if bookmark already exists
-    existing = await db.find({
+    # Check if bookmark already exists (filter _deleted in Python)
+    all_existing = await db.find({
         "type": "bookmark",
         "user_id": user_id,
         "share_id": share["_id"],
-        "_deleted": {"$ne": True},
     })
+    existing = [b for b in all_existing if not b.get("_deleted")]
 
     if existing:
         # Update last_accessed_at
@@ -585,13 +589,13 @@ async def delete_bookmark(
     user_id = current_user["_id"]
     share = await get_share_by_token(db, token)
 
-    # Find the bookmark
-    bookmarks = await db.find({
+    # Find the bookmark (filter _deleted in Python)
+    all_bookmarks = await db.find({
         "type": "bookmark",
         "user_id": user_id,
         "share_id": share["_id"],
-        "_deleted": {"$ne": True},
     })
+    bookmarks = [b for b in all_bookmarks if not b.get("_deleted")]
 
     if not bookmarks:
         raise HTTPException(

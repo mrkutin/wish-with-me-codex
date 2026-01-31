@@ -88,11 +88,9 @@ async def pull_collection(
     doc_type = type_map[collection]
 
     # Find all documents of this type that user has access to
-    # IMPORTANT: Exclude deleted documents to prevent phantom items reappearing
     selector = {
         "type": doc_type,
         "access": {"$elemMatch": {"$eq": user_id}},
-        "_deleted": {"$ne": True},
     }
 
     # For marks, also exclude marks where user is the wishlist owner
@@ -103,10 +101,12 @@ async def pull_collection(
     try:
         # Note: CouchDB Mango with $elemMatch doesn't work well with indexes,
         # so we fetch without sort and sort in Python
-        documents = await db.find(
+        all_documents = await db.find(
             selector=selector,
             limit=1000,  # Reasonable limit for initial sync
         )
+        # Filter out deleted documents in Python (CouchDB Mango _deleted filter can be unreliable)
+        documents = [d for d in all_documents if not d.get("_deleted")]
         # Sort by updated_at descending in Python
         documents.sort(key=lambda d: d.get("updated_at", ""), reverse=True)
         return PullResponse(documents=documents)
