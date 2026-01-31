@@ -10,11 +10,32 @@ const REFRESH_TOKEN_KEY = 'refresh_token';
 // API version - v2 uses CouchDB for all operations
 const API_VERSION = 'v2';
 
+// Refresh token 2 minutes before expiration to avoid 401 errors
+const REFRESH_BUFFER_MS = 2 * 60 * 1000;
+
+/**
+ * Decode JWT payload without verification (client-side only).
+ * Returns null if token is invalid.
+ */
+function decodeJwtPayload(token: string): { exp?: number } | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const payload = JSON.parse(atob(parts[1]));
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null);
   const accessToken = ref<string | null>(null);
   const refreshTokenValue = ref<string | null>(null);
   const isLoading = ref(false);
+
+  // Timer for proactive token refresh
+  let refreshTimerId: ReturnType<typeof setTimeout> | null = null;
 
   const isAuthenticated = computed(() => !!user.value && !!accessToken.value);
 
@@ -60,6 +81,43 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  /**
+   * Schedule proactive token refresh before expiration.
+   */
+  function scheduleTokenRefresh(token: string): void {
+    // Clear any existing timer
+    if (refreshTimerId) {
+      clearTimeout(refreshTimerId);
+      refreshTimerId = null;
+    }
+
+    const payload = decodeJwtPayload(token);
+    if (!payload?.exp) return;
+
+    // Calculate when to refresh (2 minutes before expiration)
+    const expiresAt = payload.exp * 1000; // Convert to milliseconds
+    const now = Date.now();
+    const refreshIn = expiresAt - now - REFRESH_BUFFER_MS;
+
+    if (refreshIn <= 0) {
+      // Token already expired or about to expire, refresh immediately
+      console.log('[Auth] Token expired or expiring soon, refreshing now');
+      refreshToken().catch(() => clearAuth());
+      return;
+    }
+
+    console.log(`[Auth] Scheduling token refresh in ${Math.round(refreshIn / 1000)}s`);
+    refreshTimerId = setTimeout(async () => {
+      try {
+        console.log('[Auth] Proactive token refresh');
+        await refreshToken();
+      } catch (error) {
+        console.error('[Auth] Proactive refresh failed:', error);
+        clearAuth();
+      }
+    }, refreshIn);
+  }
+
   async function refreshToken(): Promise<void> {
     if (!refreshTokenValue.value) {
       throw new Error('No refresh token');
@@ -72,6 +130,9 @@ export const useAuthStore = defineStore('auth', () => {
     accessToken.value = response.data.access_token;
     refreshTokenValue.value = response.data.refresh_token;
     LocalStorage.set(REFRESH_TOKEN_KEY, response.data.refresh_token);
+
+    // Schedule next proactive refresh
+    scheduleTokenRefresh(response.data.access_token);
 
     // Fetch user data if not already loaded
     if (!user.value) {
@@ -103,6 +164,9 @@ export const useAuthStore = defineStore('auth', () => {
     accessToken.value = data.access_token;
     refreshTokenValue.value = data.refresh_token;
     LocalStorage.set(REFRESH_TOKEN_KEY, data.refresh_token);
+
+    // Schedule proactive token refresh
+    scheduleTokenRefresh(data.access_token);
   }
 
   /**
@@ -117,11 +181,20 @@ export const useAuthStore = defineStore('auth', () => {
     refreshTokenValue.value = tokens.refresh_token;
     LocalStorage.set(REFRESH_TOKEN_KEY, tokens.refresh_token);
 
+    // Schedule proactive token refresh
+    scheduleTokenRefresh(tokens.access_token);
+
     // Fetch user data using the access token
     await fetchCurrentUser();
   }
 
   function clearAuth(): void {
+    // Clear proactive refresh timer
+    if (refreshTimerId) {
+      clearTimeout(refreshTimerId);
+      refreshTimerId = null;
+    }
+
     user.value = null;
     accessToken.value = null;
     refreshTokenValue.value = null;
