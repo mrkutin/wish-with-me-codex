@@ -159,11 +159,6 @@ async function pullFromServer(
 
       // Upsert each document to local database
       for (const doc of docs) {
-        // Skip deleted documents from server (defense in depth)
-        if (doc._deleted) {
-          continue;
-        }
-
         try {
           // Check if document exists locally
           let existingRev: string | undefined;
@@ -174,6 +169,28 @@ async function pullFromServer(
             localDeleted = existing._deleted === true;
           } catch {
             // Document doesn't exist locally
+          }
+
+          // Handle deleted documents from server - apply deletion marker locally
+          if (doc._deleted) {
+            if (existingRev) {
+              // Document exists locally - mark it as deleted
+              console.log(`[PouchDB] Applying deletion for ${doc._id}`);
+              await localDb.put({
+                ...doc,
+                _rev: existingRev,
+              });
+              // Notify about deletion
+              syncCallbacks.onChange?.({
+                id: doc._id,
+                seq: 0,
+                changes: [{ rev: doc._rev || '' }],
+                doc,
+                deleted: true,
+              });
+            }
+            // If doc doesn't exist locally, no need to create a deleted marker
+            continue;
           }
 
           // Don't overwrite local deletion with server's non-deleted version

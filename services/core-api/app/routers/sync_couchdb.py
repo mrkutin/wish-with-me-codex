@@ -106,11 +106,11 @@ async def pull_collection(
             selector=selector,
             limit=1000,  # Reasonable limit for initial sync
         )
-        # Filter out deleted documents in Python (CouchDB Mango _deleted filter can be unreliable)
-        documents = [d for d in all_documents if not d.get("_deleted")]
+        # IMPORTANT: Include _deleted documents so clients can sync deletions
+        # This is essential for offline-first sync - deletion markers must propagate
         # Sort by updated_at descending in Python
-        documents.sort(key=lambda d: d.get("updated_at", ""), reverse=True)
-        return PullResponse(documents=documents)
+        all_documents.sort(key=lambda d: d.get("updated_at", ""), reverse=True)
+        return PullResponse(documents=all_documents)
     except Exception as e:
         logger.error(f"Pull error for {collection}: {e}")
         raise HTTPException(
