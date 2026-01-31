@@ -106,11 +106,12 @@ async def pull_collection(
             selector=selector,
             limit=1000,  # Reasonable limit for initial sync
         )
-        # IMPORTANT: Include _deleted documents so clients can sync deletions
-        # This is essential for offline-first sync - deletion markers must propagate
+        # Filter out deleted documents - client uses reconciliation to detect deletions
+        # (if a doc exists locally but not in server response, it was deleted)
+        documents = [d for d in all_documents if not d.get("_deleted")]
         # Sort by updated_at descending in Python
-        all_documents.sort(key=lambda d: d.get("updated_at", ""), reverse=True)
-        return PullResponse(documents=all_documents)
+        documents.sort(key=lambda d: d.get("updated_at", ""), reverse=True)
+        return PullResponse(documents=documents)
     except Exception as e:
         logger.error(f"Pull error for {collection}: {e}")
         raise HTTPException(

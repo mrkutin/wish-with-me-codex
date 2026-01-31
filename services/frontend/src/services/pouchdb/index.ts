@@ -124,6 +124,7 @@ function setSyncStatus(status: SyncStatus): void {
 /**
  * Pull documents from the server.
  * Fetches all documents the user has access to.
+ * Uses reconciliation: server is source of truth, local docs not in server response are deleted.
  */
 async function pullFromServer(
   token: string,
@@ -131,6 +132,14 @@ async function pullFromServer(
 ): Promise<void> {
   const localDb = getDatabase();
   const baseUrl = getApiBaseUrl();
+
+  // Map collection to document type
+  const typeMap: Record<string, string> = {
+    wishlists: 'wishlist',
+    items: 'item',
+    marks: 'mark',
+    bookmarks: 'bookmark',
+  };
 
   for (const collection of collections) {
     try {
@@ -151,52 +160,21 @@ async function pullFromServer(
       }
 
       const data = await response.json();
-      const docs = data.documents || [];
-      console.log(`[PouchDB] Received ${docs.length} ${collection} from server`);
-      if (collection === 'items' && docs.length > 0) {
-        console.log(`[PouchDB] First item:`, docs[0]._id, docs[0].title, 'wishlist_id:', docs[0].wishlist_id);
-      }
+      const serverDocs = data.documents || [];
+      console.log(`[PouchDB] Received ${serverDocs.length} ${collection} from server`);
 
-      // Upsert each document to local database
-      for (const doc of docs) {
+      // Build set of IDs from server (non-deleted docs user has access to)
+      const serverDocIds = new Set(serverDocs.map((d: CouchDBDoc) => d._id));
+
+      // Upsert documents from server
+      for (const doc of serverDocs) {
         try {
-          // Check if document exists locally
           let existingRev: string | undefined;
-          let localDeleted = false;
           try {
             const existing = await localDb.get(doc._id);
             existingRev = existing._rev;
-            localDeleted = existing._deleted === true;
           } catch {
             // Document doesn't exist locally
-          }
-
-          // Handle deleted documents from server - apply deletion marker locally
-          if (doc._deleted) {
-            if (existingRev) {
-              // Document exists locally - mark it as deleted
-              console.log(`[PouchDB] Applying deletion for ${doc._id}`);
-              await localDb.put({
-                ...doc,
-                _rev: existingRev,
-              });
-              // Notify about deletion
-              syncCallbacks.onChange?.({
-                id: doc._id,
-                seq: 0,
-                changes: [{ rev: doc._rev || '' }],
-                doc,
-                deleted: true,
-              });
-            }
-            // If doc doesn't exist locally, no need to create a deleted marker
-            continue;
-          }
-
-          // Don't overwrite local deletion with server's non-deleted version
-          // The local deletion should be pushed to server instead
-          if (localDeleted) {
-            continue;
           }
 
           await localDb.put({
@@ -210,14 +188,52 @@ async function pullFromServer(
             seq: 0,
             changes: [{ rev: doc._rev || '' }],
             doc,
-            deleted: doc._deleted,
+            deleted: false,
           });
         } catch (error) {
           console.warn(`[PouchDB] Failed to upsert ${doc._id}:`, error);
         }
       }
 
-      console.log(`[PouchDB] Pulled ${docs.length} ${collection}`);
+      // Reconciliation: find local docs not in server response and mark as deleted
+      // This handles items deleted by other users (e.g., wishlist owner)
+      const docType = typeMap[collection];
+      try {
+        const localResult = await localDb.find({
+          selector: {
+            type: docType,
+            _deleted: { $ne: true },
+          },
+        });
+
+        for (const localDoc of localResult.docs) {
+          if (!serverDocIds.has(localDoc._id)) {
+            // This doc exists locally but not on server - it was deleted or access revoked
+            console.log(`[PouchDB] Reconciliation: marking ${localDoc._id} as deleted (not in server response)`);
+            try {
+              await localDb.put({
+                ...localDoc,
+                _deleted: true,
+                updated_at: new Date().toISOString(),
+              });
+              // Notify about deletion
+              syncCallbacks.onChange?.({
+                id: localDoc._id,
+                seq: 0,
+                changes: [{ rev: localDoc._rev || '' }],
+                doc: localDoc,
+                deleted: true,
+              });
+            } catch (error) {
+              console.warn(`[PouchDB] Failed to delete ${localDoc._id}:`, error);
+            }
+          }
+        }
+      } catch (error) {
+        console.warn(`[PouchDB] Reconciliation query failed for ${collection}:`, error);
+      }
+
+      console.log(`[PouchDB] Pulled and reconciled ${serverDocs.length} ${collection}`);
     } catch (error) {
       if ((error as Error).name === 'AbortError') {
         throw error;
