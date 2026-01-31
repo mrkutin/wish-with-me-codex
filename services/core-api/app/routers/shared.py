@@ -139,11 +139,11 @@ async def preview_shared_wishlist(
         owner_name = "Someone"
 
     # Count items
-    items = await db.find({
+    all_items = await db.find({
         "type": "item",
         "wishlist_id": share["wishlist_id"],
-        "_deleted": {"$ne": True},
     })
+    items = [i for i in all_items if not i.get("_deleted")]
 
     return SharedWishlistPreview(
         wishlist={
@@ -198,20 +198,22 @@ async def get_shared_wishlist(
 
     # Get items
     logger.info(f"Fetching items for wishlist_id: {share['wishlist_id']}")
-    items = await db.find({
+    all_items = await db.find({
         "type": "item",
         "wishlist_id": share["wishlist_id"],
-        "_deleted": {"$ne": True},
     })
-    logger.info(f"Found {len(items)} items for wishlist {share['wishlist_id']}")
+    logger.info(f"Found {len(all_items)} total items for wishlist {share['wishlist_id']}")
+    # Filter out deleted items in Python (CouchDB Mango can be unreliable with _deleted)
+    items = [item for item in all_items if not item.get("_deleted")]
+    logger.info(f"After filtering deleted: {len(items)} items")
 
     # Get all marks for these items
     item_ids = [item["_id"] for item in items]
-    marks = await db.find({
+    all_marks = await db.find({
         "type": "mark",
         "item_id": {"$in": item_ids},
-        "_deleted": {"$ne": True},
     }) if item_ids else []
+    marks = [m for m in all_marks if not m.get("_deleted")]
 
     # Build marks lookup: item_id -> list of marks
     marks_by_item: dict[str, list[dict]] = {}
