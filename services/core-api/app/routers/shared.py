@@ -110,6 +110,96 @@ async def grant_access_to_user(db: CouchDBClient, share: dict, user_id: str) -> 
         await db.put(bookmark)
 
 
+# =============================================================================
+# Bookmarks endpoint - MUST be defined BEFORE /{token} routes!
+# =============================================================================
+
+@router.get(
+    "/bookmarks",
+    response_model=SharedWishlistBookmarkListResponse,
+)
+async def list_bookmarks(
+    current_user: CurrentUserCouchDB,
+    db: Annotated[CouchDBClient, Depends(get_db)],
+) -> SharedWishlistBookmarkListResponse:
+    """List all bookmarked shared wishlists for the current user."""
+    user_id = current_user["_id"]
+    logger.info(f"Fetching bookmarks for user: {user_id}")
+
+    # Find all bookmarks for this user (filter _deleted in Python)
+    all_bookmarks = await db.find({
+        "type": "bookmark",
+        "user_id": user_id,
+    })
+    bookmarks = [b for b in all_bookmarks if not b.get("_deleted")]
+    logger.info(f"Found {len(bookmarks)} bookmarks for user {user_id}")
+
+    items = []
+    for bookmark in bookmarks:
+        try:
+            # Get the share document
+            share = await db.get(bookmark["share_id"])
+            if share.get("revoked") or share.get("_deleted"):
+                continue
+
+            # Check expiration
+            if share.get("expires_at"):
+                expires = datetime.fromisoformat(share["expires_at"])
+                if expires < datetime.now(timezone.utc):
+                    continue
+
+            # Get wishlist
+            wishlist = await db.get(share["wishlist_id"])
+            if wishlist.get("_deleted"):
+                continue
+
+            # Get owner
+            try:
+                owner = await db.get(wishlist["owner_id"])
+                owner_profile = OwnerPublicProfile(
+                    id=extract_uuid(owner["_id"]),
+                    name=owner.get("name", "Unknown"),
+                    avatar_base64=owner.get("avatar_base64"),
+                )
+            except DocumentNotFoundError:
+                owner_profile = OwnerPublicProfile(
+                    id=extract_uuid(wishlist["owner_id"]),
+                    name="Unknown",
+                    avatar_base64=None,
+                )
+
+            # Count items (filter _deleted in Python)
+            all_wishlist_items = await db.find({
+                "type": "item",
+                "wishlist_id": share["wishlist_id"],
+            })
+            wishlist_items = [i for i in all_wishlist_items if not i.get("_deleted")]
+
+            items.append(SharedWishlistBookmarkResponse(
+                id=extract_uuid(bookmark["_id"]),
+                wishlist_id=extract_uuid(share["wishlist_id"]),
+                share_token=share["token"],
+                last_accessed_at=datetime.fromisoformat(bookmark.get("last_accessed_at", bookmark["created_at"])),
+                wishlist=SharedWishlistInfo(
+                    id=extract_uuid(wishlist["_id"]),
+                    title=wishlist.get("title", ""),
+                    description=wishlist.get("description"),
+                    icon=wishlist.get("icon", "card_giftcard"),
+                    owner=owner_profile,
+                    item_count=len(wishlist_items),
+                ),
+            ))
+        except DocumentNotFoundError:
+            # Share or wishlist was deleted, skip this bookmark
+            continue
+
+    return SharedWishlistBookmarkListResponse(items=items)
+
+
+# =============================================================================
+# Token-based routes
+# =============================================================================
+
 @router.get(
     "/{token}/preview",
     response_model=SharedWishlistPreview,
@@ -444,92 +534,8 @@ async def unmark_item(
 
 
 # =============================================================================
-# Bookmarks endpoints - for "Shared with me" tab
+# Additional bookmark management endpoints
 # =============================================================================
-
-@router.get(
-    "/bookmarks",
-    response_model=SharedWishlistBookmarkListResponse,
-)
-async def list_bookmarks(
-    current_user: CurrentUserCouchDB,
-    db: Annotated[CouchDBClient, Depends(get_db)],
-) -> SharedWishlistBookmarkListResponse:
-    """List all bookmarked shared wishlists for the current user."""
-    from app.schemas.share import SharedWishlistBookmarkListResponse, SharedWishlistBookmarkResponse
-
-    user_id = current_user["_id"]
-    logger.info(f"Fetching bookmarks for user: {user_id}")
-
-    # Find all bookmarks for this user (filter _deleted in Python)
-    all_bookmarks = await db.find({
-        "type": "bookmark",
-        "user_id": user_id,
-    })
-    bookmarks = [b for b in all_bookmarks if not b.get("_deleted")]
-    logger.info(f"Found {len(bookmarks)} bookmarks for user {user_id}")
-
-    items = []
-    for bookmark in bookmarks:
-        try:
-            # Get the share document
-            share = await db.get(bookmark["share_id"])
-            if share.get("revoked") or share.get("_deleted"):
-                continue
-
-            # Check expiration
-            if share.get("expires_at"):
-                expires = datetime.fromisoformat(share["expires_at"])
-                if expires < datetime.now(timezone.utc):
-                    continue
-
-            # Get wishlist
-            wishlist = await db.get(share["wishlist_id"])
-            if wishlist.get("_deleted"):
-                continue
-
-            # Get owner
-            try:
-                owner = await db.get(wishlist["owner_id"])
-                owner_profile = OwnerPublicProfile(
-                    id=extract_uuid(owner["_id"]),
-                    name=owner.get("name", "Unknown"),
-                    avatar_base64=owner.get("avatar_base64"),
-                )
-            except DocumentNotFoundError:
-                owner_profile = OwnerPublicProfile(
-                    id=extract_uuid(wishlist["owner_id"]),
-                    name="Unknown",
-                    avatar_base64=None,
-                )
-
-            # Count items (filter _deleted in Python)
-            all_wishlist_items = await db.find({
-                "type": "item",
-                "wishlist_id": share["wishlist_id"],
-            })
-            wishlist_items = [i for i in all_wishlist_items if not i.get("_deleted")]
-
-            items.append(SharedWishlistBookmarkResponse(
-                id=extract_uuid(bookmark["_id"]),
-                wishlist_id=extract_uuid(share["wishlist_id"]),
-                share_token=share["token"],
-                last_accessed_at=datetime.fromisoformat(bookmark.get("last_accessed_at", bookmark["created_at"])),
-                wishlist=SharedWishlistInfo(
-                    id=extract_uuid(wishlist["_id"]),
-                    title=wishlist.get("title", ""),
-                    description=wishlist.get("description"),
-                    icon=wishlist.get("icon", "card_giftcard"),
-                    owner=owner_profile,
-                    item_count=len(wishlist_items),
-                ),
-            ))
-        except DocumentNotFoundError:
-            # Share or wishlist was deleted, skip this bookmark
-            continue
-
-    return SharedWishlistBookmarkListResponse(items=items)
-
 
 @router.post(
     "/{token}/bookmark",
