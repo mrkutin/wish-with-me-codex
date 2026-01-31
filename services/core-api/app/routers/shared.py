@@ -14,6 +14,8 @@ from app.schemas.share import (
     MarkResponse,
     OwnerPublicProfile,
     SharedItemResponse,
+    SharedWishlistBookmarkListResponse,
+    SharedWishlistBookmarkResponse,
     SharedWishlistInfo,
     SharedWishlistPreview,
     SharedWishlistResponse,
@@ -68,15 +70,44 @@ async def grant_access_to_user(db: CouchDBClient, share: dict, user_id: str) -> 
     """Grant a user access to the shared wishlist and its items."""
     # Add user to granted_users if not already there
     granted = share.get("granted_users", [])
+    now = datetime.now(timezone.utc).isoformat()
+
     if user_id not in granted:
         granted.append(user_id)
         share["granted_users"] = granted
         share["access_count"] = share.get("access_count", 0) + 1
-        share["updated_at"] = datetime.now(timezone.utc).isoformat()
+        share["updated_at"] = now
         await db.put(share)
 
         # Add user to wishlist and items access arrays
         await db.update_access_arrays(share["wishlist_id"], user_id, action="add")
+
+    # Auto-create bookmark for "Shared with me" tab
+    existing_bookmark = await db.find({
+        "type": "bookmark",
+        "user_id": user_id,
+        "share_id": share["_id"],
+        "_deleted": {"$ne": True},
+    })
+
+    if existing_bookmark:
+        # Update last_accessed_at
+        bookmark = existing_bookmark[0]
+        bookmark["last_accessed_at"] = now
+        await db.put(bookmark)
+    else:
+        # Create new bookmark
+        bookmark_id = db.generate_id("bookmark")
+        bookmark = {
+            "_id": bookmark_id,
+            "type": "bookmark",
+            "user_id": user_id,
+            "share_id": share["_id"],
+            "created_at": now,
+            "last_accessed_at": now,
+            "access": [user_id],
+        }
+        await db.put(bookmark)
 
 
 @router.get(
@@ -166,11 +197,13 @@ async def get_shared_wishlist(
         )
 
     # Get items
+    logger.info(f"Fetching items for wishlist_id: {share['wishlist_id']}")
     items = await db.find({
         "type": "item",
         "wishlist_id": share["wishlist_id"],
         "_deleted": {"$ne": True},
     })
+    logger.info(f"Found {len(items)} items for wishlist {share['wishlist_id']}")
 
     # Get all marks for these items
     item_ids = [item["_id"] for item in items]
@@ -406,3 +439,166 @@ async def unmark_item(
         total_marked_quantity=total_marked,
         available_quantity=max(0, quantity - total_marked),
     )
+
+
+# =============================================================================
+# Bookmarks endpoints - for "Shared with me" tab
+# =============================================================================
+
+@router.get(
+    "/bookmarks",
+    response_model=SharedWishlistBookmarkListResponse,
+)
+async def list_bookmarks(
+    current_user: CurrentUserCouchDB,
+    db: Annotated[CouchDBClient, Depends(get_db)],
+) -> SharedWishlistBookmarkListResponse:
+    """List all bookmarked shared wishlists for the current user."""
+    from app.schemas.share import SharedWishlistBookmarkListResponse, SharedWishlistBookmarkResponse
+
+    user_id = current_user["_id"]
+
+    # Find all bookmarks for this user
+    bookmarks = await db.find({
+        "type": "bookmark",
+        "user_id": user_id,
+        "_deleted": {"$ne": True},
+    })
+
+    items = []
+    for bookmark in bookmarks:
+        try:
+            # Get the share document
+            share = await db.get(bookmark["share_id"])
+            if share.get("revoked"):
+                continue
+
+            # Check expiration
+            if share.get("expires_at"):
+                expires = datetime.fromisoformat(share["expires_at"])
+                if expires < datetime.now(timezone.utc):
+                    continue
+
+            # Get wishlist
+            wishlist = await db.get(share["wishlist_id"])
+
+            # Get owner
+            try:
+                owner = await db.get(wishlist["owner_id"])
+                owner_profile = OwnerPublicProfile(
+                    id=extract_uuid(owner["_id"]),
+                    name=owner.get("name", "Unknown"),
+                    avatar_base64=owner.get("avatar_base64"),
+                )
+            except DocumentNotFoundError:
+                owner_profile = OwnerPublicProfile(
+                    id=extract_uuid(wishlist["owner_id"]),
+                    name="Unknown",
+                    avatar_base64=None,
+                )
+
+            # Count items
+            wishlist_items = await db.find({
+                "type": "item",
+                "wishlist_id": share["wishlist_id"],
+                "_deleted": {"$ne": True},
+            })
+
+            items.append(SharedWishlistBookmarkResponse(
+                id=extract_uuid(bookmark["_id"]),
+                wishlist_id=extract_uuid(share["wishlist_id"]),
+                share_token=share["token"],
+                last_accessed_at=datetime.fromisoformat(bookmark.get("last_accessed_at", bookmark["created_at"])),
+                wishlist=SharedWishlistInfo(
+                    id=extract_uuid(wishlist["_id"]),
+                    title=wishlist.get("title", ""),
+                    description=wishlist.get("description"),
+                    icon=wishlist.get("icon", "card_giftcard"),
+                    owner=owner_profile,
+                    item_count=len(wishlist_items),
+                ),
+            ))
+        except DocumentNotFoundError:
+            # Share or wishlist was deleted, skip this bookmark
+            continue
+
+    return SharedWishlistBookmarkListResponse(items=items)
+
+
+@router.post(
+    "/{token}/bookmark",
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_bookmark(
+    token: str,
+    current_user: CurrentUserCouchDB,
+    db: Annotated[CouchDBClient, Depends(get_db)],
+) -> dict:
+    """Bookmark a shared wishlist."""
+    user_id = current_user["_id"]
+    share = await get_share_by_token(db, token)
+
+    # Check if bookmark already exists
+    existing = await db.find({
+        "type": "bookmark",
+        "user_id": user_id,
+        "share_id": share["_id"],
+        "_deleted": {"$ne": True},
+    })
+
+    if existing:
+        # Update last_accessed_at
+        bookmark = existing[0]
+        bookmark["last_accessed_at"] = datetime.now(timezone.utc).isoformat()
+        await db.put(bookmark)
+        return {"message": "Bookmark updated"}
+
+    # Create new bookmark
+    now = datetime.now(timezone.utc).isoformat()
+    bookmark_id = db.generate_id("bookmark")
+    bookmark = {
+        "_id": bookmark_id,
+        "type": "bookmark",
+        "user_id": user_id,
+        "share_id": share["_id"],
+        "created_at": now,
+        "last_accessed_at": now,
+        "access": [user_id],  # Only this user can see their bookmark
+    }
+    await db.put(bookmark)
+
+    return {"message": "Bookmark created"}
+
+
+@router.delete(
+    "/{token}/bookmark",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_bookmark(
+    token: str,
+    current_user: CurrentUserCouchDB,
+    db: Annotated[CouchDBClient, Depends(get_db)],
+) -> None:
+    """Remove a bookmark."""
+    user_id = current_user["_id"]
+    share = await get_share_by_token(db, token)
+
+    # Find the bookmark
+    bookmarks = await db.find({
+        "type": "bookmark",
+        "user_id": user_id,
+        "share_id": share["_id"],
+        "_deleted": {"$ne": True},
+    })
+
+    if not bookmarks:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Bookmark not found",
+        )
+
+    # Soft delete
+    bookmark = bookmarks[0]
+    bookmark["_deleted"] = True
+    bookmark["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.put(bookmark)
