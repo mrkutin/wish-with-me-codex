@@ -38,32 +38,32 @@
     </div>
 
     <!-- Content -->
-    <template v-else-if="wishlistInfo">
+    <template v-else-if="wishlistDoc">
       <!-- Header -->
       <div class="row items-center justify-between q-mb-md">
         <div class="col row items-center no-wrap">
           <q-btn flat dense icon="arrow_back" aria-label="Go back" @click="goBack" class="q-mr-md" />
-          <q-icon :name="wishlistInfo.icon || 'card_giftcard'" size="28px" color="primary" class="q-mr-sm" />
-          <span class="text-h5">{{ wishlistInfo.title }}</span>
+          <q-icon :name="wishlistDoc.icon || 'card_giftcard'" size="28px" color="primary" class="q-mr-sm" />
+          <span class="text-h5">{{ wishlistDoc.name }}</span>
         </div>
       </div>
 
       <!-- Owner info -->
       <div class="row items-center q-mb-md">
         <q-avatar size="40px" class="q-mr-sm">
-          <img v-if="wishlistInfo.owner.avatar_base64" :src="wishlistInfo.owner.avatar_base64" />
+          <img v-if="ownerDoc?.avatar_base64" :src="ownerDoc.avatar_base64" />
           <q-icon v-else name="person" />
         </q-avatar>
         <div>
           <span class="text-body2 text-grey-7">
-            {{ $t('sharing.sharedBy', { name: wishlistInfo.owner.name }) }}
+            {{ $t('sharing.sharedBy', { name: ownerDoc?.name || 'Unknown' }) }}
           </span>
         </div>
       </div>
 
       <!-- Description -->
-      <p v-if="wishlistInfo.description" class="text-body2 text-grey-7 q-mb-md">
-        {{ wishlistInfo.description }}
+      <p v-if="wishlistDoc.description" class="text-body2 text-grey-7 q-mb-md">
+        {{ wishlistDoc.description }}
       </p>
 
       <!-- Items section -->
@@ -100,7 +100,7 @@
     </template>
 
     <!-- Not found -->
-    <div v-else class="flex flex-center column q-pa-xl">
+    <div v-else-if="!isLoading" class="flex flex-center column q-pa-xl">
       <q-icon name="error_outline" size="64px" color="grey-5" />
       <p class="text-h6 text-grey-7 q-mt-md">{{ $t('sharing.linkNotFound') }}</p>
     </div>
@@ -109,7 +109,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useQuasar, LocalStorage } from 'quasar';
 import { useI18n } from 'vue-i18n';
@@ -122,12 +122,20 @@ import {
   subscribeToMarks,
   getItems,
   getMarks,
-  extractId,
+  findById,
+  upsert,
+  createId,
+  softDelete,
 } from '@/services/pouchdb';
-import type { ItemDoc, MarkDoc } from '@/services/pouchdb';
-import type { SharedWishlistResponse, SharedItem, MarkResponse } from '@/types/share';
+import type { ItemDoc, MarkDoc, WishlistDoc } from '@/services/pouchdb';
+import type { SharedItem } from '@/types/share';
 
 const PENDING_SHARE_TOKEN_KEY = 'pending_share_token';
+
+interface GrantAccessResponse {
+  wishlist_id: string;
+  permissions: string[];
+}
 
 const route = useRoute();
 const router = useRouter();
@@ -138,11 +146,13 @@ const authStore = useAuthStore();
 const token = computed(() => route.params.token as string);
 
 const isLoading = ref(true);
-const wishlistInfo = ref<SharedWishlistResponse['wishlist'] | null>(null);
+const wishlistId = ref<string | null>(null);
 const permissions = ref<string[]>([]);
 const markingItemId = ref<string | null>(null);
 
 // PouchDB reactive data
+const wishlistDoc = ref<WishlistDoc | null>(null);
+const ownerDoc = ref<{ name: string; avatar_base64?: string | null } | null>(null);
 const pouchItems = ref<ItemDoc[]>([]);
 const pouchMarks = ref<MarkDoc[]>([]);
 let unsubscribeItems: (() => void) | null = null;
@@ -192,7 +202,6 @@ function goBack() {
 
 async function handleRefresh(done: () => void) {
   try {
-    // Trigger sync to get latest data
     if (authStore.token) {
       await triggerSync(authStore.token);
     }
@@ -202,20 +211,17 @@ async function handleRefresh(done: () => void) {
   }
 }
 
-// Load initial data and grant access
+// Grant access via minimal API call, then load from PouchDB
 async function initializeSharedWishlist() {
   isLoading.value = true;
   try {
-    // This REST call grants access (adds user to access arrays) and returns initial data
-    const response = await api.get<SharedWishlistResponse>(`/api/v1/shared/${token.value}`);
+    // Minimal API call to grant access (adds user to access arrays)
+    // This is necessary for authorization - not data fetching
+    const response = await api.post<GrantAccessResponse>(`/api/v1/shared/${token.value}/grant-access`);
 
     // If current user is the owner, redirect to normal wishlist view
-    if (authStore.user && response.data.wishlist.owner.id === authStore.user.id) {
-      router.replace({ name: 'wishlist-detail', params: { id: response.data.wishlist.id } });
-      return;
-    }
-
-    wishlistInfo.value = response.data.wishlist;
+    const wlId = response.data.wishlist_id;
+    wishlistId.value = wlId;
     permissions.value = response.data.permissions;
 
     // Trigger sync to pull the newly accessible documents
@@ -223,11 +229,21 @@ async function initializeSharedWishlist() {
       await triggerSync(authStore.token);
     }
 
-    // Load from PouchDB and subscribe to changes
+    // Load from PouchDB
     await loadFromPouchDB();
+
+    // Check if user is owner
+    if (wishlistDoc.value && authStore.user && wishlistDoc.value.owner_id === `user:${authStore.user.id}`) {
+      const id = wishlistId.value.replace('wishlist:', '');
+      router.replace({ name: 'wishlist-detail', params: { id } });
+      return;
+    }
+
+    // Setup subscriptions for real-time updates
     setupSubscriptions();
 
   } catch (error: any) {
+    console.error('[SharedWishlist] Error:', error);
     if (error.response?.status === 401) {
       LocalStorage.set(PENDING_SHARE_TOKEN_KEY, token.value);
       router.push({ name: 'login', query: { share_token: token.value } });
@@ -238,61 +254,52 @@ async function initializeSharedWishlist() {
         type: 'negative',
         message: t('sharing.linkNotFound'),
       });
-    } else {
-      $q.notify({
-        type: 'negative',
-        message: t('errors.generic'),
-      });
     }
+    // Don't show generic error - just show empty state
   } finally {
     isLoading.value = false;
   }
 }
 
 async function loadFromPouchDB() {
-  if (!wishlistInfo.value) return;
+  if (!wishlistId.value) return;
 
-  const wishlistId = `wishlist:${wishlistInfo.value.id}`;
+  // Load wishlist
+  const wl = await findById<WishlistDoc>(wishlistId.value);
+  wishlistDoc.value = wl;
+
+  // Load owner info
+  if (wl?.owner_id) {
+    const owner = await findById<any>(wl.owner_id);
+    if (owner) {
+      ownerDoc.value = { name: owner.name, avatar_base64: owner.avatar_base64 };
+    }
+  }
 
   // Load items
-  const items = await getItems(wishlistId);
+  const items = await getItems(wishlistId.value);
   pouchItems.value = items;
 
   // Load marks for all items
-  const itemIds = items.map(i => i._id);
-  if (itemIds.length > 0) {
-    const allMarks: MarkDoc[] = [];
-    for (const itemId of itemIds) {
-      const marks = await getMarks(itemId);
-      allMarks.push(...marks);
-    }
-    pouchMarks.value = allMarks;
-  }
+  await loadMarksForItems(items.map(i => i._id));
 }
 
 function setupSubscriptions() {
-  if (!wishlistInfo.value) return;
-
-  const wishlistId = `wishlist:${wishlistInfo.value.id}`;
+  if (!wishlistId.value) return;
 
   // Subscribe to item changes
-  unsubscribeItems = subscribeToItems(wishlistId, (items) => {
+  unsubscribeItems = subscribeToItems(wishlistId.value, (items) => {
     pouchItems.value = items;
-    // Re-fetch marks when items change (new items may have marks)
+    // Re-fetch marks when items change
     loadMarksForItems(items.map(i => i._id));
   });
-
-  // Subscribe to mark changes for current items
-  const itemIds = pouchItems.value.map(i => i._id);
-  if (itemIds.length > 0) {
-    unsubscribeMarks = subscribeToMarks(itemIds, (marks) => {
-      pouchMarks.value = marks;
-    });
-  }
 }
 
 async function loadMarksForItems(itemIds: string[]) {
-  if (itemIds.length === 0) return;
+  if (itemIds.length === 0) {
+    pouchMarks.value = [];
+    return;
+  }
 
   const allMarks: MarkDoc[] = [];
   for (const itemId of itemIds) {
@@ -311,16 +318,47 @@ async function loadMarksForItems(itemIds: string[]) {
 }
 
 async function markItem(item: SharedItem, quantity: number = 1) {
-  if (!canMark.value || markingItemId.value) return;
+  if (!canMark.value || markingItemId.value || !authStore.user || !wishlistDoc.value) return;
 
   markingItemId.value = item.id;
   try {
-    await api.post<MarkResponse>(
-      `/api/v1/shared/${token.value}/items/${item.id}/mark`,
-      { quantity }
+    const now = new Date().toISOString();
+    const userId = `user:${authStore.user.id}`;
+
+    // Check if user already has a mark for this item
+    const existingMark = pouchMarks.value.find(
+      m => m.item_id === item.id && m.marked_by === userId && !m._deleted
     );
 
-    // Trigger sync to get the new mark
+    if (existingMark) {
+      // Update existing mark
+      await upsert({
+        ...existingMark,
+        quantity: existingMark.quantity + quantity,
+        updated_at: now,
+      });
+    } else {
+      // Create new mark in PouchDB
+      const markId = createId('mark');
+      // Get all users who have access to this item (excluding owner for surprise mode)
+      const itemDoc = pouchItems.value.find(i => i._id === item.id);
+      const accessUsers = itemDoc?.access?.filter(u => u !== wishlistDoc.value?.owner_id) || [userId];
+
+      await upsert({
+        _id: markId,
+        type: 'mark',
+        item_id: item.id,
+        wishlist_id: wishlistId.value!,
+        owner_id: wishlistDoc.value.owner_id,
+        marked_by: userId,
+        quantity,
+        access: accessUsers,
+        created_at: now,
+        updated_at: now,
+      } as MarkDoc);
+    }
+
+    // Trigger sync
     if (authStore.token) {
       await triggerSync(authStore.token);
     }
@@ -330,46 +368,44 @@ async function markItem(item: SharedItem, quantity: number = 1) {
       message: t('sharing.markedSuccess'),
     });
   } catch (error: any) {
-    if (error.response?.status === 400) {
-      $q.notify({
-        type: 'warning',
-        message: t('sharing.quantityExceeds'),
-      });
-    } else if (error.response?.status === 403) {
-      $q.notify({
-        type: 'warning',
-        message: t('sharing.cannotMarkOwn'),
-      });
-    } else {
-      $q.notify({
-        type: 'negative',
-        message: t('errors.generic'),
-      });
-    }
+    console.error('[SharedWishlist] Mark error:', error);
+    $q.notify({
+      type: 'negative',
+      message: t('errors.generic'),
+    });
   } finally {
     markingItemId.value = null;
   }
 }
 
 async function unmarkItem(item: SharedItem) {
-  if (!canMark.value || markingItemId.value) return;
+  if (!canMark.value || markingItemId.value || !authStore.user) return;
 
   markingItemId.value = item.id;
   try {
-    await api.delete<MarkResponse>(
-      `/api/v1/shared/${token.value}/items/${item.id}/mark`
+    const userId = `user:${authStore.user.id}`;
+
+    // Find user's mark for this item
+    const existingMark = pouchMarks.value.find(
+      m => m.item_id === item.id && m.marked_by === userId && !m._deleted
     );
 
-    // Trigger sync to remove the mark
-    if (authStore.token) {
-      await triggerSync(authStore.token);
-    }
+    if (existingMark) {
+      // Soft delete the mark
+      await softDelete(existingMark._id);
 
-    $q.notify({
-      type: 'info',
-      message: t('sharing.unmarkedSuccess'),
-    });
+      // Trigger sync
+      if (authStore.token) {
+        await triggerSync(authStore.token);
+      }
+
+      $q.notify({
+        type: 'info',
+        message: t('sharing.unmarkedSuccess'),
+      });
+    }
   } catch (error: any) {
+    console.error('[SharedWishlist] Unmark error:', error);
     $q.notify({
       type: 'negative',
       message: t('errors.generic'),

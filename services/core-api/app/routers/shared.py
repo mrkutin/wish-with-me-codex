@@ -6,6 +6,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 
 from app.couchdb import CouchDBClient, DocumentNotFoundError, get_couchdb
 from app.dependencies import CurrentUserCouchDB, OptionalCurrentUser
@@ -260,6 +261,52 @@ async def preview_shared_wishlist(
         },
         requires_auth=True,
         auth_redirect=f"/login?share_token={token}",
+    )
+
+
+# =============================================================================
+# Grant Access endpoint - minimal API for offline-first architecture
+# =============================================================================
+
+class GrantAccessResponse(BaseModel):
+    """Minimal response for grant access - only returns IDs and permissions."""
+    wishlist_id: str
+    permissions: list[str]
+
+
+@router.post(
+    "/{token}/grant-access",
+    response_model=GrantAccessResponse,
+)
+async def grant_access(
+    token: str,
+    current_user: CurrentUserCouchDB,
+    db: Annotated[CouchDBClient, Depends(get_db)],
+) -> GrantAccessResponse:
+    """Grant access to a shared wishlist (minimal endpoint for offline-first).
+
+    This endpoint:
+    1. Validates the share token
+    2. Adds user to access arrays
+    3. Creates/updates bookmark
+    4. Returns only wishlist_id and permissions
+
+    Data is then synced via PouchDB.
+    """
+    share = await get_share_by_token(db, token)
+    user_id = current_user["_id"]
+
+    # Grant access (updates access arrays, creates bookmark)
+    await grant_access_to_user(db, share, user_id)
+
+    # Determine permissions
+    permissions = ["view"]
+    if share.get("link_type") == "mark":
+        permissions.append("mark")
+
+    return GrantAccessResponse(
+        wishlist_id=share["wishlist_id"],
+        permissions=permissions,
     )
 
 
