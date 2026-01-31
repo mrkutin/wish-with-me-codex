@@ -507,7 +507,7 @@ async function removeBookmark(bookmark: SharedWishlistBookmark) {
     persistent: true,
   }).onOk(async () => {
     try {
-      await api.delete(`/api/v1/shared/bookmarks/${bookmark.wishlist_id}`);
+      await api.delete(`/api/v1/shared/${bookmark.share_token}/bookmark`);
       sharedBookmarks.value = sharedBookmarks.value.filter(b => b.id !== bookmark.id);
       $q.notify({
         type: 'info',

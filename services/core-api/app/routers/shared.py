@@ -447,9 +447,10 @@ async def mark_item(
         await db.create_mark(
             item_id=item_doc_id,
             wishlist_id=share["wishlist_id"],
+            owner_id=owner_id,
             marked_by=user_id,
             quantity=data.quantity,
-            access=mark_access,
+            viewer_access=mark_access,
         )
 
     # Recalculate totals
