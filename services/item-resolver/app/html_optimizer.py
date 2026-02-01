@@ -226,6 +226,18 @@ def optimize_html(
     # Raw HTML often has prices split across tags which breaks regex matching
     if include_price_hints:
         prices = _extract_price_info(text)  # Use extracted text, not raw HTML
+
+        # Debug: log sample of extracted text around currency symbols
+        import logging
+        logger = logging.getLogger(__name__)
+        for symbol in ['₽', '$', '€']:
+            idx = text.find(symbol)
+            if idx >= 0:
+                sample = text[max(0, idx-50):min(len(text), idx+20)]
+                logger.info(f"Text around {symbol}: ...{repr(sample)}...")
+                break
+        logger.info(f"Price candidates found: {prices}")
+
         if prices:
             price_hint = f"[Price candidates found: {', '.join(prices)}]\n\n"
             text = price_hint + text
