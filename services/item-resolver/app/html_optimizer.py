@@ -225,6 +225,9 @@ def optimize_html(
     # Optionally prepend price hints
     if include_price_hints:
         prices = _extract_price_info(html)
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Price candidates from regex: {prices}")
         if prices:
             price_hint = f"[Price candidates found: {', '.join(prices)}]\n\n"
             text = price_hint + text
@@ -346,8 +349,12 @@ def format_html_for_llm(
     Returns:
         Formatted text prompt content for LLM
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
     # Extract structured hints first
     hints = extract_structured_hints(html)
+    logger.info(f"Structured hints extracted: {hints}")
 
     # Build the prompt content
     parts = [f"URL: {url}", f"Page title: {title}"]
