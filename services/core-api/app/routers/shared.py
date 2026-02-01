@@ -88,6 +88,17 @@ async def grant_access_to_user(db: CouchDBClient, share: dict, user_id: str) -> 
     # Always use the LAST link's permissions (update share_id to current share)
     wishlist_id = share["wishlist_id"]
 
+    # Get wishlist and owner info to store in bookmark (offline-first)
+    wishlist = await db.get(wishlist_id)
+    owner_name = "Unknown"
+    owner_avatar = None
+    try:
+        owner = await db.get(wishlist["owner_id"])
+        owner_name = owner.get("name", "Unknown")
+        owner_avatar = owner.get("avatar_base64")
+    except DocumentNotFoundError:
+        pass
+
     # Find existing bookmark for this wishlist
     all_user_bookmarks = await db.find({
         "type": "bookmark",
@@ -110,16 +121,26 @@ async def grant_access_to_user(db: CouchDBClient, share: dict, user_id: str) -> 
         # Update existing bookmark to use the LAST share link followed
         existing_bookmark["share_id"] = share["_id"]
         existing_bookmark["last_accessed_at"] = now
+        # Update cached owner/wishlist info
+        existing_bookmark["owner_name"] = owner_name
+        existing_bookmark["owner_avatar_base64"] = owner_avatar
+        existing_bookmark["wishlist_name"] = wishlist.get("name", "")
+        existing_bookmark["wishlist_icon"] = wishlist.get("icon", "card_giftcard")
+        existing_bookmark["updated_at"] = now
         await db.put(existing_bookmark)
         logger.info(f"Updated bookmark {existing_bookmark['_id']} to share {share['_id']}")
     else:
-        # Create new bookmark
+        # Create new bookmark with cached owner/wishlist info
         bookmark_id = db.generate_id("bookmark")
         bookmark = {
             "_id": bookmark_id,
             "type": "bookmark",
             "user_id": user_id,
             "share_id": share["_id"],
+            "owner_name": owner_name,
+            "owner_avatar_base64": owner_avatar,
+            "wishlist_name": wishlist.get("name", ""),
+            "wishlist_icon": wishlist.get("icon", "card_giftcard"),
             "created_at": now,
             "last_accessed_at": now,
             "access": [user_id],
@@ -269,10 +290,9 @@ async def preview_shared_wishlist(
 # =============================================================================
 
 class GrantAccessResponse(BaseModel):
-    """Response for grant access - returns IDs, permissions, and owner info."""
+    """Minimal response for grant access - only returns IDs and permissions."""
     wishlist_id: str
     permissions: list[str]
-    owner: OwnerPublicProfile
 
 
 @router.post(
@@ -289,34 +309,16 @@ async def grant_access(
     This endpoint:
     1. Validates the share token
     2. Adds user to access arrays
-    3. Creates/updates bookmark
-    4. Returns wishlist_id, permissions, and owner info
+    3. Creates/updates bookmark (with cached owner/wishlist info for offline access)
+    4. Returns only wishlist_id and permissions
 
     Data is then synced via PouchDB.
     """
     share = await get_share_by_token(db, token)
     user_id = current_user["_id"]
 
-    # Grant access (updates access arrays, creates bookmark)
+    # Grant access (updates access arrays, creates bookmark with owner info)
     await grant_access_to_user(db, share, user_id)
-
-    # Get wishlist to fetch owner info
-    wishlist = await db.get(share["wishlist_id"])
-
-    # Get owner info
-    try:
-        owner = await db.get(wishlist["owner_id"])
-        owner_profile = OwnerPublicProfile(
-            id=extract_uuid(owner["_id"]),
-            name=owner.get("name", "Unknown"),
-            avatar_base64=owner.get("avatar_base64"),
-        )
-    except DocumentNotFoundError:
-        owner_profile = OwnerPublicProfile(
-            id=extract_uuid(wishlist["owner_id"]),
-            name="Unknown",
-            avatar_base64=None,
-        )
 
     # Determine permissions
     permissions = ["view"]
@@ -326,7 +328,6 @@ async def grant_access(
     return GrantAccessResponse(
         wishlist_id=share["wishlist_id"],
         permissions=permissions,
-        owner=owner_profile,
     )
 
 

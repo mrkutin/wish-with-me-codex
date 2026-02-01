@@ -122,27 +122,21 @@ import {
   subscribeToMarks,
   getItems,
   getMarks,
+  getBookmarks,
   findById,
   upsert,
   createId,
   softDelete,
   onSyncComplete,
 } from '@/services/pouchdb';
-import type { ItemDoc, MarkDoc, WishlistDoc } from '@/services/pouchdb';
+import type { ItemDoc, MarkDoc, WishlistDoc, BookmarkDoc } from '@/services/pouchdb';
 import type { SharedItem } from '@/types/share';
 
 const PENDING_SHARE_TOKEN_KEY = 'pending_share_token';
 
-interface OwnerProfile {
-  id: string;
-  name: string;
-  avatar_base64: string | null;
-}
-
 interface GrantAccessResponse {
   wishlist_id: string;
   permissions: string[];
-  owner: OwnerProfile;
 }
 
 const route = useRoute();
@@ -231,18 +225,12 @@ async function initializeSharedWishlist() {
     wishlistId.value = wlId;
     permissions.value = response.data.permissions;
 
-    // Store owner info from API response (user docs aren't synced to viewers)
-    ownerDoc.value = {
-      name: response.data.owner.name,
-      avatar_base64: response.data.owner.avatar_base64,
-    };
-
-    // Trigger sync to pull the newly accessible documents
+    // Trigger sync to pull the newly accessible documents (including bookmark with owner info)
     if (authStore.token) {
       await triggerSync(authStore.token);
     }
 
-    // Load from PouchDB
+    // Load from PouchDB (including owner info from bookmark)
     await loadFromPouchDB();
 
     // Check if user is owner - redirect to normal wishlist view
@@ -280,8 +268,31 @@ async function loadFromPouchDB() {
   const wl = await findById<WishlistDoc>(wishlistId.value);
   wishlistDoc.value = wl;
 
-  // Note: Owner info is loaded from API response in initializeSharedWishlist()
+  // Load owner info from bookmark (cached there for offline-first access)
   // User documents are not synced to other users for privacy
+  if (authStore.user) {
+    const bookmarks = await getBookmarks(`user:${authStore.user.id}`);
+    const bookmark = bookmarks.find(b => {
+      // Find bookmark that references this wishlist
+      return !b._deleted && b.wishlist_name !== undefined;
+    });
+    // Find the bookmark for this specific wishlist by checking share_id -> wishlist
+    for (const bm of bookmarks) {
+      if (bm._deleted) continue;
+      if (bm.owner_name) {
+        // Check if this bookmark's share points to our wishlist
+        // The bookmark has cached wishlist_name, so we can match by that or by checking share
+        const share = await findById<{ wishlist_id: string }>(bm.share_id);
+        if (share && share.wishlist_id === wishlistId.value) {
+          ownerDoc.value = {
+            name: bm.owner_name,
+            avatar_base64: bm.owner_avatar_base64 || null,
+          };
+          break;
+        }
+      }
+    }
+  }
 
   // Load items
   const items = await getItems(wishlistId.value);

@@ -86,8 +86,14 @@ export interface BookmarkDoc {
   type: 'bookmark';
   user_id: string;
   share_id: string;
+  // Cached owner/wishlist info for offline-first access
+  owner_name?: string;
+  owner_avatar_base64?: string | null;
+  wishlist_name?: string;
+  wishlist_icon?: string;
   access: string[];
   created_at: string;
+  updated_at?: string;
   last_accessed_at: string;
 }
 
