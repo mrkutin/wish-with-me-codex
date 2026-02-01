@@ -160,6 +160,15 @@ def optimize_html(html: str, max_chars: int = 30000) -> str:
         parser.feed(html)
         text = parser.get_text()
         logger.info(f"ContentExtractor extracted {len(text)} chars from {len(html)} HTML chars")
+        # Log sample of extracted text
+        if text:
+            sample = text[:500].replace('\n', ' ')
+            logger.info(f"Extracted text sample: {repr(sample)}")
+        # Check if ₽ is in extracted text
+        if '₽' in text:
+            logger.info(f"₽ IS in extracted text")
+        else:
+            logger.info(f"₽ NOT in extracted text")
     except Exception as e:
         logger.warning(f"ContentExtractor failed: {e}, using regex fallback")
         # If parsing fails, try a simple regex fallback
