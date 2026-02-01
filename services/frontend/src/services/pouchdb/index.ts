@@ -79,40 +79,35 @@ export function getDatabase(): PouchDB.Database<CouchDBDoc> {
     });
     console.log('[PouchDB] Database created:', DB_NAME);
 
-    // Remove any existing Mango indexes to prevent PouchDB-find bug.
-    // PouchDB-find has a fundamental bug where index updates try to access
-    // fields on deleted document tombstones, causing "Cannot read properties
-    // of undefined" errors. Since we use allDocs + JS filtering instead of
-    // Mango queries, indexes are not needed.
-    removeIndexes(db);
-
-    // Compact database to remove tombstones that cause PouchDB-find crashes
-    db.compact().catch(err => console.debug('[PouchDB] Compact error:', err));
+    // Create indexes for efficient queries
+    createIndexes(db);
   }
   return db;
 }
 
 /**
- * Remove all Mango indexes to prevent PouchDB-find bug.
- * PouchDB-find has a bug where index updates crash when processing
- * deleted document tombstones. We use allDocs + JS filtering instead.
+ * Create indexes for efficient Mango queries.
  */
-async function removeIndexes(database: PouchDB.Database<CouchDBDoc>): Promise<void> {
-  try {
-    const result = await database.getIndexes();
-    for (const index of result.indexes) {
-      // Don't delete the special _all_docs index
-      if (index.ddoc) {
-        try {
-          await database.deleteIndex(index);
-          console.log('[PouchDB] Deleted index:', index.name);
-        } catch (error) {
-          console.debug('[PouchDB] Failed to delete index:', index.name, error);
-        }
-      }
+async function createIndexes(database: PouchDB.Database<CouchDBDoc>): Promise<void> {
+  const indexes = [
+    { index: { fields: ['type'] } },
+    { index: { fields: ['type', 'owner_id'] } },
+    { index: { fields: ['type', 'wishlist_id'] } },
+    { index: { fields: ['type', 'item_id'] } },
+    { index: { fields: ['type', 'updated_at'] } },
+    { index: { fields: ['type', 'created_at'] } },
+    // Compound indexes for sorted queries
+    { index: { fields: ['type', 'wishlist_id', 'created_at'] } },  // getItems with sort
+    { index: { fields: ['type', 'owner_id', 'updated_at'] } },     // getWishlists with sort
+  ];
+
+  for (const idx of indexes) {
+    try {
+      await database.createIndex(idx);
+    } catch (error) {
+      // Index might already exist, that's fine
+      console.debug('[PouchDB] Index creation:', idx.index.fields, error);
     }
-  } catch (error) {
-    console.debug('[PouchDB] Failed to get indexes:', error);
   }
 }
 
@@ -229,18 +224,21 @@ async function pullFromServer(
       // This handles items deleted by other users (e.g., wishlist owner)
       const docType = typeMap[collection];
       try {
-        // Use allDocs instead of find() to avoid PouchDB-find bugs with deleted documents
-        // PouchDB-find's Mango query processor crashes when evaluating selectors on tombstones
-        const allDocsResult = await localDb.allDocs({ include_docs: true });
-        const nonDeletedDocs = allDocsResult.rows
-          .map(row => row.doc)
-          .filter((doc): doc is CouchDBDoc => {
-            if (!doc) return false;
-            if (doc._deleted) return false;
-            return doc.type === docType;
-          });
+        const localResult = await localDb.find({
+          selector: {
+            $and: [
+              { type: docType },
+              {
+                $or: [
+                  { _deleted: { $exists: false } },
+                  { _deleted: false },
+                ],
+              },
+            ],
+          },
+        });
 
-        for (const localDoc of nonDeletedDocs) {
+        for (const localDoc of localResult.docs) {
           if (!serverDocIds.has(localDoc._id)) {
             // This doc exists locally but not on server - it was deleted or access revoked
             try {
@@ -551,91 +549,39 @@ export async function clearDatabase(): Promise<void> {
 // ============================================
 
 /**
- * Find documents using allDocs + JavaScript filtering.
- *
- * NOTE: We intentionally avoid using localDb.find() (PouchDB-find Mango queries)
- * because it has a fundamental bug: when evaluating selectors, it tries to access
- * fields on deleted document tombstones that don't have those fields, causing
- * "Cannot read properties of undefined" errors. Using allDocs + JS filtering
- * bypasses PouchDB-find entirely and is more reliable.
+ * Find documents using Mango query.
  */
 export async function find<T extends CouchDBDoc>(
   options: PouchDBFindOptions
 ): Promise<T[]> {
   const localDb = getDatabase();
 
-  // Use allDocs instead of find() to avoid PouchDB-find bugs with deleted documents
-  const result = await localDb.allDocs({ include_docs: true });
+  // Build selector - use $or to properly handle _deleted field
+  // This matches docs where _deleted doesn't exist OR is explicitly false
+  const baseSelector = options.selector;
+  const selector = options.selector._deleted !== undefined
+    ? baseSelector
+    : {
+        $and: [
+          baseSelector,
+          {
+            $or: [
+              { _deleted: { $exists: false } },
+              { _deleted: false },
+            ],
+          },
+        ],
+      };
 
-  // Filter documents in JavaScript
-  const docs = result.rows
-    .map(row => row.doc as T | undefined)
-    .filter((doc): doc is T => {
-      if (!doc) return false;
+  const result = await localDb.find({
+    selector,
+    sort: options.sort,
+    limit: options.limit,
+    skip: options.skip,
+    fields: options.fields,
+  });
 
-      // Handle _deleted filter
-      if (options.selector._deleted !== undefined) {
-        // Caller explicitly wants to filter by _deleted status
-        if (doc._deleted !== options.selector._deleted) return false;
-      } else {
-        // Default: exclude deleted documents
-        if (doc._deleted) return false;
-      }
-
-      // Match all selector conditions
-      const selector = options.selector;
-      for (const [key, value] of Object.entries(selector)) {
-        if (key === '_deleted') continue; // Already handled above
-
-        const docValue = (doc as Record<string, unknown>)[key];
-
-        // Handle special Mango operators
-        if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-          const valueObj = value as Record<string, unknown>;
-          // Handle $elemMatch operator
-          if ('$elemMatch' in valueObj) {
-            const elemMatch = valueObj.$elemMatch as Record<string, unknown>;
-            if (Array.isArray(docValue)) {
-              const matchValue = elemMatch.$eq;
-              if (!docValue.includes(matchValue)) return false;
-            } else {
-              return false;
-            }
-            continue;
-          }
-        }
-
-        // Simple equality check
-        if (docValue !== value) return false;
-      }
-      return true;
-    });
-
-  // Apply sort if specified
-  if (options.sort) {
-    docs.sort((a, b) => {
-      for (const sortField of options.sort!) {
-        const field = typeof sortField === 'string' ? sortField : Object.keys(sortField)[0];
-        const direction = typeof sortField === 'string' ? 'asc' : Object.values(sortField)[0];
-        const aVal = (a as Record<string, unknown>)[field];
-        const bVal = (b as Record<string, unknown>)[field];
-        if (aVal < bVal) return direction === 'asc' ? -1 : 1;
-        if (aVal > bVal) return direction === 'asc' ? 1 : -1;
-      }
-      return 0;
-    });
-  }
-
-  // Apply skip and limit
-  let filtered = docs;
-  if (options.skip) {
-    filtered = filtered.slice(options.skip);
-  }
-  if (options.limit) {
-    filtered = filtered.slice(0, options.limit);
-  }
-
-  return filtered;
+  return result.docs as T[];
 }
 
 /**
