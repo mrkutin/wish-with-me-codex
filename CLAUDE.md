@@ -121,9 +121,46 @@ Extracts product metadata from URLs using Playwright + LLM.
 |------|---------|
 | `app/main.py` | FastAPI app with factory pattern |
 | `app/changes_watcher.py` | Watches CouchDB for pending items |
-| `app/scrape.py` | Playwright page capture |
+| `app/scrape.py` | Playwright page capture with anti-bot handling |
+| `app/html_optimizer.py` | Cleans HTML for LLM (removes scripts/styles) |
 | `app/llm.py` | DeepSeek integration for extraction |
 | `app/ssrf.py` | SSRF protection |
+
+#### How Item Resolution Works
+
+The item resolver follows a simple, robust approach:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  1. PLAYWRIGHT CAPTURES PAGE                                    │
+│     └─► Navigate to URL with networkidle wait                   │
+│     └─► Dismiss popups (cookie consent, city selector)          │
+│     └─► Wait for DOM to stabilize (JS content to render)        │
+│     └─► Capture full HTML with page.content()                   │
+├─────────────────────────────────────────────────────────────────┤
+│  2. CLEAN HTML FOR LLM                                          │
+│     └─► Remove <script>, <style>, <svg>, <noscript>, comments   │
+│     └─► Collapse whitespace                                     │
+│     └─► Truncate to LLM_MAX_CHARS (default 150000)              │
+│     └─► Extract structured hints from JSON-LD/OpenGraph         │
+├─────────────────────────────────────────────────────────────────┤
+│  3. LLM EXTRACTS METADATA                                       │
+│     └─► DeepSeek receives cleaned HTML                          │
+│     └─► Extracts: title, description, price, currency, image    │
+│     └─► Returns JSON with confidence score                      │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Key Principles:**
+- **No CSS selectors** - never hardcode site-specific selectors
+- **No regex for prices** - let LLM handle all extraction
+- **Pass raw HTML to LLM** - LLM reads HTML structure directly
+- **Sufficient context** - `LLM_MAX_CHARS` must be large enough (150K+) to include product details
+
+**Common Issues:**
+- Price not extracted → Check if `LLM_MAX_CHARS` is too small (price may be truncated)
+- Empty content → Check if Playwright waits are sufficient for JS to render
+- Bot detection → Anti-bot handling in `scrape.py` (don't modify without testing)
 
 ---
 
