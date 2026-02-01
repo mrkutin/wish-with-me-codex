@@ -4,7 +4,8 @@ import asyncio
 import base64
 import logging
 import os
-from datetime import datetime, timezone
+import socket
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urljoin
 
@@ -22,6 +23,11 @@ from .errors import ResolverError
 
 logger = logging.getLogger(__name__)
 
+# Instance identification and lease configuration
+INSTANCE_ID = os.environ.get("INSTANCE_ID") or os.environ.get("HOSTNAME") or socket.gethostname()
+LEASE_DURATION_SECONDS = int(os.environ.get("LEASE_DURATION_SECONDS", "300"))  # 5 minutes
+SWEEP_INTERVAL_SECONDS = int(os.environ.get("SWEEP_INTERVAL_SECONDS", "60"))  # 1 minute
+
 
 def is_valid_public_url(url: str) -> bool:
     """Check if a URL is valid and publicly accessible (non-throwing)."""
@@ -29,6 +35,40 @@ def is_valid_public_url(url: str) -> bool:
         validate_public_http_url(url)
         return True
     except ResolverError:
+        return False
+
+
+async def try_claim_item(couchdb: CouchDBClient, doc: dict) -> bool:
+    """
+    Attempt to claim an item for processing using optimistic locking.
+
+    Uses CouchDB's _rev field for conflict detection. Only the first instance
+    to successfully update the document will proceed with processing.
+
+    Returns True if claim succeeded, False if another instance claimed it.
+    """
+    item_id = doc["_id"]
+    current_rev = doc["_rev"]
+    now = datetime.now(timezone.utc)
+    lease_expires = now + timedelta(seconds=LEASE_DURATION_SECONDS)
+
+    claim_doc = {
+        **doc,
+        "_rev": current_rev,
+        "status": "in_progress",
+        "claimed_by": INSTANCE_ID,
+        "claimed_at": now.isoformat(),
+        "lease_expires_at": lease_expires.isoformat(),
+        "updated_at": now.isoformat(),
+    }
+
+    try:
+        await couchdb.put(claim_doc)
+        logger.info(f"Claimed item {item_id} (lease expires: {lease_expires.isoformat()})")
+        return True
+    except ConflictError:
+        # Another instance claimed it first - this is expected behavior
+        logger.debug(f"Item {item_id} already claimed by another instance")
         return False
 
 
@@ -51,25 +91,30 @@ class ChangesWatcher:
         self.cfg = PageCaptureConfig()
         self._running = False
         self._task: asyncio.Task | None = None
+        self._sweep_task: asyncio.Task | None = None
         self._last_seq: str = "now"
         # Limit concurrent resolutions to avoid overwhelming resources
         max_concurrent = int(os.environ.get("COUCHDB_WATCHER_MAX_CONCURRENT", "3"))
         self._resolve_semaphore = asyncio.Semaphore(max_concurrent)
         self._pending_tasks: set[asyncio.Task] = set()
+        logger.info(f"ChangesWatcher initialized with instance_id={INSTANCE_ID}, lease={LEASE_DURATION_SECONDS}s, sweep={SWEEP_INTERVAL_SECONDS}s")
 
     async def start(self) -> None:
-        """Start watching for changes."""
+        """Start watching for changes and stale lease sweep."""
         if self._running:
             logger.warning("Changes watcher already running")
             return
 
         self._running = True
         self._task = asyncio.create_task(self._watch_loop())
-        logger.info("Started CouchDB changes watcher")
+        self._sweep_task = asyncio.create_task(self._sweep_loop())
+        logger.info(f"Started CouchDB changes watcher (instance: {INSTANCE_ID})")
 
     async def stop(self) -> None:
-        """Stop watching for changes."""
+        """Stop watching for changes and sweep loop."""
         self._running = False
+
+        # Stop watch task
         if self._task:
             self._task.cancel()
             try:
@@ -77,6 +122,15 @@ class ChangesWatcher:
             except asyncio.CancelledError:
                 pass
             self._task = None
+
+        # Stop sweep task
+        if self._sweep_task:
+            self._sweep_task.cancel()
+            try:
+                await self._sweep_task
+            except asyncio.CancelledError:
+                pass
+            self._sweep_task = None
 
         # Cancel and wait for any pending resolution tasks
         for task in list(self._pending_tasks):
@@ -110,9 +164,60 @@ class ChangesWatcher:
                 await asyncio.sleep(reconnect_delay)
                 reconnect_delay = min(reconnect_delay * 2, max_reconnect_delay)
 
+    async def _sweep_loop(self) -> None:
+        """Background loop for sweeping stale leases."""
+        while self._running:
+            try:
+                await asyncio.sleep(SWEEP_INTERVAL_SECONDS)
+                if self._running:
+                    await self._sweep_stale_leases()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.error(f"Sweep loop error: {e}", exc_info=True)
+
+    async def _sweep_stale_leases(self) -> None:
+        """Find and reset items with expired leases."""
+        now = datetime.now(timezone.utc).isoformat()
+
+        try:
+            # Find items where lease has expired
+            stale_items = await self.couchdb.find(
+                selector={
+                    "type": "item",
+                    "status": "in_progress",
+                    "lease_expires_at": {"$lt": now},
+                },
+                limit=100,
+            )
+
+            for item in stale_items:
+                item_id = item["_id"]
+                claimed_by = item.get("claimed_by", "unknown")
+
+                logger.warning(
+                    f"Resetting stale item {item_id} (was claimed by {claimed_by}, lease expired)"
+                )
+
+                # Reset to pending for re-processing
+                item["status"] = "pending"
+                item["claimed_by"] = None
+                item["claimed_at"] = None
+                item["lease_expires_at"] = None
+                item["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+                try:
+                    await self.couchdb.put(item)
+                    logger.info(f"Reset stale item {item_id} to pending")
+                except ConflictError:
+                    # Another process already handled it
+                    logger.debug(f"Conflict resetting item {item_id}, already handled")
+        except Exception as e:
+            logger.error(f"Error sweeping stale leases: {e}")
+
     async def _watch_changes(self) -> None:
         """Watch the changes feed for pending items."""
-        logger.info(f"Connecting to changes feed from seq: {self._last_seq}")
+        logger.info(f"Connecting to changes feed from seq: {self._last_seq} (instance: {INSTANCE_ID})")
 
         # Filter for pending items only
         selector = {
@@ -152,7 +257,13 @@ class ChangesWatcher:
                 logger.warning(f"Item {item_id} has no source_url, skipping")
                 continue
 
-            logger.info(f"Processing pending item: {item_id} from {source_url}")
+            # Try to claim the item before processing
+            claimed = await try_claim_item(self.couchdb, doc)
+            if not claimed:
+                # Another instance claimed it, skip
+                continue
+
+            logger.info(f"Processing claimed item: {item_id} from {source_url}")
 
             # Process in background to not block the feed, with concurrency limit
             task = asyncio.create_task(self._resolve_item_with_semaphore(doc))
@@ -339,9 +450,19 @@ class ChangesWatcher:
             logger.info(f"Item {doc['_id']} already resolved, skipping")
             return
 
+        # Check if still owned by us (guard against lease expiration during processing)
+        if current_doc.get("claimed_by") != INSTANCE_ID:
+            logger.warning(f"Item {doc['_id']} no longer owned by us (owned by {current_doc.get('claimed_by')}), skipping update")
+            return
+
         # Update fields
         current_doc["status"] = "resolved"
         current_doc["updated_at"] = now
+
+        # Clear claim fields
+        current_doc["claimed_by"] = None
+        current_doc["claimed_at"] = None
+        current_doc["lease_expires_at"] = None
 
         if resolved.get("title"):
             current_doc["title"] = resolved["title"]
@@ -360,6 +481,7 @@ class ChangesWatcher:
 
         current_doc["resolve_confidence"] = resolved.get("confidence", 0.0)
         current_doc["resolved_at"] = now
+        current_doc["resolved_by"] = INSTANCE_ID
 
         try:
             await self.couchdb.put(current_doc)
@@ -386,10 +508,22 @@ class ChangesWatcher:
         except DocumentNotFoundError:
             return
 
+        # Check if still owned by us (guard against lease expiration during processing)
+        if current_doc.get("claimed_by") != INSTANCE_ID:
+            logger.warning(f"Item {doc['_id']} no longer owned by us, skipping status update")
+            return
+
         current_doc["status"] = status
         current_doc["updated_at"] = now
+
+        # Clear claim fields
+        current_doc["claimed_by"] = None
+        current_doc["claimed_at"] = None
+        current_doc["lease_expires_at"] = None
+
         if error:
             current_doc["resolve_error"] = error
+            current_doc["resolved_by"] = INSTANCE_ID
 
         try:
             await self.couchdb.put(current_doc)

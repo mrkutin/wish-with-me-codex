@@ -74,7 +74,7 @@ jobs:
             fi
 
             # Check infrastructure files
-            if echo "$CHANGED_FILES" | grep -qE "(docker compose\.ubuntu\.yml|nginx/)"; then
+            if echo "$CHANGED_FILES" | grep -qE "(docker-compose\.yml|nginx/)"; then
               echo "infrastructure=true" >> $GITHUB_OUTPUT
             else
               echo "infrastructure=false" >> $GITHUB_OUTPUT

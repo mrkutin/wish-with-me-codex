@@ -145,6 +145,56 @@ class CouchDBClient:
         result = await self._request("POST", f"{self.db_url}/_find", json=query)
         return result.get("docs", [])
 
+    async def create_index(self, index: dict, name: str, ddoc: str | None = None) -> dict:
+        """Create a Mango index.
+
+        Args:
+            index: Index definition with 'fields' key
+            name: Name of the index
+            ddoc: Design document name (optional)
+        """
+        body: dict[str, Any] = {
+            "index": index,
+            "name": name,
+            "type": "json",
+        }
+        if ddoc:
+            body["ddoc"] = ddoc
+
+        try:
+            return await self._request("POST", f"{self.db_url}/_index", json=body)
+        except CouchDBError as e:
+            # Index may already exist, that's OK
+            if "exists" in str(e.message).lower():
+                logger.debug(f"Index {name} already exists")
+                return {"result": "exists"}
+            raise
+
+    async def ensure_indexes(self) -> None:
+        """Ensure all required indexes exist for item-resolver operations."""
+        indexes = [
+            # Index for finding stale leases (items stuck in_progress)
+            {
+                "name": "item-stale-lease-index",
+                "index": {"fields": ["type", "status", "lease_expires_at"]},
+            },
+            # Index for finding pending items
+            {
+                "name": "item-pending-index",
+                "index": {"fields": ["type", "status"]},
+            },
+        ]
+
+        for idx in indexes:
+            try:
+                result = await self.create_index(idx["index"], idx["name"])
+                if result.get("result") == "created":
+                    logger.info(f"Created index: {idx['name']}")
+                else:
+                    logger.debug(f"Index {idx['name']} already exists or unchanged")
+            except CouchDBError as e:
+                logger.warning(f"Failed to create index {idx['name']}: {e}")
+
     async def changes(
         self,
         since: str = "now",

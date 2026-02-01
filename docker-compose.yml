@@ -158,7 +158,7 @@ services:
       - wishwithme
 
   # Item Resolver Instance 1 (Playwright + DeepSeek)
-  # Watches CouchDB for pending items
+  # Both instances watch CouchDB and use optimistic locking to claim items
   item-resolver-1:
     build:
       context: ./services/item-resolver
@@ -166,6 +166,7 @@ services:
     container_name: wishwithme-item-resolver-1
     restart: unless-stopped
     environment:
+      - INSTANCE_ID=resolver-1
       - RU_BEARER_TOKEN=${RU_BEARER_TOKEN:-ru_secret}
       - RU_FETCHER_MODE=playwright
       - BROWSER_CHANNEL=${BROWSER_CHANNEL:-chrome}
@@ -180,12 +181,15 @@ services:
       - LLM_MODEL=${LLM_MODEL:-deepseek-chat}
       - LLM_TIMEOUT_S=${LLM_TIMEOUT_S:-120}
       - LLM_MAX_CHARS=${LLM_MAX_CHARS:-100000}
-      # CouchDB - watches for pending items
+      # CouchDB - watches for pending items with distributed claim
       - COUCHDB_WATCHER_ENABLED=true
       - COUCHDB_URL=http://couchdb:5984
       - COUCHDB_DATABASE=wishwithme
       - COUCHDB_ADMIN_USER=${COUCHDB_ADMIN_USER:-admin}
       - COUCHDB_ADMIN_PASSWORD=${COUCHDB_ADMIN_PASSWORD:-couchdb_admin_password}
+      # Distributed processing config
+      - LEASE_DURATION_SECONDS=${LEASE_DURATION_SECONDS:-300}
+      - SWEEP_INTERVAL_SECONDS=${SWEEP_INTERVAL_SECONDS:-60}
     depends_on:
       couchdb:
         condition: service_healthy
@@ -210,7 +214,7 @@ services:
       - wishwithme
 
   # Item Resolver Instance 2 (Playwright + DeepSeek)
-  # Does NOT watch CouchDB (only instance 1 does)
+  # Both instances watch CouchDB and use optimistic locking to claim items
   item-resolver-2:
     build:
       context: ./services/item-resolver
@@ -218,6 +222,7 @@ services:
     container_name: wishwithme-item-resolver-2
     restart: unless-stopped
     environment:
+      - INSTANCE_ID=resolver-2
       - RU_BEARER_TOKEN=${RU_BEARER_TOKEN:-ru_secret}
       - RU_FETCHER_MODE=playwright
       - BROWSER_CHANNEL=${BROWSER_CHANNEL:-chrome}
@@ -232,8 +237,18 @@ services:
       - LLM_MODEL=${LLM_MODEL:-deepseek-chat}
       - LLM_TIMEOUT_S=${LLM_TIMEOUT_S:-120}
       - LLM_MAX_CHARS=${LLM_MAX_CHARS:-100000}
-      # CouchDB watcher disabled
-      - COUCHDB_WATCHER_ENABLED=false
+      # CouchDB - watches for pending items with distributed claim
+      - COUCHDB_WATCHER_ENABLED=true
+      - COUCHDB_URL=http://couchdb:5984
+      - COUCHDB_DATABASE=wishwithme
+      - COUCHDB_ADMIN_USER=${COUCHDB_ADMIN_USER:-admin}
+      - COUCHDB_ADMIN_PASSWORD=${COUCHDB_ADMIN_PASSWORD:-couchdb_admin_password}
+      # Distributed processing config
+      - LEASE_DURATION_SECONDS=${LEASE_DURATION_SECONDS:-300}
+      - SWEEP_INTERVAL_SECONDS=${SWEEP_INTERVAL_SECONDS:-60}
+    depends_on:
+      couchdb:
+        condition: service_healthy
     volumes:
       - item_resolver_storage_2:/data/storage_state
     healthcheck:

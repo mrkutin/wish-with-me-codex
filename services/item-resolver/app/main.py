@@ -80,6 +80,11 @@ def create_app(*, fetcher_mode: str | None = None) -> FastAPI:
             watcher_enabled = os.environ.get("COUCHDB_WATCHER_ENABLED", "true").lower() == "true"
             if watcher_enabled:
                 try:
+                    # Ensure CouchDB indexes exist for efficient queries
+                    from .couchdb import get_couchdb
+                    couchdb = get_couchdb()
+                    await couchdb.ensure_indexes()
+
                     llm_client = load_llm_client_from_env()
                     app.state.llm_client = llm_client
                     await start_watcher(

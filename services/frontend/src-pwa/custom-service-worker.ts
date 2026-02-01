@@ -33,7 +33,7 @@ registerRoute(
   ({ url }) =>
     url.pathname.startsWith('/api/') &&
     !url.pathname.includes('/oauth/') &&
-    !url.pathname.startsWith('/api/v1/sync/'),
+    !url.pathname.startsWith('/api/v2/sync/'),
   new NetworkFirst({
     cacheName: 'api-cache',
     plugins: [
@@ -49,13 +49,7 @@ registerRoute(
 
 // Sync endpoints - Network Only (never cache sync data)
 registerRoute(
-  ({ url }) => url.pathname.startsWith('/api/v1/sync/'),
-  new NetworkOnly()
-);
-
-// SSE endpoint - Network Only (streaming connection, must not be cached)
-registerRoute(
-  ({ url }) => url.pathname.includes('/events/stream'),
+  ({ url }) => url.pathname.startsWith('/api/v2/sync/'),
   new NetworkOnly()
 );
 
