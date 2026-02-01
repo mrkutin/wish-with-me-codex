@@ -81,6 +81,10 @@ export function getDatabase(): PouchDB.Database<CouchDBDoc> {
 
     // Create indexes for efficient queries
     createIndexes(db);
+
+    // Compact database to remove tombstones that can cause PouchDB-find issues
+    // when deleted documents have missing fields
+    db.compact().catch(err => console.debug('[PouchDB] Compact error:', err));
   }
   return db;
 }
@@ -573,15 +577,39 @@ export async function find<T extends CouchDBDoc>(
         ],
       };
 
-  const result = await localDb.find({
-    selector,
-    sort: options.sort,
-    limit: options.limit,
-    skip: options.skip,
-    fields: options.fields,
-  });
+  try {
+    const result = await localDb.find({
+      selector,
+      sort: options.sort,
+      limit: options.limit,
+      skip: options.skip,
+      fields: options.fields,
+    });
 
-  return result.docs as T[];
+    // Filter out any undefined or incomplete documents that might slip through
+    return (result.docs as T[]).filter(doc => doc && doc._id);
+  } catch (error) {
+    // PouchDB-find can crash when evaluating selectors on tombstone documents
+    // that have missing fields. When this happens, compact and retry once.
+    if (error instanceof TypeError && String(error).includes('Cannot read properties of undefined')) {
+      console.warn('[PouchDB] Find error on tombstone, compacting and retrying:', error);
+      try {
+        await localDb.compact();
+        const result = await localDb.find({
+          selector,
+          sort: options.sort,
+          limit: options.limit,
+          skip: options.skip,
+          fields: options.fields,
+        });
+        return (result.docs as T[]).filter(doc => doc && doc._id);
+      } catch (retryError) {
+        console.error('[PouchDB] Find retry failed:', retryError);
+        return [];
+      }
+    }
+    throw error;
+  }
 }
 
 /**
@@ -771,7 +799,7 @@ export function subscribeToWishlists(
   return subscribeToChanges<WishlistDoc>(
     'wishlist',
     callback,
-    (doc) => doc.owner_id === userId
+    (doc) => doc?.owner_id === userId
   );
 }
 
@@ -785,7 +813,7 @@ export function subscribeToSharedWishlists(
   return subscribeToChanges<WishlistDoc>(
     'wishlist',
     callback,
-    (doc) => doc.owner_id !== userId && doc.access.includes(userId)
+    (doc) => doc?.owner_id !== userId && doc?.access?.includes(userId) === true
   );
 }
 
@@ -799,7 +827,7 @@ export function subscribeToItems(
   return subscribeToChanges<ItemDoc>(
     'item',
     callback,
-    (doc) => doc.wishlist_id === wishlistId
+    (doc) => doc?.wishlist_id === wishlistId
   );
 }
 
@@ -813,7 +841,7 @@ export function subscribeToMarks(
   return subscribeToChanges<MarkDoc>(
     'mark',
     callback,
-    (doc) => itemIds.includes(doc.item_id)
+    (doc) => doc?.item_id != null && itemIds.includes(doc.item_id)
   );
 }
 
@@ -839,7 +867,7 @@ export function subscribeToBookmarks(
   return subscribeToChanges<BookmarkDoc>(
     'bookmark',
     callback,
-    (doc) => doc.user_id === userId
+    (doc) => doc?.user_id === userId
   );
 }
 
