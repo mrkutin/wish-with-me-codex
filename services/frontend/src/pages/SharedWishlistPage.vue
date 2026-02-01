@@ -234,7 +234,8 @@ async function initializeSharedWishlist() {
     await loadFromPouchDB();
 
     // Check if user is owner - redirect to normal wishlist view
-    if (wishlistDoc.value && authStore.user && wishlistDoc.value.owner_id === `user:${authStore.user.id}`) {
+    // user.id is already in format "user:xxx" from CouchDB
+    if (wishlistDoc.value && authStore.user && wishlistDoc.value.owner_id === authStore.user.id) {
       const id = wishlistId.value.replace('wishlist:', '');
       router.replace({ name: 'wishlist-detail', params: { id } });
       return;
@@ -271,7 +272,8 @@ async function loadFromPouchDB() {
   // Load owner info from bookmark (cached there for offline-first access)
   // User documents are not synced to other users for privacy
   if (authStore.user) {
-    const bookmarks = await getBookmarks(`user:${authStore.user.id}`);
+    // user.id is already in format "user:xxx" from CouchDB
+    const bookmarks = await getBookmarks(authStore.user.id);
     console.log('[SharedWishlist] Bookmarks:', bookmarks.map(b => ({ id: b._id, wishlist_id: b.wishlist_id, owner_name: b.owner_name })));
     console.log('[SharedWishlist] Looking for wishlist_id:', wishlistId.value);
     // Find bookmark for this wishlist by wishlist_id
@@ -336,7 +338,7 @@ async function markItem(item: SharedItem, quantity: number = 1) {
   markingItemId.value = item.id;
   try {
     const now = new Date().toISOString();
-    const userId = `user:${authStore.user.id}`;
+    const userId = authStore.user.id;
 
     // Check if user already has a mark for this item
     const existingMark = pouchMarks.value.find(
@@ -396,7 +398,7 @@ async function unmarkItem(item: SharedItem) {
 
   markingItemId.value = item.id;
   try {
-    const userId = `user:${authStore.user.id}`;
+    const userId = authStore.user.id;
 
     // Find user's mark for this item
     const existingMark = pouchMarks.value.find(
