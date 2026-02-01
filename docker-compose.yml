@@ -1,103 +1,75 @@
-version: '3.8'
+# Ubuntu Server (176.106.144.182) - Main Application
+# Hosts: nginx, frontend, core-api, couchdb, item-resolver
+# Domain: wishwith.me
+#
+# Usage: docker-compose -f docker-compose.ubuntu.yml up -d
+#
+# CouchDB is the primary database for all operations.
+# PouchDB on frontend syncs directly with CouchDB.
 
 services:
-  # PostgreSQL Database
-  postgres:
-    image: postgres:16-alpine
-    container_name: wishwithme-postgres
+  # Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: wishwithme-nginx
     restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-wishwithme}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-wishwithme}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wishwithme} -d ${POSTGRES_DB:-wishwithme}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - wishwithme
-
-  # Redis Cache
-  redis:
-    image: redis:7-alpine
-    container_name: wishwithme-redis
-    restart: unless-stopped
-    command: redis-server --appendonly yes
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - wishwithme
-
-  # Item Resolver Service
-  item-resolver:
-    build:
-      context: ./services/item-resolver
-      dockerfile: Dockerfile
-    container_name: wishwithme-item-resolver
-    restart: unless-stopped
-    environment:
-      - RU_BEARER_TOKEN=${RU_BEARER_TOKEN:-ru_secret}
-      - RU_FETCHER_MODE=playwright
-      - BROWSER_CHANNEL=${BROWSER_CHANNEL:-chrome}
-      - HEADLESS=${HEADLESS:-true}
-      - MAX_CONCURRENCY=${MAX_CONCURRENCY:-2}
-      - STORAGE_STATE_DIR=/data/storage_state
-      - SSRF_ALLOWLIST_HOSTS=${SSRF_ALLOWLIST_HOSTS:-}
-      - PROXY_SERVER=${PROXY_SERVER:-}
-      - PROXY_USERNAME=${PROXY_USERNAME:-}
-      - PROXY_PASSWORD=${PROXY_PASSWORD:-}
-      - PROXY_BYPASS=${PROXY_BYPASS:-}
-      - PROXY_IGNORE_CERT_ERRORS=${PROXY_IGNORE_CERT_ERRORS:-}
-      - RANDOM_UA=${RANDOM_UA:-}
-      - LLM_MODE=${LLM_MODE:-live}
-      - LLM_BASE_URL=${LLM_BASE_URL:-}
-      - LLM_API_KEY=${LLM_API_KEY:-}
-      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
-      - LLM_TIMEOUT_S=${LLM_TIMEOUT_S:-60}
-      - LLM_MAX_CHARS=${LLM_MAX_CHARS:-200000}
-    volumes:
-      - item_resolver_storage:/data/storage_state
-    # Only expose port in dev - production uses internal network
     ports:
-      - "${ITEM_RESOLVER_PORT:-8001}:8000"
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./nginx/certbot:/var/www/certbot:ro
+    depends_on:
+      frontend:
+        condition: service_healthy
+      core-api-1:
+        condition: service_healthy
+      core-api-2:
+        condition: service_healthy
+      couchdb:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 -O- --timeout=5 --header='Authorization: Bearer ${RU_BEARER_TOKEN:-ru_secret}' http://localhost:8000/healthz > /dev/null || exit 1"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/health"]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 3
-      start_period: 30s
-    # Playwright needs shared memory
-    shm_size: '2gb'
     networks:
       - wishwithme
 
-  # Core API (FastAPI)
-  core-api:
+  # CouchDB - Primary database
+  couchdb:
+    image: couchdb:3.3
+    container_name: wishwithme-couchdb
+    restart: unless-stopped
+    environment:
+      - COUCHDB_USER=${COUCHDB_ADMIN_USER:-admin}
+      - COUCHDB_PASSWORD=${COUCHDB_ADMIN_PASSWORD:-couchdb_admin_password}
+    volumes:
+      - couchdb_data:/opt/couchdb/data
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:5984/_up"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - wishwithme
+
+  # Core API Instance 1 (FastAPI + CouchDB)
+  core-api-1:
     build:
       context: ./services/core-api
       dockerfile: Dockerfile
-    container_name: wishwithme-core-api
+    container_name: wishwithme-core-api-1
     restart: unless-stopped
     environment:
-      # Database
-      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://wishwithme:postgres@postgres:5432/wishwithme}
-      # Redis
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-      # Security - MUST be set in production
+      # Security
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-INSECURE_DEV_ONLY_REPLACE_IN_PRODUCTION_MIN_32_CHARS}
-      - DEBUG=${DEBUG:-false}
-      # CORS
-      - CORS_ALLOW_ALL=${CORS_ALLOW_ALL:-false}
+      - DEBUG=false
+      - CORS_ALLOW_ALL=false
       # Item Resolver
-      - ITEM_RESOLVER_URL=http://item-resolver:8000
+      - ITEM_RESOLVER_URL=${ITEM_RESOLVER_URL:-http://item-resolver-1:8000}
       - ITEM_RESOLVER_TOKEN=${RU_BEARER_TOKEN:-ru_secret}
       # OAuth - Google
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
@@ -105,17 +77,18 @@ services:
       # OAuth - Yandex
       - YANDEX_CLIENT_ID=${YANDEX_CLIENT_ID:-}
       - YANDEX_CLIENT_SECRET=${YANDEX_CLIENT_SECRET:-}
-    ports:
-      - "${CORE_API_PORT:-8000}:8000"
+      # CouchDB
+      - COUCHDB_URL=http://couchdb:5984
+      - COUCHDB_DATABASE=wishwithme
+      - COUCHDB_ADMIN_USER=${COUCHDB_ADMIN_USER:-admin}
+      - COUCHDB_ADMIN_PASSWORD=${COUCHDB_ADMIN_PASSWORD:-couchdb_admin_password}
     depends_on:
-      postgres:
+      couchdb:
         condition: service_healthy
-      redis:
-        condition: service_healthy
-      item-resolver:
+      item-resolver-1:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O-", "--timeout=5", "http://localhost:8000/live"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O-", "--timeout=5", "http://127.0.0.1:8000/live"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -123,19 +96,57 @@ services:
     networks:
       - wishwithme
 
-  # Frontend (Vue + Quasar PWA)
+  # Core API Instance 2 (FastAPI + CouchDB)
+  core-api-2:
+    build:
+      context: ./services/core-api
+      dockerfile: Dockerfile
+    container_name: wishwithme-core-api-2
+    restart: unless-stopped
+    environment:
+      # Security
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-INSECURE_DEV_ONLY_REPLACE_IN_PRODUCTION_MIN_32_CHARS}
+      - DEBUG=false
+      - CORS_ALLOW_ALL=false
+      # Item Resolver
+      - ITEM_RESOLVER_URL=${ITEM_RESOLVER_URL:-http://item-resolver-1:8000}
+      - ITEM_RESOLVER_TOKEN=${RU_BEARER_TOKEN:-ru_secret}
+      # OAuth - Google
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      # OAuth - Yandex
+      - YANDEX_CLIENT_ID=${YANDEX_CLIENT_ID:-}
+      - YANDEX_CLIENT_SECRET=${YANDEX_CLIENT_SECRET:-}
+      # CouchDB
+      - COUCHDB_URL=http://couchdb:5984
+      - COUCHDB_DATABASE=wishwithme
+      - COUCHDB_ADMIN_USER=${COUCHDB_ADMIN_USER:-admin}
+      - COUCHDB_ADMIN_PASSWORD=${COUCHDB_ADMIN_PASSWORD:-couchdb_admin_password}
+    depends_on:
+      couchdb:
+        condition: service_healthy
+      item-resolver-1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O-", "--timeout=5", "http://127.0.0.1:8000/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - wishwithme
+
+  # Frontend (Vue + Quasar PWA with PouchDB)
   frontend:
     build:
       context: ./services/frontend
       dockerfile: Dockerfile
       args:
-        API_URL: ${FRONTEND_API_URL:-http://localhost:8000}
+        API_URL: https://api.wishwith.me
     container_name: wishwithme-frontend
     restart: unless-stopped
-    ports:
-      - "${FRONTEND_PORT:-9000}:80"
     depends_on:
-      core-api:
+      core-api-1:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O-", "http://127.0.0.1/"]
@@ -146,13 +157,116 @@ services:
     networks:
       - wishwithme
 
+  # Item Resolver Instance 1 (Playwright + DeepSeek)
+  # Watches CouchDB for pending items
+  item-resolver-1:
+    build:
+      context: ./services/item-resolver
+      dockerfile: Dockerfile
+    container_name: wishwithme-item-resolver-1
+    restart: unless-stopped
+    environment:
+      - RU_BEARER_TOKEN=${RU_BEARER_TOKEN:-ru_secret}
+      - RU_FETCHER_MODE=playwright
+      - BROWSER_CHANNEL=${BROWSER_CHANNEL:-chrome}
+      - HEADLESS=${HEADLESS:-true}
+      - MAX_CONCURRENCY=${MAX_CONCURRENCY:-2}
+      - STORAGE_STATE_DIR=/data/storage_state
+      - SSRF_ALLOWLIST_HOSTS=${SSRF_ALLOWLIST_HOSTS:-}
+      # LLM Configuration - DeepSeek
+      - LLM_MODE=${LLM_MODE:-live}
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://api.deepseek.com}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_MODEL=${LLM_MODEL:-deepseek-chat}
+      - LLM_TIMEOUT_S=${LLM_TIMEOUT_S:-120}
+      - LLM_MAX_CHARS=${LLM_MAX_CHARS:-50000}
+      # CouchDB - watches for pending items
+      - COUCHDB_WATCHER_ENABLED=true
+      - COUCHDB_URL=http://couchdb:5984
+      - COUCHDB_DATABASE=wishwithme
+      - COUCHDB_ADMIN_USER=${COUCHDB_ADMIN_USER:-admin}
+      - COUCHDB_ADMIN_PASSWORD=${COUCHDB_ADMIN_PASSWORD:-couchdb_admin_password}
+    depends_on:
+      couchdb:
+        condition: service_healthy
+    volumes:
+      - item_resolver_storage_1:/data/storage_state
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 -O- --timeout=5 --header='Authorization: Bearer ${RU_BEARER_TOKEN:-ru_secret}' http://127.0.0.1:8000/healthz > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    shm_size: '1gb'
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    networks:
+      - wishwithme
+
+  # Item Resolver Instance 2 (Playwright + DeepSeek)
+  # Does NOT watch CouchDB (only instance 1 does)
+  item-resolver-2:
+    build:
+      context: ./services/item-resolver
+      dockerfile: Dockerfile
+    container_name: wishwithme-item-resolver-2
+    restart: unless-stopped
+    environment:
+      - RU_BEARER_TOKEN=${RU_BEARER_TOKEN:-ru_secret}
+      - RU_FETCHER_MODE=playwright
+      - BROWSER_CHANNEL=${BROWSER_CHANNEL:-chrome}
+      - HEADLESS=${HEADLESS:-true}
+      - MAX_CONCURRENCY=${MAX_CONCURRENCY:-2}
+      - STORAGE_STATE_DIR=/data/storage_state
+      - SSRF_ALLOWLIST_HOSTS=${SSRF_ALLOWLIST_HOSTS:-}
+      # LLM Configuration - DeepSeek
+      - LLM_MODE=${LLM_MODE:-live}
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://api.deepseek.com}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_MODEL=${LLM_MODEL:-deepseek-chat}
+      - LLM_TIMEOUT_S=${LLM_TIMEOUT_S:-120}
+      - LLM_MAX_CHARS=${LLM_MAX_CHARS:-50000}
+      # CouchDB watcher disabled
+      - COUCHDB_WATCHER_ENABLED=false
+    volumes:
+      - item_resolver_storage_2:/data/storage_state
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 -O- --timeout=5 --header='Authorization: Bearer ${RU_BEARER_TOKEN:-ru_secret}' http://127.0.0.1:8000/healthz > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    shm_size: '1gb'
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    networks:
+      - wishwithme
+
 volumes:
-  postgres_data:
-    name: wishwithme-postgres-data
-  redis_data:
-    name: wishwithme-redis-data
-  item_resolver_storage:
-    name: wishwithme-item-resolver-storage
+  couchdb_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /home/mrkutin/wishwithme-data/couchdb
+
+  item_resolver_storage_1:
+    name: wishwithme-item-resolver-storage-1
+
+  item_resolver_storage_2:
+    name: wishwithme-item-resolver-storage-2
 
 networks:
   wishwithme:

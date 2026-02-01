@@ -52,7 +52,7 @@ jobs:
             cd ${{ env.DEPLOY_PATH }}
 
             echo "=== Docker Container Status ==="
-            docker compose -f docker-compose.ubuntu.yml ps
+            docker compose -f docker-compose.yml ps
             echo ""
 
             SERVICE="${{ github.event.inputs.service }}"

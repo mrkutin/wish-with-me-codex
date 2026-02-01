@@ -349,7 +349,7 @@ docker-compose down                     # Stop services
 - **IP**: 176.106.144.182
 - **User**: mrkutin
 - **Path**: `/home/mrkutin/wish-with-me-codex`
-- **Compose File**: `docker-compose.ubuntu.yml`
+- **Compose File**: `docker-compose.yml`
 - **Credentials**: See `.credentials.local` file (gitignored)
 
 ### SSH Access
@@ -374,13 +374,13 @@ Push to `main` branch triggers `.github/workflows/deploy-ubuntu.yml`:
 ssh mrkutin@176.106.144.182
 cd /home/mrkutin/wish-with-me-codex
 git pull origin main
-docker-compose -f docker-compose.ubuntu.yml up -d --build
+docker-compose -f docker-compose.yml up -d --build
 ```
 
 ### Check Logs
 ```bash
 # All services
-docker-compose -f docker-compose.ubuntu.yml logs -f
+docker-compose -f docker-compose.yml logs -f
 
 # Specific service
 docker logs wishwithme-core-api-1 --tail=100
@@ -488,7 +488,7 @@ When making changes, verify:
 ssh mrkutin@176.106.144.182
 
 # Check service status
-docker-compose -f docker-compose.ubuntu.yml ps
+docker-compose -f docker-compose.yml ps
 
 # Check logs for errors
 docker logs wishwithme-core-api-1 --tail=100

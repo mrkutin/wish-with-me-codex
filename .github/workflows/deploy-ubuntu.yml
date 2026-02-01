@@ -14,7 +14,7 @@ on:
       - 'services/frontend/**'
       - 'services/core-api/**'
       - 'services/item-resolver/**'
-      - 'docker-compose.ubuntu.yml'
+      - 'docker-compose.yml'
       - 'nginx/**'
   workflow_dispatch:
 
@@ -192,17 +192,17 @@ jobs:
 
             if [ -n "$REBUILD_SERVICES" ]; then
               # Build the changed services (no-cache to ensure fresh build)
-              docker compose -f docker-compose.ubuntu.yml build --no-cache $REBUILD_SERVICES
+              docker compose -f docker-compose.yml build --no-cache $REBUILD_SERVICES
 
               # Restart the changed services (force-recreate to ensure new containers)
               echo "=== Restarting services: $REBUILD_SERVICES ==="
-              docker compose -f docker-compose.ubuntu.yml up -d --no-deps --force-recreate $REBUILD_SERVICES
+              docker compose -f docker-compose.yml up -d --no-deps --force-recreate $REBUILD_SERVICES
             else
               echo "No services to rebuild"
             fi
 
             # Ensure all services are up
-            docker compose -f docker-compose.ubuntu.yml up -d
+            docker compose -f docker-compose.yml up -d
 
             # Cleanup old images
             echo "=== Cleaning up old images ==="
@@ -223,7 +223,7 @@ jobs:
             echo "=== Health Check ==="
 
             # Check that containers are running
-            docker compose -f docker-compose.ubuntu.yml ps
+            docker compose -f docker-compose.yml ps
 
             # Test core-api health endpoints (internal)
             if [ "${{ needs.detect-changes.outputs.core-api }}" == "true" ]; then
@@ -277,7 +277,7 @@ jobs:
             echo "Deployed commit: $(git log -1 --oneline)"
             echo ""
             echo "Running containers:"
-            docker compose -f docker-compose.ubuntu.yml ps
+            docker compose -f docker-compose.yml ps
           ENDSSH
 
   rollback:
@@ -351,8 +351,8 @@ jobs:
             fi
 
             echo "Rebuilding previous versions: $REBUILD_SERVICES"
-            docker compose -f docker-compose.ubuntu.yml build $REBUILD_SERVICES
-            docker compose -f docker-compose.ubuntu.yml up -d --no-deps $REBUILD_SERVICES
+            docker compose -f docker-compose.yml build $REBUILD_SERVICES
+            docker compose -f docker-compose.yml up -d --no-deps $REBUILD_SERVICES
 
             echo "=== Rollback complete ==="
             echo "Restored to commit: $(git log -1 --oneline)"
