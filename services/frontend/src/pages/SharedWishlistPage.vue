@@ -129,7 +129,7 @@ import {
   softDelete,
   onSyncComplete,
 } from '@/services/pouchdb';
-import type { ItemDoc, MarkDoc, WishlistDoc, BookmarkDoc } from '@/services/pouchdb';
+import type { ItemDoc, MarkDoc, WishlistDoc } from '@/services/pouchdb';
 import type { SharedItem } from '@/types/share';
 
 const PENDING_SHARE_TOKEN_KEY = 'pending_share_token';
@@ -283,6 +283,12 @@ async function initializeFromShareToken() {
       return;
     }
 
+    // Redirect from share link to bookmark route
+    // This prevents the link from being followed again (which could reset state)
+    // and gives a cleaner URL for the user
+    const wlIdForRoute = wishlistId.value.replace('wishlist:', '');
+    router.replace({ name: 'bookmarked-wishlist', params: { wishlistId: wlIdForRoute } });
+
     // Setup subscriptions for real-time updates
     setupSubscriptions();
 
@@ -359,7 +365,6 @@ async function loadMarksForItems(itemIds: string[]) {
     const marks = await getMarks(itemId);
     allMarks.push(...marks);
   }
-  console.log('[Marks] Loaded marks from PouchDB:', allMarks.map(m => ({ id: m._id, item_id: m.item_id, marked_by: m.marked_by, deleted: m._deleted })));
   pouchMarks.value = allMarks;
 
   // Update marks subscription with new item IDs
@@ -378,13 +383,11 @@ async function markItem(item: SharedItem, quantity: number = 1) {
   try {
     const now = new Date().toISOString();
     const userId = authStore.user.id;
-    console.log('[Mark] Creating mark for item:', item.id, 'user:', userId);
 
     // Check if user already has a mark for this item
     const existingMark = pouchMarks.value.find(
       m => m.item_id === item.id && m.marked_by === userId && !m._deleted
     );
-    console.log('[Mark] Existing mark:', existingMark);
 
     if (existingMark) {
       // Update existing mark
@@ -412,9 +415,7 @@ async function markItem(item: SharedItem, quantity: number = 1) {
         created_at: now,
         updated_at: now,
       } as MarkDoc;
-      console.log('[Mark] Creating new mark:', newMark);
       await upsert(newMark);
-      console.log('[Mark] Mark saved to PouchDB');
     }
 
     // Trigger sync

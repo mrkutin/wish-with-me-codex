@@ -151,10 +151,15 @@ function setSyncStatus(status: SyncStatus): void {
   syncCallbacks.onStatusChange?.(status);
 }
 
+// Track document IDs that failed to push (for reconciliation skip)
+// These are documents that had conflicts without a server_document response
+let failedPushDocIds: Set<string> = new Set();
+
 /**
  * Pull documents from the server.
  * Fetches all documents the user has access to.
  * Uses reconciliation: server is source of truth, local docs not in server response are deleted.
+ * Excludes documents that failed to push (to preserve local changes until successfully synced).
  */
 async function pullFromServer(
   token: string,
@@ -226,6 +231,7 @@ async function pullFromServer(
 
       // Reconciliation: find local docs not in server response and mark as deleted
       // This handles items deleted by other users (e.g., wishlist owner)
+      // EXCEPTION: Skip documents that failed to push (preserve local changes)
       const docType = typeMap[collection];
       try {
         const localResult = await localDb.find({
@@ -244,6 +250,11 @@ async function pullFromServer(
 
         for (const localDoc of localResult.docs) {
           if (!serverDocIds.has(localDoc._id)) {
+            // Skip if this doc failed to push - preserve local changes
+            if (failedPushDocIds.has(localDoc._id)) {
+              console.log(`[PouchDB] Preserving ${localDoc._id} - failed to push, will retry later`);
+              continue;
+            }
             // This doc exists locally but not on server - it was deleted or access revoked
             try {
               await localDb.put({
@@ -282,11 +293,15 @@ async function pullFromServer(
 /**
  * Push local changes to the server.
  * Gets documents modified since last push and sends them.
+ * Tracks documents that fail to push for reconciliation skip.
  */
 async function pushToServer(
   token: string,
   collections: Array<'wishlists' | 'items' | 'marks' | 'bookmarks'>
 ): Promise<void> {
+  // Clear failed push tracking at start of new push cycle
+  failedPushDocIds = new Set();
+
   const localDb = getDatabase();
   const baseUrl = getApiBaseUrl();
 
@@ -303,8 +318,6 @@ async function pushToServer(
       // Get all local documents of this type INCLUDING deleted ones
       // IMPORTANT: allDocs() does NOT return deleted documents!
       // We must use the changes feed to get deleted docs
-      const localDb = getDatabase();
-
       // Use changes feed to get ALL documents including deleted ones
       const changes = await localDb.changes({
         since: 0,
@@ -348,6 +361,7 @@ async function pushToServer(
       // Handle conflicts by accepting server version
       for (const conflict of result.conflicts || []) {
         if (conflict.server_document) {
+          // Server has a version - accept it
           try {
             const existing = await localDb.get(conflict.document_id);
             await localDb.put({
@@ -357,6 +371,12 @@ async function pushToServer(
           } catch {
             // Document might have been deleted
           }
+        } else {
+          // No server document - track this for reconciliation skip
+          // This document should NOT be deleted during pull reconciliation
+          // because the server rejected it but doesn't have an alternative version
+          failedPushDocIds.add(conflict.document_id);
+          console.log(`[PouchDB] Document ${conflict.document_id} failed to push (${conflict.error}), preserving local copy`);
         }
       }
     } catch (error) {
