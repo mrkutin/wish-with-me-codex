@@ -120,6 +120,7 @@ async def grant_access_to_user(db: CouchDBClient, share: dict, user_id: str) -> 
     if existing_bookmark:
         # Update existing bookmark to use the LAST share link followed
         existing_bookmark["share_id"] = share["_id"]
+        existing_bookmark["wishlist_id"] = wishlist_id  # Store directly for easy lookup
         existing_bookmark["last_accessed_at"] = now
         # Update cached owner/wishlist info
         existing_bookmark["owner_name"] = owner_name
@@ -137,6 +138,7 @@ async def grant_access_to_user(db: CouchDBClient, share: dict, user_id: str) -> 
             "type": "bookmark",
             "user_id": user_id,
             "share_id": share["_id"],
+            "wishlist_id": wishlist_id,  # Store directly for easy lookup
             "owner_name": owner_name,
             "owner_avatar_base64": owner_avatar,
             "wishlist_name": wishlist.get("name", ""),

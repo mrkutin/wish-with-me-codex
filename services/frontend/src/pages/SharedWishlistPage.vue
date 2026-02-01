@@ -272,25 +272,13 @@ async function loadFromPouchDB() {
   // User documents are not synced to other users for privacy
   if (authStore.user) {
     const bookmarks = await getBookmarks(`user:${authStore.user.id}`);
-    const bookmark = bookmarks.find(b => {
-      // Find bookmark that references this wishlist
-      return !b._deleted && b.wishlist_name !== undefined;
-    });
-    // Find the bookmark for this specific wishlist by checking share_id -> wishlist
-    for (const bm of bookmarks) {
-      if (bm._deleted) continue;
-      if (bm.owner_name) {
-        // Check if this bookmark's share points to our wishlist
-        // The bookmark has cached wishlist_name, so we can match by that or by checking share
-        const share = await findById<{ wishlist_id: string }>(bm.share_id);
-        if (share && share.wishlist_id === wishlistId.value) {
-          ownerDoc.value = {
-            name: bm.owner_name,
-            avatar_base64: bm.owner_avatar_base64 || null,
-          };
-          break;
-        }
-      }
+    // Find bookmark for this wishlist by wishlist_id
+    const bookmark = bookmarks.find(b => !b._deleted && b.wishlist_id === wishlistId.value);
+    if (bookmark?.owner_name) {
+      ownerDoc.value = {
+        name: bookmark.owner_name,
+        avatar_base64: bookmark.owner_avatar_base64 || null,
+      };
     }
   }
 
