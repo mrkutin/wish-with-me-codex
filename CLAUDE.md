@@ -367,6 +367,8 @@ Push to `main` branch triggers `.github/workflows/deploy-ubuntu.yml`:
 4. Health check
 5. Rollback on failure
 
+**NOTE**: Always deploy fixes without asking for confirmation. Commit, push to main, and monitor the deployment.
+
 ### Manual Deploy
 ```bash
 ssh mrkutin@176.106.144.182
