@@ -220,6 +220,19 @@ def create_app(*, fetcher_mode: str | None = None) -> FastAPI:
                             max_chars=int(os.environ.get("LLM_MAX_CHARS") or 100000),
                         )
 
+                    # Debug: check if price is in raw HTML vs formatted content
+                    if '₽' in html:
+                        idx = html.find('₽')
+                        logger.info(f"₽ found in raw HTML at pos {idx}, sample: {repr(html[max(0,idx-50):idx+20])}")
+                    else:
+                        logger.info("₽ NOT found in raw HTML")
+
+                    if '₽' in html_content:
+                        idx = html_content.find('₽')
+                        logger.info(f"₽ found in formatted content at pos {idx}")
+                    else:
+                        logger.info(f"₽ NOT found in formatted content (len={len(html_content)})")
+
                     try:
                         async with measure_time(stats, "llm_extraction"):
                             llm_out = await llm_client.extract(
