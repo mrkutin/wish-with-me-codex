@@ -96,9 +96,8 @@ async def grant_access_to_user(db: CouchDBClient, share: dict, user_id: str) -> 
         owner = await db.get(wishlist["owner_id"])
         owner_name = owner.get("name") or "Unknown"
         owner_avatar = owner.get("avatar_base64")
-        logger.info(f"Bookmark owner info: owner_id={wishlist['owner_id']}, name={owner_name}")
     except DocumentNotFoundError:
-        logger.warning(f"Owner not found: {wishlist.get('owner_id')}")
+        pass
 
     # Find existing bookmark for this wishlist
     all_user_bookmarks = await db.find({
@@ -122,8 +121,6 @@ async def grant_access_to_user(db: CouchDBClient, share: dict, user_id: str) -> 
         except DocumentNotFoundError:
             continue
 
-    logger.info(f"Bookmark search: user={user_id}, wishlist={wishlist_id}, found={existing_bookmark is not None}")
-
     if existing_bookmark:
         # Update existing bookmark to use the LAST share link followed
         existing_bookmark["share_id"] = share["_id"]
@@ -136,7 +133,6 @@ async def grant_access_to_user(db: CouchDBClient, share: dict, user_id: str) -> 
         existing_bookmark["wishlist_icon"] = wishlist.get("icon", "card_giftcard")
         existing_bookmark["updated_at"] = now
         await db.put(existing_bookmark)
-        logger.info(f"Updated bookmark {existing_bookmark['_id']}: owner_name={owner_name}, wishlist_id={wishlist_id}")
     else:
         # Create new bookmark with cached owner/wishlist info
         bookmark_id = db.generate_id("bookmark")
@@ -155,7 +151,6 @@ async def grant_access_to_user(db: CouchDBClient, share: dict, user_id: str) -> 
             "access": [user_id],
         }
         await db.put(bookmark)
-        logger.info(f"Created bookmark {bookmark_id}: owner_name={owner_name}, wishlist_id={wishlist_id}")
 
 
 # =============================================================================
