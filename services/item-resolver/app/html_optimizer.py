@@ -146,17 +146,23 @@ def _extract_price_info(html: str) -> list[str]:
     prices: list[str] = []
 
     # Common price patterns (Russian and international)
+    # Note: Russian prices often have spaces as thousand separators: "93 499"
     patterns = [
-        # Russian ruble formats
-        r'(\d[\d\s,.]*)\s*(?:₽|руб\.?|RUB|rub)',
-        r'(?:₽|руб\.?|RUB)\s*(\d[\d\s,.]*)',
-        # Dollar/Euro formats
-        r'\$\s*(\d[\d\s,.]*)',
-        r'(\d[\d\s,.]*)\s*\$',
-        r'€\s*(\d[\d\s,.]*)',
-        r'(\d[\d\s,.]*)\s*€',
+        # Russian ruble formats - with flexible spacing
+        r'(\d{1,3}(?:[\s\u00a0]\d{3})+)\s*(?:₽|руб\.?|RUB)',  # "93 499 ₽" with space/nbsp
+        r'(\d{4,})\s*(?:₽|руб\.?|RUB)',  # "93499₽" no space
+        r'(\d{1,3}(?:[.,]\d{3})+)\s*(?:₽|руб\.?|RUB)',  # "93.499₽" or "93,499₽"
+        r'(?:₽|руб\.?|RUB)\s*(\d[\d\s\u00a0.,]*\d)',  # "₽ 93 499"
+        # Dollar formats
+        r'\$\s*(\d[\d\s\u00a0.,]*\d)',
+        r'(\d[\d\s\u00a0.,]*\d)\s*\$',
+        # Euro formats
+        r'€\s*(\d[\d\s\u00a0.,]*\d)',
+        r'(\d[\d\s\u00a0.,]*\d)\s*€',
         # Generic price with currency code
-        r'(\d{1,3}(?:[\s,]\d{3})*(?:[.,]\d{2})?)\s*(?:USD|EUR|RUB|GBP)',
+        r'(\d{1,3}(?:[\s\u00a0,]\d{3})*(?:[.,]\d{2})?)\s*(?:USD|EUR|RUB|GBP)',
+        # Price-like patterns near currency words (fallback)
+        r'(?:price|цена|стоимость)[:\s]*(\d[\d\s\u00a0.,]*\d)',
     ]
 
     for pattern in patterns:
@@ -165,12 +171,20 @@ def _extract_price_info(html: str) -> list[str]:
             if isinstance(match, tuple):
                 match = match[0] if match[0] else match[1] if len(match) > 1 else ''
             if match:
-                # Clean up the number
-                clean = re.sub(r'[\s]', '', match)
-                if clean and len(clean) <= 15:  # Reasonable price length
+                # Clean up the number - remove spaces, nbsp, normalize separators
+                clean = re.sub(r'[\s\u00a0]', '', match)  # Remove spaces and nbsp
+                # Handle different decimal/thousand separators
+                # If ends with ,XX or .XX it's likely decimal
+                if re.match(r'.*[.,]\d{2}$', clean):
+                    clean = clean[:-3].replace('.', '').replace(',', '') + clean[-3:]
+                else:
+                    clean = clean.replace('.', '').replace(',', '')
+                if clean and clean.isdigit() and 3 <= len(clean) <= 10:  # Reasonable price
                     prices.append(clean)
 
-    return list(set(prices))[:5]  # Return unique prices, max 5
+    # Sort by value (likely the main price is a larger number on product pages)
+    prices = sorted(set(prices), key=lambda x: int(x) if x.isdigit() else 0, reverse=True)
+    return prices[:5]  # Return top 5 unique prices
 
 
 def optimize_html(
@@ -268,26 +282,46 @@ def extract_structured_hints(html: str) -> dict[str, Optional[str]]:
                 hints[key] = match.group(1)
 
     # JSON-LD schema.org data (basic extraction)
-    jsonld_match = re.search(
+    # Find ALL JSON-LD blocks, not just the first one
+    jsonld_matches = re.findall(
         r'<script\s+type=["\']application/ld\+json["\']\s*>(.*?)</script>',
         html,
         re.DOTALL | re.IGNORECASE
     )
-    if jsonld_match:
+    for jsonld_content in jsonld_matches:
         try:
             import json
-            data = json.loads(jsonld_match.group(1))
-            if isinstance(data, dict):
-                if data.get('@type') == 'Product' or 'Product' in str(data.get('@type', '')):
-                    hints['schema_name'] = data.get('name')
-                    hints['schema_description'] = data.get('description')
-                    if 'offers' in data:
-                        offers = data['offers']
+            data = json.loads(jsonld_content)
+
+            # Handle @graph wrapper (common pattern)
+            if isinstance(data, dict) and '@graph' in data:
+                data = data['@graph']
+
+            # Handle list of items
+            items = data if isinstance(data, list) else [data]
+
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+
+                item_type = item.get('@type', '')
+                if isinstance(item_type, list):
+                    item_type = ' '.join(item_type)
+
+                if 'Product' in str(item_type):
+                    hints['schema_name'] = hints.get('schema_name') or item.get('name')
+                    hints['schema_description'] = hints.get('schema_description') or item.get('description')
+
+                    # Extract price from offers
+                    offers = item.get('offers') or item.get('Offers')
+                    if offers:
                         if isinstance(offers, list) and offers:
                             offers = offers[0]
                         if isinstance(offers, dict):
-                            hints['schema_price'] = str(offers.get('price', ''))
-                            hints['schema_currency'] = offers.get('priceCurrency')
+                            price = offers.get('price') or offers.get('lowPrice') or offers.get('highPrice')
+                            if price:
+                                hints['schema_price'] = str(price)
+                            hints['schema_currency'] = hints.get('schema_currency') or offers.get('priceCurrency')
         except Exception:
             pass
 
@@ -318,12 +352,21 @@ def format_html_for_llm(
     # Build the prompt content
     parts = [f"URL: {url}", f"Page title: {title}"]
 
-    # Add structured hints if available
+    # Add structured hints if available - prioritize price info
     if hints:
-        hint_lines = ["", "Structured metadata found:"]
+        hint_lines = ["", "=== Structured metadata (IMPORTANT - use this if available) ==="]
+
+        # Price hints first (most important)
+        if hints.get('schema_price'):
+            hint_lines.append(f"  PRICE: {hints['schema_price']} {hints.get('schema_currency', '')}")
+        if hints.get('og_price'):
+            hint_lines.append(f"  OG_PRICE: {hints['og_price']} {hints.get('og_currency', '')}")
+
+        # Then other hints
         for key, value in hints.items():
-            if value:
+            if value and key not in ('schema_price', 'schema_currency', 'og_price', 'og_currency'):
                 hint_lines.append(f"  {key}: {value}")
+
         parts.append('\n'.join(hint_lines))
 
     # Add optimized page content

@@ -179,7 +179,7 @@ services:
       - LLM_API_KEY=${LLM_API_KEY:-}
       - LLM_MODEL=${LLM_MODEL:-deepseek-chat}
       - LLM_TIMEOUT_S=${LLM_TIMEOUT_S:-120}
-      - LLM_MAX_CHARS=${LLM_MAX_CHARS:-50000}
+      - LLM_MAX_CHARS=${LLM_MAX_CHARS:-100000}
       # CouchDB - watches for pending items
       - COUCHDB_WATCHER_ENABLED=true
       - COUCHDB_URL=http://couchdb:5984
@@ -231,7 +231,7 @@ services:
       - LLM_API_KEY=${LLM_API_KEY:-}
       - LLM_MODEL=${LLM_MODEL:-deepseek-chat}
       - LLM_TIMEOUT_S=${LLM_TIMEOUT_S:-120}
-      - LLM_MAX_CHARS=${LLM_MAX_CHARS:-50000}
+      - LLM_MAX_CHARS=${LLM_MAX_CHARS:-100000}
       # CouchDB watcher disabled
       - COUCHDB_WATCHER_ENABLED=false
     volumes:

@@ -224,13 +224,20 @@ class DeepSeekTextClient:
             "- Output valid JSON with double quotes only, no markdown formatting.\n"
             "- If a field is missing or unclear, use null.\n"
             "- confidence is 0.0 to 1.0 based on how certain you are about the extraction.\n"
-            "- For price_amount, extract only the numeric value (e.g., 15990 not '15 990 ₽').\n"
-            "- For price_currency, use ISO code if possible (RUB, USD, EUR) or the symbol (₽, $, €).\n"
             "- For title, use the main product name, not marketing slogans.\n"
             "- For description, extract a concise product description (1-3 sentences).\n"
             "- For image_url, select the best main product image URL from the image candidates list.\n"
             "- Prefer high-resolution product images, not thumbnails or icons.\n"
-            "- canonical_url should be the clean product page URL without tracking parameters.\n"
+            "- canonical_url should be the clean product page URL without tracking parameters.\n\n"
+            "IMPORTANT - Price extraction:\n"
+            "- ALWAYS look carefully for the product price. It is usually prominently displayed.\n"
+            "- Prices may have spaces as thousand separators: '93 499' means 93499.\n"
+            "- Prices may have dots or commas: '1.299,00' or '1,299.00' - extract as number.\n"
+            "- Look for the CURRENT/SALE price, not the crossed-out old price.\n"
+            "- Russian sites use ₽ or 'руб' for rubles (RUB).\n"
+            "- For price_amount, return ONLY the numeric value (e.g., 93499 not '93 499 ₽').\n"
+            "- For price_currency, use ISO code: RUB, USD, EUR, etc.\n"
+            "- Check 'Structured metadata' section first - it may contain the price.\n"
         )
 
         user = (
@@ -282,7 +289,7 @@ def load_llm_client_from_env() -> LLMClient:
         raise RuntimeError("LLM_BASE_URL, LLM_API_KEY, and LLM_MODEL are required for live LLM mode")
 
     timeout_s = float(os.environ.get("LLM_TIMEOUT_S") or 60)
-    max_chars = int(os.environ.get("LLM_MAX_CHARS") or 200_000)
+    max_chars = int(os.environ.get("LLM_MAX_CHARS") or 100_000)
 
     # Determine client type based on LLM_CLIENT_TYPE or model name
     client_type = (os.environ.get("LLM_CLIENT_TYPE") or "").strip().lower()

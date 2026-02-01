@@ -217,7 +217,7 @@ def create_app(*, fetcher_mode: str | None = None) -> FastAPI:
                             html=html,
                             url=final_url or payload.url,
                             title=page_title,
-                            max_chars=int(os.environ.get("LLM_MAX_CHARS") or 50000),
+                            max_chars=int(os.environ.get("LLM_MAX_CHARS") or 100000),
                         )
 
                     try:
