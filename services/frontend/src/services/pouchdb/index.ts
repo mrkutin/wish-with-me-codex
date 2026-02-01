@@ -225,20 +225,14 @@ async function pullFromServer(
       const docType = typeMap[collection];
       try {
         const localResult = await localDb.find({
-          selector: {
-            $and: [
-              { type: docType },
-              {
-                $or: [
-                  { _deleted: { $exists: false } },
-                  { _deleted: false },
-                ],
-              },
-            ],
-          },
+          selector: { type: docType },
         });
 
-        for (const localDoc of localResult.docs) {
+        // Filter out already-deleted documents in JavaScript
+        // PouchDB-find has a bug where deleted docs aren't excluded from local queries
+        const nonDeletedDocs = localResult.docs.filter(doc => !doc._deleted);
+
+        for (const localDoc of nonDeletedDocs) {
           if (!serverDocIds.has(localDoc._id)) {
             // This doc exists locally but not on server - it was deleted or access revoked
             try {
@@ -556,32 +550,25 @@ export async function find<T extends CouchDBDoc>(
 ): Promise<T[]> {
   const localDb = getDatabase();
 
-  // Build selector - use $or to properly handle _deleted field
-  // This matches docs where _deleted doesn't exist OR is explicitly false
-  const baseSelector = options.selector;
-  const selector = options.selector._deleted !== undefined
-    ? baseSelector
-    : {
-        $and: [
-          baseSelector,
-          {
-            $or: [
-              { _deleted: { $exists: false } },
-              { _deleted: false },
-            ],
-          },
-        ],
-      };
-
   const result = await localDb.find({
-    selector,
+    selector: options.selector,
     sort: options.sort,
     limit: options.limit,
     skip: options.skip,
     fields: options.fields,
   });
 
-  return result.docs as T[];
+  // Filter out deleted documents in JavaScript
+  // PouchDB-find has a bug where deleted docs aren't excluded from local queries
+  const docs = result.docs as T[];
+
+  // If caller explicitly wants deleted docs, return as-is
+  if (options.selector._deleted !== undefined) {
+    return docs;
+  }
+
+  // Otherwise filter out deleted documents
+  return docs.filter(doc => !doc._deleted);
 }
 
 /**
