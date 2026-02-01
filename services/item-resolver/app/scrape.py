@@ -219,6 +219,71 @@ async def wait_for_network_quiet(page, *, quiet_ms: int, timeout_ms: int) -> Non
             pass
 
 
+async def dismiss_common_popups(page, *, timeout_ms: int = 5000) -> int:
+    """
+    Attempt to dismiss common popups/overlays that block content.
+    Returns the number of popups dismissed.
+
+    Targets:
+    - Cookie consent dialogs
+    - City/location selectors
+    - Newsletter/subscription modals
+    - Age verification
+    """
+    dismissed = 0
+
+    # Common button texts for dismissal (Russian and English)
+    dismiss_texts = [
+        # Cookie consent
+        "Понятно", "Принять", "Согласен", "Принять все", "Accept", "Accept all",
+        "OK", "Ок", "Хорошо", "Закрыть", "Close", "Got it",
+        # City confirmation
+        "Да", "Да, верно", "Все верно", "Подтвердить", "Yes", "Confirm",
+        # Generic close
+        "×", "✕", "✖",
+    ]
+
+    # Try clicking buttons with these texts
+    for text in dismiss_texts:
+        try:
+            # Look for visible buttons/links with this text
+            locator = page.locator(f"button:visible:text-is('{text}'), a:visible:text-is('{text}'), [role='button']:visible:text-is('{text}')")
+            count = await locator.count()
+            if count > 0:
+                # Click the first matching element
+                await locator.first.click(timeout=1000)
+                dismissed += 1
+                # Brief wait for UI to update
+                await asyncio.sleep(0.3)
+        except Exception:
+            pass
+
+    # Try clicking common close button selectors
+    close_selectors = [
+        "[class*='close']:visible", "[class*='Close']:visible",
+        "[class*='dismiss']:visible", "[class*='Dismiss']:visible",
+        "[aria-label='Close']:visible", "[aria-label='Закрыть']:visible",
+        "[data-testid*='close']:visible", "[data-testid*='Close']:visible",
+        ".modal-close:visible", ".popup-close:visible",
+    ]
+
+    for selector in close_selectors:
+        try:
+            locator = page.locator(selector)
+            count = await locator.count()
+            if count > 0:
+                # Only click if it looks like a close button (small element)
+                box = await locator.first.bounding_box()
+                if box and box['width'] < 100 and box['height'] < 100:
+                    await locator.first.click(timeout=1000)
+                    dismissed += 1
+                    await asyncio.sleep(0.3)
+        except Exception:
+            pass
+
+    return dismissed
+
+
 async def wait_for_dom_stable(page, *, samples: int, interval_ms: int, timeout_ms: int) -> None:
     """
     Sample DOM size and wait until it stays stable for N samples.
@@ -393,6 +458,16 @@ async def capture_page_source(page, url: str, *, cfg: PageCaptureConfig) -> tupl
             "() => document.body && (document.body.innerText || '').trim().length > 0",
             timeout=min(10_000, extra_budget),
         )
+    except Exception:
+        pass
+
+    # Dismiss common popups/overlays that may block content
+    # Do this early before waiting for content to fully load
+    try:
+        dismissed = await dismiss_common_popups(page, timeout_ms=5000)
+        if dismissed > 0:
+            # Give the page time to update after popup dismissal
+            await asyncio.sleep(1.0)
     except Exception:
         pass
 
