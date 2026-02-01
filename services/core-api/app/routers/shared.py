@@ -109,14 +109,20 @@ async def grant_access_to_user(db: CouchDBClient, share: dict, user_id: str) -> 
 
     existing_bookmark = None
     for bookmark in user_bookmarks:
+        # First check if bookmark has wishlist_id directly (new format)
+        if bookmark.get("wishlist_id") == wishlist_id:
+            existing_bookmark = bookmark
+            break
+        # Fallback: check via share document (old format)
         try:
             bookmark_share = await db.get(bookmark["share_id"])
             if bookmark_share.get("wishlist_id") == wishlist_id:
                 existing_bookmark = bookmark
                 break
         except DocumentNotFoundError:
-            # Share was deleted - check if bookmark has wishlist_id directly
             continue
+
+    logger.info(f"Bookmark search: user={user_id}, wishlist={wishlist_id}, found={existing_bookmark is not None}")
 
     if existing_bookmark:
         # Update existing bookmark to use the LAST share link followed
@@ -130,7 +136,7 @@ async def grant_access_to_user(db: CouchDBClient, share: dict, user_id: str) -> 
         existing_bookmark["wishlist_icon"] = wishlist.get("icon", "card_giftcard")
         existing_bookmark["updated_at"] = now
         await db.put(existing_bookmark)
-        logger.info(f"Updated bookmark {existing_bookmark['_id']} to share {share['_id']}")
+        logger.info(f"Updated bookmark {existing_bookmark['_id']}: owner_name={owner_name}, wishlist_id={wishlist_id}")
     else:
         # Create new bookmark with cached owner/wishlist info
         bookmark_id = db.generate_id("bookmark")
@@ -149,7 +155,7 @@ async def grant_access_to_user(db: CouchDBClient, share: dict, user_id: str) -> 
             "access": [user_id],
         }
         await db.put(bookmark)
-        logger.info(f"Created bookmark {bookmark_id} for share {share['_id']}")
+        logger.info(f"Created bookmark {bookmark_id}: owner_name={owner_name}, wishlist_id={wishlist_id}")
 
 
 # =============================================================================
