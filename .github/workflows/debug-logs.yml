@@ -11,7 +11,11 @@ on:
         options:
           - core-api-1
           - core-api-2
+          - item-resolver-1
+          - item-resolver-2
+          - frontend
           - nginx
+          - couchdb
           - all
       lines:
         description: 'Number of lines to fetch'
@@ -56,7 +60,7 @@ jobs:
             FILTER="${{ github.event.inputs.filter }}"
 
             if [ "$SERVICE" == "all" ]; then
-              SERVICES="core-api-1 core-api-2 nginx"
+              SERVICES="nginx frontend core-api-1 core-api-2 item-resolver-1 item-resolver-2 couchdb"
             else
               SERVICES="$SERVICE"
             fi
