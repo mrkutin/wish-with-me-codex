@@ -127,6 +127,9 @@ def format_html_for_llm(
     Returns:
         Formatted content for LLM
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
     # Extract structured hints first
     hints = extract_structured_hints(html)
 
@@ -149,4 +152,6 @@ def format_html_for_llm(
     content = optimize_html(html, max_chars=max_chars)
     parts.append(f"\nPage HTML:\n{content}")
 
-    return '\n'.join(parts)
+    result = '\n'.join(parts)
+    logger.info(f"Formatted content: {len(result)} chars, has ₽: {'₽' in result}")
+    return result
