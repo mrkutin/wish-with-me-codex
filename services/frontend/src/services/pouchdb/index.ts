@@ -226,8 +226,15 @@ async function pullFromServer(
       try {
         const localResult = await localDb.find({
           selector: {
-            type: docType,
-            _deleted: { $ne: true },
+            $and: [
+              { type: docType },
+              {
+                $or: [
+                  { _deleted: { $exists: false } },
+                  { _deleted: false },
+                ],
+              },
+            ],
           },
         });
 

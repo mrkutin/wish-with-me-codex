@@ -1,294 +1,702 @@
-# CLAUDE.md - Development Workflow Instructions
+# CLAUDE.md - Wish With Me Development Guide
 
-> This file configures Claude Code's automated development workflow for the Wish With Me application.
-
----
-
-## Project Context
-
-**Application**: Wish With Me - Offline-first wishlist PWA
-**Stack**: Vue 3 + Quasar + Webpack (frontend), FastAPI + CouchDB (backend), PouchDB (offline sync)
-**Documentation**: See [AGENTS.md](./AGENTS.md) for full specification
-
-### Key Documentation Files
-- Architecture: `docs/01-architecture.md`
-- Database: `docs/02-database.md`
-- API: `docs/03-api.md`
-- Frontend: `docs/04-frontend.md`
-- Offline Sync: `docs/05-offline-sync.md`
-- Testing: `docs/09-testing.md`
-- Implementation Phases: `docs/08-phases.md`
+> Comprehensive project documentation for Claude Code to understand and develop this codebase effectively.
 
 ---
 
-## Development Workflow
+## Project Overview
 
-### Mandatory Workflow: Develop → Review → Fix Loop
+**Wish With Me** is an offline-first wishlist Progressive Web Application (PWA) that allows users to:
+- Create and manage wishlists with items
+- Add items via URL (auto-extracts product metadata using LLM)
+- Share wishlists with others via links
+- Mark items as "taken" (surprise mode - hidden from owner)
+- Work fully offline with automatic sync when online
 
-When implementing ANY code changes, Claude Code MUST follow this iterative workflow:
+**Production URL**: https://wishwith.me
+**API URL**: https://api.wishwith.me
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|------------|
+| **Frontend** | Vue 3 + Quasar Framework + TypeScript + Webpack |
+| **State** | Pinia (stores) + PouchDB (offline storage) |
+| **Backend API** | FastAPI + Python 3.12 + async/await |
+| **URL Resolver** | FastAPI + Playwright + DeepSeek LLM |
+| **Database** | CouchDB 3.3 (with PouchDB sync) |
+| **Proxy** | nginx (SSL, load balancing) |
+| **Deployment** | Docker Compose on Ubuntu server |
+| **CI/CD** | GitHub Actions (auto-deploy on push to main) |
+
+---
+
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  1. PLAN        → Read specs, create implementation plan   │
-│  2. IMPLEMENT   → Write code using appropriate dev agent   │
-│  3. REVIEW      → Use reviewer agent to analyze changes    │
-│  4. FIX         → Address review findings                  │
-│  5. VERIFY      → Run tests, repeat review if needed       │
-│  6. COMPLETE    → All checks pass, summarize changes       │
-└─────────────────────────────────────────────────────────────┘
+                         Internet
+                            │
+            ┌───────────────┴───────────────┐
+            │                               │
+      wishwith.me                    api.wishwith.me
+            │                               │
+            └───────────────┬───────────────┘
+                            │
+                      ┌─────┴─────┐
+                      │   nginx   │ :80/:443
+                      └─────┬─────┘
+          ┌─────────────────┼─────────────────┐
+          │                 │                 │
+          ▼                 ▼                 ▼
+    ┌──────────┐    ┌─────────────┐    ┌──────────┐
+    │ frontend │    │  core-api   │    │ couchdb  │
+    │  :80     │    │ (2 instances│    │  :5984   │
+    └──────────┘    │  :8000)     │    └────┬─────┘
+                    └──────┬──────┘         │
+                           │                │
+                    ┌──────┴──────┐         │
+                    │item-resolver│◄────────┘
+                    │ (2 instances│  watches _changes
+                    │  :8000)     │
+                    └─────────────┘
 ```
 
-### Workflow Steps in Detail
+### Data Flow (Offline-First)
 
-#### Step 1: PLAN
-Before writing any code:
-1. Read relevant documentation from `docs/` folder
-2. Use TodoWrite to create a task breakdown
-3. Identify which files will be affected
-4. Check `docs/08-phases.md` for current phase requirements
+1. User writes data → **PouchDB** (local IndexedDB)
+2. UI updates immediately from PouchDB
+3. When online, PouchDB syncs to **CouchDB** via API
+4. **item-resolver** watches CouchDB `_changes` feed
+5. Pending items get resolved (URL → metadata via LLM)
+6. Resolved data syncs back to PouchDB → UI updates
 
-#### Step 2: IMPLEMENT
-Use the appropriate development agent based on the task:
+---
+
+## Services
+
+### Frontend (`services/frontend/`)
+
+Vue 3 + Quasar PWA with offline-first architecture.
+
+| Directory | Purpose |
+|-----------|---------|
+| `src/pages/` | Route pages (WishlistsPage, WishlistDetailPage, etc.) |
+| `src/components/` | Reusable UI components (ItemCard, ShareDialog, etc.) |
+| `src/composables/` | Vue composables (useSync, useOAuth) |
+| `src/stores/` | Pinia stores (auth, wishlist, item) |
+| `src/services/pouchdb/` | PouchDB wrapper for offline storage |
+| `src/i18n/` | Translations (Russian, English) |
+| `src-pwa/` | Service worker and PWA manifest |
+
+**Key Files:**
+- `quasar.config.js` - Build configuration
+- `src/boot/axios.ts` - HTTP client with token refresh
+- `src/boot/auth.ts` - Auth guards and session restoration
+- `src/services/pouchdb/index.ts` - All database operations
+
+### Core API (`services/core-api/`)
+
+FastAPI backend handling auth, sync, and sharing.
+
+| Directory | Purpose |
+|-----------|---------|
+| `app/routers/` | API endpoints |
+| `app/schemas/` | Pydantic request/response models |
+| `app/services/` | Business logic |
+| `app/` | Core modules (couchdb.py, security.py, config.py) |
+
+**Key Files:**
+- `app/main.py` - FastAPI application entry
+- `app/couchdb.py` - Async CouchDB client
+- `app/security.py` - JWT and password utilities
+- `app/config.py` - Pydantic settings
+
+### Item Resolver (`services/item-resolver/`)
+
+Extracts product metadata from URLs using Playwright + LLM.
+
+| File | Purpose |
+|------|---------|
+| `app/main.py` | FastAPI app with factory pattern |
+| `app/changes_watcher.py` | Watches CouchDB for pending items |
+| `app/scrape.py` | Playwright page capture |
+| `app/llm.py` | DeepSeek integration for extraction |
+| `app/ssrf.py` | SSRF protection |
+
+---
+
+## API Endpoints
+
+### Authentication (`/api/v2/auth`)
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| POST | `/register` | Register with email/password |
+| POST | `/login` | Login, get tokens |
+| POST | `/refresh` | Refresh access token |
+| POST | `/logout` | Revoke refresh token |
+| GET | `/me` | Get current user |
+
+### OAuth (`/api/v1/oauth`)
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/providers` | List enabled OAuth providers |
+| GET | `/{provider}/authorize` | Start OAuth flow |
+| GET | `/{provider}/callback` | Handle OAuth callback |
+
+### Sync (`/api/v2/sync`)
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/pull/{collection}` | Pull documents (wishlists/items/marks/bookmarks) |
+| POST | `/push/{collection}` | Push documents with LWW conflict resolution |
+
+### Sharing (`/api/v1/wishlists/{id}/share`)
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/` | List share links |
+| POST | `/` | Create share link |
+| DELETE | `/{share_id}` | Revoke share link |
+
+### Shared Access (`/api/v1/shared`)
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/{token}/preview` | Preview (no auth required) |
+| POST | `/{token}/grant-access` | Grant access to user |
+| POST | `/{token}/items/{item_id}/mark` | Mark item as taken |
+| DELETE | `/{token}/items/{item_id}/mark` | Unmark item |
+
+### Item Resolver (`/resolver/v1`)
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| POST | `/resolve` | Extract metadata from URL |
+| GET | `/healthz` | Health check (requires bearer token) |
+
+---
+
+## Database Schema (CouchDB)
+
+All documents use type-prefixed IDs: `{type}:{uuid}`
+
+### User
+```json
+{
+  "_id": "user:abc123",
+  "type": "user",
+  "email": "user@example.com",
+  "password_hash": "bcrypt...",
+  "name": "User Name",
+  "locale": "ru",
+  "access": ["user:abc123"],
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": "2024-01-01T00:00:00Z"
+}
+```
+
+### Wishlist
+```json
+{
+  "_id": "wishlist:def456",
+  "type": "wishlist",
+  "owner_id": "user:abc123",
+  "name": "Birthday Wishlist",
+  "description": "My birthday wishes",
+  "icon": "gift",
+  "access": ["user:abc123", "user:xyz789"],
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": "2024-01-01T00:00:00Z"
+}
+```
+
+### Item
+```json
+{
+  "_id": "item:ghi789",
+  "type": "item",
+  "wishlist_id": "wishlist:def456",
+  "owner_id": "user:abc123",
+  "title": "Product Name",
+  "description": "Description",
+  "price": 1500.00,
+  "currency": "RUB",
+  "source_url": "https://...",
+  "image_base64": "data:image/...",
+  "status": "resolved",
+  "access": ["user:abc123", "user:xyz789"],
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": "2024-01-01T00:00:00Z"
+}
+```
+
+### Mark (Surprise Mode)
+```json
+{
+  "_id": "mark:jkl012",
+  "type": "mark",
+  "item_id": "item:ghi789",
+  "wishlist_id": "wishlist:def456",
+  "owner_id": "user:abc123",
+  "marked_by": "user:xyz789",
+  "quantity": 1,
+  "access": ["user:xyz789"],
+  "created_at": "2024-01-01T00:00:00Z"
+}
+```
+
+**Note**: Marks exclude `owner_id` from `access` array so wishlist owner cannot see who marked items (surprise mode).
+
+### Share
+```json
+{
+  "_id": "share:mno345",
+  "type": "share",
+  "wishlist_id": "wishlist:def456",
+  "owner_id": "user:abc123",
+  "token": "random32charstring",
+  "link_type": "mark",
+  "expires_at": null,
+  "granted_users": ["user:xyz789"],
+  "access": ["user:abc123"]
+}
+```
+
+---
+
+## Key Patterns
+
+### Access Control
+Every document has an `access` array containing user IDs who can read it:
+```python
+# Query for user's wishlists
+selector = {"type": "wishlist", "access": {"$elemMatch": {"$eq": user_id}}}
+```
+
+### Offline-First Sync
+```typescript
+// Frontend writes to PouchDB first
+await pouchdb.put(doc);
+// Then triggers sync when online
+if (navigator.onLine) {
+  await triggerSync();
+}
+```
+
+### LWW Conflict Resolution
+Server uses Last-Write-Wins based on `updated_at`:
+```python
+if client_updated_at > server_updated_at:
+    # Client wins - accept update
+else:
+    # Server wins - return conflict
+```
+
+### Soft Deletes
+Documents use `_deleted: true` marker:
+```python
+doc["_deleted"] = True
+doc["updated_at"] = now()
+await db.put(doc)
+```
+
+---
+
+## Development Commands
+
+### Frontend (`services/frontend/`)
+```bash
+npm install          # Install dependencies
+npm run dev          # Dev server at localhost:9000
+npm run build        # Production build
+npm run lint         # ESLint
+npm run test:unit    # Vitest unit tests
+npm run typecheck    # TypeScript check
+```
+
+### Backend (`services/core-api/`)
+```bash
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+ruff check .         # Linting
+pytest               # Run tests
+```
+
+### Item Resolver (`services/item-resolver/`)
+```bash
+pip install -r requirements.txt
+playwright install chromium
+uvicorn app.main:app --reload --port 8001
+pytest               # Run tests
+```
+
+### Docker (local)
+```bash
+docker-compose up -d                    # Start all services
+docker-compose logs -f                  # View logs
+docker-compose down                     # Stop services
+```
+
+---
+
+## Deployment
+
+### Server Details
+- **IP**: 176.106.144.182
+- **User**: mrkutin
+- **Path**: `/home/mrkutin/wish-with-me-codex`
+- **Compose File**: `docker-compose.ubuntu.yml`
+- **Credentials**: See `.credentials.local` file (gitignored)
+
+### SSH Access
+```bash
+# Read credentials from .credentials.local and SSH to server
+# Password is stored in SSH_PASSWORD variable
+sshpass -p "$(grep SSH_PASSWORD .credentials.local | cut -d= -f2)" ssh mrkutin@176.106.144.182
+```
+
+### Auto-Deploy (GitHub Actions)
+Push to `main` branch triggers `.github/workflows/deploy-ubuntu.yml`:
+1. Detects changed services
+2. SSH to server, git pull
+3. Rebuilds changed containers
+4. Health check
+5. Rollback on failure
+
+### Manual Deploy
+```bash
+ssh mrkutin@176.106.144.182
+cd /home/mrkutin/wish-with-me-codex
+git pull origin main
+docker-compose -f docker-compose.ubuntu.yml up -d --build
+```
+
+### Check Logs
+```bash
+# All services
+docker-compose -f docker-compose.ubuntu.yml logs -f
+
+# Specific service
+docker logs wishwithme-core-api-1 --tail=100
+docker logs wishwithme-item-resolver-1 --tail=100
+```
+
+### Health Checks
+```bash
+curl -sf https://wishwith.me/healthz
+curl -sf https://api.wishwith.me/healthz
+```
+
+---
+
+## Environment Variables
+
+### Core API
+```bash
+COUCHDB_URL=http://couchdb:5984
+COUCHDB_DATABASE=wishwithme
+COUCHDB_ADMIN_USER=admin
+COUCHDB_ADMIN_PASSWORD=secret
+JWT_SECRET_KEY=your-32-char-secret
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+YANDEX_CLIENT_ID=...
+YANDEX_CLIENT_SECRET=...
+```
+
+### Item Resolver
+```bash
+COUCHDB_URL=http://couchdb:5984
+COUCHDB_DATABASE=wishwithme
+COUCHDB_WATCHER_ENABLED=true
+RU_BEARER_TOKEN=service-token
+LLM_BASE_URL=https://api.deepseek.com
+LLM_API_KEY=your-api-key
+LLM_MODEL=deepseek-chat
+```
+
+### Frontend (build-time)
+```bash
+API_URL=https://api.wishwith.me
+```
+
+---
+
+## Code Conventions
+
+### Python (Backend)
+- **Style**: Ruff linter, 88 char lines
+- **Types**: Full type hints with `typing.Annotated`
+- **Async**: All I/O operations are async
+- **Naming**: snake_case for files/functions, PascalCase for classes
+- **Errors**: Structured errors with codes (e.g., `SSRF_BLOCKED`, `TIMEOUT`)
+
+### TypeScript (Frontend)
+- **Style**: ESLint + Prettier, single quotes
+- **Components**: Vue 3 Composition API with `<script setup lang="ts">`
+- **Stores**: Pinia with composition style
+- **Naming**: camelCase for files/functions, PascalCase for components/interfaces
+
+### Document IDs
+Always use type-prefixed UUIDs:
+```python
+user_id = f"user:{uuid4()}"
+wishlist_id = f"wishlist:{uuid4()}"
+item_id = f"item:{uuid4()}"
+```
+
+### API Responses
+Standard error format:
+```json
+{
+  "error": {
+    "code": "ERROR_CODE",
+    "message": "Human readable message"
+  }
+}
+```
+
+---
+
+## Security Checklist
+
+When making changes, verify:
+
+- [ ] Input validation via Pydantic schemas
+- [ ] Access control checks on document operations
+- [ ] No SQL/NoSQL injection (use parameterized queries)
+- [ ] SSRF protection for URL fetching
+- [ ] JWT tokens properly validated
+- [ ] Sensitive data not logged
+- [ ] CORS configured correctly
+- [ ] No secrets in code (use environment variables)
+
+---
+
+## Testing on Production
+
+**Always test changes on the production server:**
+
+```bash
+# SSH to server
+ssh mrkutin@176.106.144.182
+
+# Check service status
+docker-compose -f docker-compose.ubuntu.yml ps
+
+# Check logs for errors
+docker logs wishwithme-core-api-1 --tail=100
+docker logs wishwithme-item-resolver-1 --tail=100
+
+# Test health endpoints
+curl -sf https://wishwith.me/healthz
+curl -sf https://api.wishwith.me/healthz
+
+# Test specific functionality with curl
+curl -X POST https://api.wishwith.me/api/v2/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@test.com","password":"password"}'
+```
+
+---
+
+## Quick Reference
+
+| Task | Command |
+|------|---------|
+| Start local dev | `docker-compose up -d` |
+| View all logs | `docker-compose logs -f` |
+| Deploy to prod | Push to `main` branch |
+| Check prod logs | `ssh mrkutin@176.106.144.182` then `docker logs ...` |
+| Run frontend tests | `cd services/frontend && npm run test:unit` |
+| Run backend tests | `cd services/core-api && pytest` |
+| Lint frontend | `cd services/frontend && npm run lint` |
+| Lint backend | `cd services/core-api && ruff check .` |
+
+---
+
+## Agent Usage Requirements
+
+**IMPORTANT**: Always use the appropriate specialized agent for each task. This ensures higher quality work and proper domain expertise.
+
+### Task-to-Agent Mapping
 
 | Task Type | Agent | When to Use |
 |-----------|-------|-------------|
-| Vue/Quasar components | `frontend-dev` | UI components, pages, composables |
-| FastAPI endpoints | `backend-dev` | API routes, services, models |
-| Database changes | `dba` | Schema migrations, queries |
-| API design | `api-designer` | New endpoints, OpenAPI specs |
-| Tests | `qa` | Unit tests, integration tests, E2E |
-| DevOps | `devops` | Docker, CI/CD, deployment |
-| Security | `security` | Auth, vulnerabilities, OWASP |
+| **Codebase exploration** | `Explore` | Finding files, searching code, understanding structure |
+| **Implementation planning** | `Plan` | Designing approach before writing code |
+| **Frontend development** | `frontend-dev` | Vue/TypeScript components, Quasar UI, Pinia stores |
+| **Backend development** | `backend-dev` | FastAPI endpoints, Python async code, CouchDB operations |
+| **Code review** | `reviewer` | Quality, security, performance, maintainability checks |
+| **Security analysis** | `security` | Threat modeling, OWASP issues, vulnerability review |
+| **Testing** | `qa` | Test strategy, Vitest/pytest automation, coverage |
+| **API design** | `api-designer` | REST endpoints, schemas, OpenAPI specs |
+| **Database work** | `dba` | CouchDB queries, data modeling, optimization |
+| **DevOps/Infrastructure** | `devops` | Docker, CI/CD, nginx, deployment scripts |
+| **SRE tasks** | `sre` | Monitoring, health checks, incident runbooks |
+| **Performance** | `performance` | Profiling, optimization, load testing |
+| **Documentation** | `tech-writer` | API docs, README files, architecture docs |
+| **Architecture decisions** | `system-architect` | Distributed systems, microservices, tech decisions |
 
-**Implementation Rules:**
-- Follow patterns established in existing code
-- Match the style in the relevant docs (e.g., `docs/04-frontend.md` for Vue patterns)
-- Write tests alongside implementation when appropriate
-- Use TypeScript for frontend, Python type hints for backend
+### Agent Usage Rules
 
-#### Step 3: REVIEW (Mandatory)
-After implementing, ALWAYS invoke the `reviewer` agent:
+1. **Always explore first**: Before making changes, use `Explore` agent to understand the codebase context
+2. **Plan before implementing**: For non-trivial features, use `Plan` agent to design the approach
+3. **Match agent to domain**:
+   - Frontend changes → `frontend-dev`
+   - Backend changes → `backend-dev`
+   - Both → use both agents in parallel
+4. **Review after changes**: Use `reviewer` agent after implementing significant changes
+5. **Security-sensitive code**: Always involve `security` agent for auth, input validation, or data access changes
+6. **Run agents in parallel**: When tasks are independent, launch multiple agents simultaneously
+
+---
+
+## Workflow: Bug Fix
+
+**All bug fixes MUST follow this workflow:**
 
 ```
-Use the reviewer agent to review the changes just made, focusing on:
-- Code quality and adherence to project patterns
-- Security vulnerabilities (OWASP top 10)
-- Performance implications
-- Test coverage
-- Documentation accuracy
+┌─────────────────────────────────────────────────────────────────┐
+│  1. INVESTIGATE                                                 │
+│     └─► Explore agent: find the bug location                    │
+│     └─► devops agent: if infrastructure/deployment issue        │
+├─────────────────────────────────────────────────────────────────┤
+│  2. FIX                                                         │
+│     └─► frontend-dev / backend-dev: implement the fix           │
+├─────────────────────────────────────────────────────────────────┤
+│  3. UNIT TESTS                                                  │
+│     └─► qa agent: run ALL unit tests                            │
+│     └─► If tests fail → back to step 2                          │
+├─────────────────────────────────────────────────────────────────┤
+│  4. VERIFY                                                      │
+│     └─► reviewer agent: code quality check                      │
+│     └─► devops agent: deployment/integration check (if needed)  │
+│     └─► If bug not fixed → back to step 2                       │
+├─────────────────────────────────────────────────────────────────┤
+│  5. DONE                                                        │
+│     └─► Only when fix verified and all tests pass               │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-The reviewer agent will provide:
-- **APPROVED**: Code meets standards, proceed to verify
-- **CHANGES REQUESTED**: List of issues to fix
-
-#### Step 4: FIX
-If reviewer requests changes:
-1. Create TodoWrite items for each issue
-2. Address each issue using the appropriate dev agent
-3. Mark todos complete as fixed
-4. Return to Step 3 (REVIEW) - this loop continues until APPROVED
-
-#### Step 5: VERIFY
-Once review is approved:
-1. Run relevant tests:
-   - Frontend: `npm run test:unit` (in `services/frontend/`)
-   - Backend: `pytest` (in `services/core-api/`)
-   - E2E: `npm run test:e2e` (if UI changes)
-2. Run linting/type checks:
-   - Frontend: `npm run lint`
-   - Backend: `ruff check .`
-3. **CRITICAL**: Test on production server:
-   - SSH to Ubuntu: `ssh mrkutin@176.106.144.182`
-   - Check logs: `docker logs wishwithme-core-api-1 --tail=100` and `docker logs wishwithme-core-api-2 --tail=100`
-   - Check item-resolver: `docker logs wishwithme-item-resolver-1 --tail=100` and `docker logs wishwithme-item-resolver-2 --tail=100`
-   - Verify functionality works as expected
-   - **IMPORTANT**: Test everything yourself before saying it's done. Use curl, API calls, and log checks to verify functionality actually works end-to-end.
-4. If tests fail, return to Step 4 (FIX)
-
-#### Step 6: COMPLETE
-When all checks pass:
-1. Summarize what was implemented
-2. List files changed
-3. Note any follow-up items or technical debt
-4. Update `docs/08-phases.md` checklist if a phase item was completed
-5. **Deploy**: Push to GitHub `main` branch to trigger automated deployment via GitHub Actions
+**Bug Fix Rules:**
+- Never skip unit tests before verification
+- Loop between FIX → TEST → VERIFY until the bug is confirmed fixed
+- For infrastructure bugs, `devops` leads investigation; for code bugs, `Explore` + dev agents lead
 
 ---
 
-## Review Standards
+## Workflow: New Feature
 
-The reviewer agent MUST check for:
-
-### Code Quality
-- [ ] Follows existing project patterns
-- [ ] No code duplication
-- [ ] Proper error handling
-- [ ] Appropriate logging
-- [ ] Clear naming conventions
-
-### Security (Backend)
-- [ ] No injection vulnerabilities (CouchDB Mango queries)
-- [ ] Proper authentication checks
-- [ ] Input validation on all endpoints
-- [ ] No sensitive data exposure
-- [ ] Access control via document `access` arrays
-
-### Security (Frontend)
-- [ ] No XSS vulnerabilities
-- [ ] Proper sanitization of user input
-- [ ] Secure storage of tokens
-- [ ] No sensitive data in localStorage
-
-### Performance
-- [ ] Efficient database queries (no N+1)
-- [ ] Appropriate indexing
-- [ ] Lazy loading where beneficial
-- [ ] No unnecessary re-renders (Vue)
-
-### Testing
-- [ ] Unit tests for new functions
-- [ ] Integration tests for API endpoints
-- [ ] Component tests for Vue components
-- [ ] E2E tests for critical user flows
-
----
-
-## Agent-Specific Instructions
-
-### frontend-dev Agent
-When implementing frontend:
-- Follow Vue 3 Composition API patterns from `docs/04-frontend.md`
-- Use Quasar components (QBtn, QCard, etc.)
-- Implement PouchDB queries per `docs/05-offline-sync.md`
-- Follow visual design from `docs/11-visual-design.md`
-- Support both Russian and English (see `docs/07-i18n.md`)
-
-### backend-dev Agent
-When implementing backend:
-- Follow FastAPI async patterns
-- Use CouchDB async client (`app/couchdb.py`)
-- Implement schemas per `docs/03-api.md`
-- Follow CouchDB document patterns from `docs/02-database.md`
-- Use proper dependency injection
-
-### reviewer Agent
-When reviewing:
-- Be thorough but constructive
-- Prioritize security issues
-- Check against project documentation
-- Verify test coverage
-- Suggest specific fixes, not vague feedback
-
-### qa Agent
-When writing tests:
-- Follow patterns in `docs/09-testing.md`
-- Use Vitest for frontend unit tests
-- Use pytest for backend tests
-- Use Playwright for E2E tests
-- Maintain coverage requirements (90% backend, 80% composables, 70% components)
-
----
-
-## Testing & Deployment
-
-### Server Architecture
-**Application is deployed on a single Ubuntu server:**
-
-- **IP Address**: 176.106.144.182
-- **User**: mrkutin
-- **Domain**: wishwith.me, api.wishwith.me
-- **Services**: nginx, frontend, core-api-1, core-api-2, item-resolver-1, item-resolver-2, couchdb
-- **Real-time Sync**: PouchDB ↔ CouchDB native replication
-- **Docker Compose**: `docker-compose.ubuntu.yml`
-- **LLM**: DeepSeek API (text-based extraction for item-resolver)
-
-### Testing Location (ALWAYS)
-**Test on the production server:**
-
-- SSH: `ssh mrkutin@176.106.144.182`
-- Navigate: `cd /home/mrkutin/wish-with-me-codex`
-- Check logs: `docker-compose -f docker-compose.ubuntu.yml logs -f`
-- Check core-api: `docker logs wishwithme-core-api-1 --tail=100`
-- Check item-resolver: `docker logs wishwithme-item-resolver-1 --tail=100`
-- Verify status: `docker-compose -f docker-compose.ubuntu.yml ps`
-- Test health: `curl -sf https://wishwith.me/health`
-
-### Deployment Method (ALWAYS AUTOMATIC)
-**Deployment happens AUTOMATICALLY on push to main:**
-
-**deploy-ubuntu.yml** - Deploys all services to Ubuntu (176.106.144.182)
-- Triggers on: `services/frontend/**`, `services/core-api/**`, `services/item-resolver/**`, `docker-compose.ubuntu.yml`, `nginx/**`
-- Manual: `gh workflow run deploy-ubuntu.yml`
-
-**Architecture:**
-- `docker-compose.ubuntu.yml` - All services (nginx, frontend, core-api, item-resolver, couchdb)
-- Core API connects to item-resolver via internal Docker network: `http://item-resolver-1:8000`
-- Item-resolver watches CouchDB `_changes` feed for pending items
-- PouchDB on frontend syncs directly with CouchDB for real-time updates
-- Services use shared network: `wishwithme-network`
-
-See `docs/13-deployment.md` for full deployment documentation.
-
----
-
-## Quick Commands
-
-When the user requests:
-
-| User Says | Claude Does |
-|-----------|-------------|
-| "implement X" | Full workflow: plan → implement → review → fix → verify |
-| "review my changes" | Run reviewer agent on recent changes |
-| "fix review issues" | Address feedback, then re-review |
-| "run tests" | Execute appropriate test suite |
-| "check phase progress" | Read `docs/08-phases.md` and report status |
-| "deploy" | Push to GitHub main (triggers deployment workflow) |
-| "check logs" | SSH to Ubuntu: `docker-compose -f docker-compose.ubuntu.yml logs -f` |
-| "check status" | SSH to server and run `docker-compose -f docker-compose.ubuntu.yml ps` |
-
----
-
-## Error Handling
-
-If the workflow gets stuck:
-
-1. **Review loop > 3 iterations**: Ask user if they want to proceed with known issues
-2. **Tests consistently fail**: Create detailed bug report, ask for guidance
-3. **Conflicting requirements**: Reference documentation, ask user to clarify
-4. **Missing documentation**: Note the gap, proceed with best judgment, flag for review
-
----
-
-## File Structure Reference
+**All new features MUST follow this workflow:**
 
 ```
-services/
-├── frontend/           # Vue 3 + Quasar PWA (Webpack)
-│   ├── src/
-│   │   ├── components/ # Reusable Vue components
-│   │   ├── pages/      # Route pages
-│   │   ├── composables/# Vue composables
-│   │   ├── stores/     # Pinia stores
-│   │   └── services/   # PouchDB, API clients
-│   └── e2e/            # Playwright tests
-│
-├── core-api/           # FastAPI backend
-│   ├── app/
-│   │   ├── routers/    # API route handlers
-│   │   ├── couchdb.py  # CouchDB async client
-│   │   └── schemas/    # Pydantic schemas
-│   └── tests/          # pytest tests
-│
-└── item-resolver/      # URL metadata service (watches CouchDB _changes)
+┌─────────────────────────────────────────────────────────────────┐
+│  1. ARCHITECTURE CHECK                                          │
+│     └─► system-architect agent: verify feature fits architecture│
+│     └─► If conflicts exist → DISCUSS with user before proceeding│
+│     └─► Agree on approach before moving forward                 │
+├─────────────────────────────────────────────────────────────────┤
+│  2. PLAN                                                        │
+│     └─► Plan agent: create detailed implementation plan         │
+│     └─► Get user approval on the plan                           │
+├─────────────────────────────────────────────────────────────────┤
+│  3. IMPLEMENT                                                   │
+│     └─► frontend-dev / backend-dev: write the code              │
+├─────────────────────────────────────────────────────────────────┤
+│  4. WRITE TESTS                                                 │
+│     └─► qa agent: write new unit tests for the feature          │
+├─────────────────────────────────────────────────────────────────┤
+│  5. RUN TESTS                                                   │
+│     └─► qa agent: run ALL unit tests (new + existing)           │
+│     └─► If tests fail → back to step 3                          │
+├─────────────────────────────────────────────────────────────────┤
+│  6. VERIFY                                                      │
+│     └─► reviewer agent: code quality, security, maintainability │
+│     └─► qa agent: functional testing                            │
+│     └─► devops agent: deployment check (if needed)              │
+│     └─► If issues found → back to step 3                        │
+├─────────────────────────────────────────────────────────────────┤
+│  7. DONE                                                        │
+│     └─► Only when all tests pass and verification complete      │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**New Feature Rules:**
+- NEVER skip architecture check - features must fit the existing design
+- If architecture conflict: STOP and discuss with user before proceeding
+- All new features MUST have unit tests before verification
+- Loop between IMPLEMENT → TEST → VERIFY until fully working
+- Only mark complete when all agents confirm success
+
+---
+
+## Workflow Examples
+
+### Bug Fix Example
+```
+User: "The sync is failing after adding items"
+
+Step 1 - INVESTIGATE:
+  → Explore agent: search for sync-related code, find the issue
+
+Step 2 - FIX:
+  → backend-dev agent: fix the sync logic
+
+Step 3 - UNIT TESTS:
+  → qa agent: run `pytest` for backend
+  → If fails: back to backend-dev
+
+Step 4 - VERIFY:
+  → reviewer agent: check the fix quality
+  → devops agent: verify sync works in docker environment
+  → If still broken: back to backend-dev
+
+Step 5 - DONE
+```
+
+### New Feature Example
+```
+User: "Add wishlist categories"
+
+Step 1 - ARCHITECTURE CHECK:
+  → system-architect agent: check if categories fit current data model
+  → If conflicts: discuss with user (e.g., "Categories would require
+    schema changes. Should we add category_id to wishlists or create
+    a separate categories collection?")
+
+Step 2 - PLAN:
+  → Plan agent: design implementation (DB schema, API endpoints, UI)
+  → Get user approval
+
+Step 3 - IMPLEMENT:
+  → backend-dev agent: add category model, API endpoints
+  → frontend-dev agent: add category UI components
+
+Step 4 - WRITE TESTS:
+  → qa agent: write tests for category CRUD operations
+
+Step 5 - RUN TESTS:
+  → qa agent: run all tests
+  → If fails: back to dev agents
+
+Step 6 - VERIFY:
+  → reviewer agent: code review
+  → qa agent: functional testing
+  → If issues: back to dev agents
+
+Step 7 - DONE
 ```
 
 ---
 
-## Remember
+### Agent Invocation
 
-1. **Always review** - No code ships without reviewer agent approval
-2. **Always test** - Run tests before marking complete
-3. **Always document** - Update phase checklist when items complete
-4. **Stay in scope** - Don't over-engineer beyond requirements
-5. **Use the docs** - Reference `docs/` folder for all decisions
+Agents are invoked using the Task tool with `subagent_type` parameter:
+- Single agent: Provide detailed context in the prompt
+- Multiple agents: Launch in parallel when tasks are independent
+- Sequential agents: Wait for one to complete before starting dependent work

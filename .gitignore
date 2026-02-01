@@ -99,3 +99,6 @@ storage_state/
 .last-known-good-commit
 
 node_modules/
+
+# Local credentials (never commit)
+.credentials.local
