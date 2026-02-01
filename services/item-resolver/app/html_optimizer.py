@@ -137,68 +137,13 @@ def _normalize_whitespace(text: str) -> str:
     return '\n'.join(result_lines)
 
 
-def _extract_price_info(text: str) -> list[str]:
-    """
-    Extract price-related information from text using common patterns.
-
-    This finds prices in various formats from extracted page text.
-    """
-    prices: list[str] = []
-
-    # Common price patterns (Russian and international)
-    # Note: Russian prices often have spaces as thousand separators: "93 499"
-    patterns = [
-        # Russian ruble formats - with flexible spacing
-        r'(\d{1,3}(?:[\s\u00a0]\d{3})+)\s*(?:₽|руб\.?|RUB)',  # "93 499 ₽" with space/nbsp
-        r'(\d{4,})\s*(?:₽|руб\.?|RUB)',  # "93499₽" no space
-        r'(\d{1,3}(?:[.,]\d{3})+)\s*(?:₽|руб\.?|RUB)',  # "93.499₽" or "93,499₽"
-        r'(?:₽|руб\.?|RUB)\s*(\d[\d\s\u00a0.,]*\d)',  # "₽ 93 499"
-        # Dollar formats
-        r'\$\s*(\d[\d\s\u00a0.,]*\d)',
-        r'(\d[\d\s\u00a0.,]*\d)\s*\$',
-        # Euro formats
-        r'€\s*(\d[\d\s\u00a0.,]*\d)',
-        r'(\d[\d\s\u00a0.,]*\d)\s*€',
-        # Generic price with currency code
-        r'(\d{1,3}(?:[\s\u00a0,]\d{3})*(?:[.,]\d{2})?)\s*(?:USD|EUR|RUB|GBP)',
-        # Price-like patterns near currency words (fallback)
-        r'(?:price|цена|стоимость)[:\s]*(\d[\d\s\u00a0.,]*\d)',
-    ]
-
-    for pattern in patterns:
-        matches = re.findall(pattern, text, re.IGNORECASE)
-        for match in matches:
-            if isinstance(match, tuple):
-                match = match[0] if match[0] else match[1] if len(match) > 1 else ''
-            if match:
-                # Clean up the number - remove spaces, nbsp, normalize separators
-                clean = re.sub(r'[\s\u00a0]', '', match)  # Remove spaces and nbsp
-                # Handle different decimal/thousand separators
-                # If ends with ,XX or .XX it's likely decimal
-                if re.match(r'.*[.,]\d{2}$', clean):
-                    clean = clean[:-3].replace('.', '').replace(',', '') + clean[-3:]
-                else:
-                    clean = clean.replace('.', '').replace(',', '')
-                if clean and clean.isdigit() and 3 <= len(clean) <= 10:  # Reasonable price
-                    prices.append(clean)
-
-    # Sort by value (likely the main price is a larger number on product pages)
-    prices = sorted(set(prices), key=lambda x: int(x) if x.isdigit() else 0, reverse=True)
-    return prices[:5]  # Return top 5 unique prices
-
-
-def optimize_html(
-    html: str,
-    max_chars: int = 30000,
-    include_price_hints: bool = True,
-) -> str:
+def optimize_html(html: str, max_chars: int = 30000) -> str:
     """
     Extract optimized text content from HTML for LLM processing.
 
     Args:
         html: Raw HTML content
-        max_chars: Maximum characters to return (default 30K for DeepSeek)
-        include_price_hints: Whether to extract and prepend price hints
+        max_chars: Maximum characters to return
 
     Returns:
         Clean text content suitable for LLM extraction
@@ -221,39 +166,6 @@ def optimize_html(
 
     # Normalize whitespace
     text = _normalize_whitespace(text)
-
-    # Optionally prepend price hints - run on EXTRACTED TEXT, not raw HTML
-    # Raw HTML often has prices split across tags which breaks regex matching
-    if include_price_hints:
-        import logging
-        logger = logging.getLogger(__name__)
-
-        # Debug: check raw HTML for ₽ symbol
-        for symbol in ['₽', '$', '€']:
-            idx = html.find(symbol)
-            if idx >= 0:
-                sample = html[max(0, idx-100):min(len(html), idx+50)]
-                logger.info(f"RAW HTML around {symbol}: ...{repr(sample)}...")
-                break
-
-        prices = _extract_price_info(text)  # Use extracted text, not raw HTML
-
-        # Debug: log sample of extracted text around currency symbols
-        found_symbol = False
-        for symbol in ['₽', '$', '€']:
-            idx = text.find(symbol)
-            if idx >= 0:
-                sample = text[max(0, idx-50):min(len(text), idx+20)]
-                logger.info(f"EXTRACTED TEXT around {symbol}: ...{repr(sample)}...")
-                found_symbol = True
-                break
-        if not found_symbol:
-            logger.info(f"NO currency symbol in extracted text! text_len={len(text)}")
-        logger.info(f"Price candidates found: {prices}")
-
-        if prices:
-            price_hint = f"[Price candidates found: {', '.join(prices)}]\n\n"
-            text = price_hint + text
 
     # Truncate if needed
     if len(text) > max_chars:
@@ -308,7 +220,6 @@ def extract_structured_hints(html: str) -> dict[str, Optional[str]]:
                 hints[key] = match.group(1)
 
     # JSON-LD schema.org data (basic extraction)
-    # Find ALL JSON-LD blocks, not just the first one
     jsonld_matches = re.findall(
         r'<script\s+type=["\']application/ld\+json["\']\s*>(.*?)</script>',
         html,
@@ -372,15 +283,15 @@ def format_html_for_llm(
     Returns:
         Formatted text prompt content for LLM
     """
-    # Extract structured hints first
+    # Extract structured hints first (from JSON-LD, Open Graph)
     hints = extract_structured_hints(html)
 
     # Build the prompt content
     parts = [f"URL: {url}", f"Page title: {title}"]
 
-    # Add structured hints if available - prioritize price info
+    # Add structured hints if available
     if hints:
-        hint_lines = ["", "=== Structured metadata (IMPORTANT - use this if available) ==="]
+        hint_lines = ["", "=== Structured metadata (use this if available) ==="]
 
         # Price hints first (most important)
         if hints.get('schema_price'):
@@ -395,7 +306,7 @@ def format_html_for_llm(
 
         parts.append('\n'.join(hint_lines))
 
-    # Add optimized page content
+    # Add optimized page content - LLM will extract all metadata from this
     content = optimize_html(html, max_chars=max_chars)
     parts.append(f"\nPage content:\n{content}")
 

@@ -449,13 +449,14 @@ class PageCaptureConfig:
 async def capture_page_source(page, url: str, *, cfg: PageCaptureConfig) -> tuple[str, str, str]:
     """
     Returns: (final_url, title, html)
-    """
-    import logging
-    logger = logging.getLogger(__name__)
 
+    Waits for JS content to load, then captures the HTML for LLM extraction.
+    """
     await page.goto(url, wait_until=cfg.wait_until, timeout=cfg.timeout_ms)
 
     extra_budget = min(cfg.max_extra_wait_ms, cfg.timeout_ms)
+
+    # Wait for body to have content
     try:
         await page.wait_for_function(
             "() => document.body && (document.body.innerText || '').trim().length > 0",
@@ -465,15 +466,14 @@ async def capture_page_source(page, url: str, *, cfg: PageCaptureConfig) -> tupl
         pass
 
     # Dismiss common popups/overlays that may block content
-    # Do this early before waiting for content to fully load
     try:
         dismissed = await dismiss_common_popups(page, timeout_ms=5000)
         if dismissed > 0:
-            # Give the page time to update after popup dismissal
             await asyncio.sleep(1.0)
     except Exception:
         pass
 
+    # Wait for network and DOM to stabilize
     await wait_for_network_quiet(page, quiet_ms=cfg.network_quiet_ms, timeout_ms=extra_budget)
     await wait_for_dom_stable(
         page,
@@ -482,37 +482,9 @@ async def capture_page_source(page, url: str, *, cfg: PageCaptureConfig) -> tupl
         timeout_ms=extra_budget,
     )
 
-    # Wait for price-like content to appear (many sites load prices async via API)
-    # This checks for common price patterns in the page text
-    # Use longer timeout as prices often load late via JavaScript
-    price_found = False
-    try:
-        await page.wait_for_function(
-            """() => {
-                const text = document.body?.innerText || '';
-                // Look for price-like patterns: currency symbols or "price/цена" near numbers
-                // Match patterns like "93 499 ₽" or "$99.99" or "1000 руб"
-                const hasCurrencySymbol = /[₽$€£¥]\\s*\\d|\\d[\\d\\s.,]*[₽$€£¥]/.test(text);
-                const hasRubleWord = /\\d[\\d\\s.,]*(руб|RUB)/i.test(text);
-                const hasPriceWord = /(price|цена|стоимость)[:\\s]*\\d/i.test(text);
-                return hasCurrencySymbol || hasRubleWord || hasPriceWord;
-            }""",
-            timeout=min(15_000, extra_budget),  # Increased from 8s to 15s
-        )
-        price_found = True
-        logger.info(f"Price pattern found in page: {url}")
-    except Exception:
-        # Price might not be on page, or takes longer - continue anyway
-        logger.info(f"Price pattern NOT found (timeout) in page: {url}")
-
+    # Settle time for JS to finish rendering
     if cfg.settle_ms > 0:
         await asyncio.sleep(cfg.settle_ms / 1000.0)
-
-    # If price wasn't found initially, wait a bit more and check again
-    # Some sites load prices very late via JavaScript
-    if not price_found:
-        logger.info(f"Extra wait for late-loading prices: {url}")
-        await asyncio.sleep(3.0)  # Extra wait for late-loading prices
 
     final_url = page.url
     html = await page.content()
@@ -520,11 +492,6 @@ async def capture_page_source(page, url: str, *, cfg: PageCaptureConfig) -> tupl
         title = await page.title()
     except Exception:
         title = ""
-
-    # Log if price pattern exists in captured HTML
-    import re
-    price_in_html = bool(re.search(r'\d[\d\s.,]*[₽$€£¥]|[₽$€£¥]\s*\d', html))
-    logger.info(f"Price pattern in captured HTML: {price_in_html}, html_len={len(html)}")
 
     if looks_like_interstitial_or_challenge(title, html):
         challenge_cleared = await wait_for_challenge_to_clear(page, timeout_ms=cfg.challenge_extra_wait_ms)
