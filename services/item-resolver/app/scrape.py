@@ -370,11 +370,11 @@ async def wait_for_challenge_to_clear(page, *, timeout_ms: int) -> bool:
 
 @dataclass(frozen=True)
 class PageCaptureConfig:
-    wait_until: str = "domcontentloaded"
+    wait_until: str = "networkidle"  # Wait for network to be idle (better for JS-heavy sites)
     timeout_ms: int = 60_000
-    settle_ms: int = 3_000  # Increased from 2s for sites with delayed JS
-    max_extra_wait_ms: int = 30_000  # Increased from 25s
-    network_quiet_ms: int = 1_500  # Increased from 1.2s
+    settle_ms: int = 5_000  # Increased from 3s - many sites load prices async via API
+    max_extra_wait_ms: int = 30_000
+    network_quiet_ms: int = 2_000  # Increased from 1.5s for slow API calls
     dom_sample_interval_ms: int = 500
     dom_stable_samples: int = 3
     challenge_extra_wait_ms: int = 120_000
@@ -403,6 +403,25 @@ async def capture_page_source(page, url: str, *, cfg: PageCaptureConfig) -> tupl
         interval_ms=cfg.dom_sample_interval_ms,
         timeout_ms=extra_budget,
     )
+
+    # Wait for price-like content to appear (many sites load prices async via API)
+    # This checks for common price patterns in the page text
+    try:
+        await page.wait_for_function(
+            """() => {
+                const text = document.body?.innerText || '';
+                // Look for price-like patterns: currency symbols or "price/цена" near numbers
+                const hasCurrencySymbol = /[₽$€£¥]\\s*\\d|\\d\\s*[₽$€£¥]/.test(text);
+                const hasRubleWord = /(\\d[\\d\\s]*)(руб|RUB)/i.test(text);
+                const hasPriceWord = /(price|цена|стоимость)[:\\s]*(\\d)/i.test(text);
+                return hasCurrencySymbol || hasRubleWord || hasPriceWord;
+            }""",
+            timeout=min(8_000, extra_budget),
+        )
+    except Exception:
+        # Price might not be on page, or takes longer - continue anyway
+        pass
+
     if cfg.settle_ms > 0:
         await asyncio.sleep(cfg.settle_ms / 1000.0)
 
