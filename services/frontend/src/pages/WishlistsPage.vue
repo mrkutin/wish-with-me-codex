@@ -106,8 +106,13 @@
                   </div>
                 </q-card-section>
                 <q-card-section>
-                  <div class="text-caption text-grey">
-                    {{ formatDate(wishlist.created_at) }}
+                  <div class="row items-center justify-between">
+                    <div class="text-caption text-grey">
+                      {{ formatDate(wishlist.created_at) }}
+                    </div>
+                    <q-badge color="primary" outline>
+                      {{ itemCounts[wishlist.id] || 0 }} {{ $t('items.title').toLowerCase() }}
+                    </q-badge>
                   </div>
                 </q-card-section>
               </q-card>
@@ -325,7 +330,7 @@ import { useI18n } from 'vue-i18n';
 import { useWishlistStore } from '@/stores/wishlist';
 import { useAuthStore } from '@/stores/auth';
 import { api } from '@/boot/axios';
-import { triggerSync, subscribeToBookmarks } from '@/services/pouchdb';
+import { triggerSync, subscribeToBookmarks, getItemCounts } from '@/services/pouchdb';
 import ShareDialog from '@/components/ShareDialog.vue';
 import type { Wishlist } from '@/types/wishlist';
 import type { SharedWishlistBookmark, SharedWishlistBookmarkListResponse } from '@/types/share';
@@ -344,6 +349,7 @@ const showShareDialog = ref(false);
 const sharingWishlist = ref<Wishlist | null>(null);
 const sharedBookmarks = ref<SharedWishlistBookmark[]>([]);
 const isLoadingBookmarks = ref(false);
+const itemCounts = ref<Record<string, number>>({});
 let unsubscribeBookmarks: (() => void) | null = null;
 
 const iconOptions = [
@@ -374,6 +380,13 @@ const editingWishlist = reactive({
   is_public: false,
   icon: 'card_giftcard',
 });
+
+async function fetchItemCounts() {
+  const wishlistIds = wishlistStore.wishlists.map(w => w.id);
+  if (wishlistIds.length > 0) {
+    itemCounts.value = await getItemCounts(wishlistIds);
+  }
+}
 
 async function fetchBookmarks(silent = false) {
   if (!silent) {
@@ -564,6 +577,11 @@ function formatDate(dateString: string): string {
   }).format(date);
 }
 
+// Update item counts when wishlists change
+watch(() => wishlistStore.wishlists, () => {
+  fetchItemCounts();
+}, { deep: true });
+
 // Sync URL and fetch bookmarks when tab changes
 watch(activeTab, (newTab) => {
   // Update URL to reflect current tab
@@ -576,7 +594,7 @@ watch(activeTab, (newTab) => {
   }
 });
 
-onMounted(() => {
+onMounted(async () => {
   // Setup PouchDB subscription for real-time bookmark updates
   setupBookmarkSubscription();
 
@@ -586,7 +604,8 @@ onMounted(() => {
     activeTab.value = 'shared';
     fetchBookmarks();
   }
-  wishlistStore.fetchWishlists();
+  await wishlistStore.fetchWishlists();
+  await fetchItemCounts();
 });
 
 onUnmounted(() => {

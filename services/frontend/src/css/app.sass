@@ -226,9 +226,12 @@ body
   border-radius: var(--radius-lg)
   box-shadow: var(--shadow-sm)
   border: 1px solid var(--border-subtle)
-  transition: box-shadow var(--duration-fast) var(--ease-out), transform var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out)
+  background-color: var(--bg-primary)
+  // Remove transform from transition to prevent sub-pixel artifacts
+  transition: box-shadow var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out)
 
-  &:hover
+  // Only apply hover to cards that don't have specific overrides
+  &:not(.item-card):not(.wishlist-card):hover
     box-shadow: var(--shadow-md)
     border-color: rgba(79, 70, 229, 0.2)
 

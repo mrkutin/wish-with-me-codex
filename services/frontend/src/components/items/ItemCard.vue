@@ -166,7 +166,11 @@ function formatPrice(price: number, currency: string | null): string {
 <style scoped lang="sass">
 .item-card
   overflow: hidden
+  background-color: var(--bg-primary)
   border: 1px solid var(--border-subtle)
+  border-radius: var(--radius-lg)
+  box-shadow: var(--shadow-sm)
+  // Explicitly list only properties we animate - no transform to avoid sub-pixel artifacts
   transition: box-shadow var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out)
 
   &:hover
@@ -306,7 +310,11 @@ function formatPrice(price: number, currency: string | null): string {
 // Dark mode adjustments
 .body--dark
   .item-card
+    background-color: var(--bg-secondary)
     border-color: var(--border-default)
+
+    &:hover
+      border-color: rgba(99, 102, 241, 0.3)
 
   .item-image-placeholder
     background: var(--bg-tertiary)

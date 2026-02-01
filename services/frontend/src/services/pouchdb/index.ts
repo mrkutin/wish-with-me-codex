@@ -767,6 +767,34 @@ export async function getItems(wishlistId: string): Promise<ItemDoc[]> {
 }
 
 /**
+ * Get item counts for multiple wishlists.
+ * Returns a map of wishlist_id -> item count.
+ */
+export async function getItemCounts(wishlistIds: string[]): Promise<Record<string, number>> {
+  if (wishlistIds.length === 0) {
+    return {};
+  }
+
+  const items = await find<ItemDoc>({
+    selector: {
+      type: 'item',
+      wishlist_id: { $in: wishlistIds },
+    },
+  });
+
+  const counts: Record<string, number> = {};
+  for (const id of wishlistIds) {
+    counts[id] = 0;
+  }
+  for (const item of items) {
+    if (item.wishlist_id && counts[item.wishlist_id] !== undefined) {
+      counts[item.wishlist_id]++;
+    }
+  }
+  return counts;
+}
+
+/**
  * Get marks for an item.
  */
 export async function getMarks(itemId: string): Promise<MarkDoc[]> {
