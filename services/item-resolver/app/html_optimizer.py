@@ -148,6 +148,9 @@ def optimize_html(html: str, max_chars: int = 30000) -> str:
     Returns:
         Clean text content suitable for LLM extraction
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
     if not html:
         return ""
 
@@ -155,14 +158,15 @@ def optimize_html(html: str, max_chars: int = 30000) -> str:
     parser = ContentExtractor()
     try:
         parser.feed(html)
-    except Exception:
+        text = parser.get_text()
+        logger.info(f"ContentExtractor extracted {len(text)} chars from {len(html)} HTML chars")
+    except Exception as e:
+        logger.warning(f"ContentExtractor failed: {e}, using regex fallback")
         # If parsing fails, try a simple regex fallback
         text = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)
         text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL | re.IGNORECASE)
         text = re.sub(r'<[^>]+>', ' ', text)
         text = _normalize_whitespace(text)
-    else:
-        text = parser.get_text()
 
     # Normalize whitespace
     text = _normalize_whitespace(text)
