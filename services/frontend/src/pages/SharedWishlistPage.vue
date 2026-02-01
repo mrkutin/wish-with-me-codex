@@ -272,8 +272,11 @@ async function loadFromPouchDB() {
   // User documents are not synced to other users for privacy
   if (authStore.user) {
     const bookmarks = await getBookmarks(`user:${authStore.user.id}`);
+    console.log('[SharedWishlist] Bookmarks:', bookmarks.map(b => ({ id: b._id, wishlist_id: b.wishlist_id, owner_name: b.owner_name })));
+    console.log('[SharedWishlist] Looking for wishlist_id:', wishlistId.value);
     // Find bookmark for this wishlist by wishlist_id
     const bookmark = bookmarks.find(b => !b._deleted && b.wishlist_id === wishlistId.value);
+    console.log('[SharedWishlist] Found bookmark:', bookmark);
     if (bookmark?.owner_name) {
       ownerDoc.value = {
         name: bookmark.owner_name,
