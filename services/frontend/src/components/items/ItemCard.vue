@@ -71,7 +71,15 @@
         <!-- Status Badge -->
         <div class="item-status">
           <q-badge
-            v-if="item.status === 'pending' || item.status === 'resolving'"
+            v-if="item.status === 'pending'"
+            color="grey"
+            class="status-badge"
+          >
+            <q-icon name="schedule" size="14px" class="q-mr-xs" />
+            {{ $t('items.pending') }}
+          </q-badge>
+          <q-badge
+            v-else-if="item.status === 'in_progress'"
             color="info"
             class="status-badge"
           >
@@ -79,7 +87,7 @@
             {{ $t('items.resolving') }}
           </q-badge>
           <q-badge
-            v-else-if="item.status === 'failed'"
+            v-else-if="item.status === 'error'"
             color="negative"
             class="status-badge"
           >
@@ -98,7 +106,7 @@
 
         <!-- Retry button for failed items -->
         <q-btn
-          v-if="item.status === 'failed'"
+          v-if="item.status === 'error'"
           flat
           dense
           size="sm"

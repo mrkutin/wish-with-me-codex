@@ -1,4 +1,4 @@
-export type ItemStatus = 'pending' | 'resolving' | 'resolved' | 'failed';
+export type ItemStatus = 'pending' | 'in_progress' | 'resolved' | 'error';
 
 export interface Item {
   id: string;
