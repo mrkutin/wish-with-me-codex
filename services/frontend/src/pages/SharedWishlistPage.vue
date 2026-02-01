@@ -133,9 +133,16 @@ import type { SharedItem } from '@/types/share';
 
 const PENDING_SHARE_TOKEN_KEY = 'pending_share_token';
 
+interface OwnerProfile {
+  id: string;
+  name: string;
+  avatar_base64: string | null;
+}
+
 interface GrantAccessResponse {
   wishlist_id: string;
   permissions: string[];
+  owner: OwnerProfile;
 }
 
 const route = useRoute();
@@ -224,6 +231,12 @@ async function initializeSharedWishlist() {
     wishlistId.value = wlId;
     permissions.value = response.data.permissions;
 
+    // Store owner info from API response (user docs aren't synced to viewers)
+    ownerDoc.value = {
+      name: response.data.owner.name,
+      avatar_base64: response.data.owner.avatar_base64,
+    };
+
     // Trigger sync to pull the newly accessible documents
     if (authStore.token) {
       await triggerSync(authStore.token);
@@ -267,13 +280,8 @@ async function loadFromPouchDB() {
   const wl = await findById<WishlistDoc>(wishlistId.value);
   wishlistDoc.value = wl;
 
-  // Load owner info
-  if (wl?.owner_id) {
-    const owner = await findById<any>(wl.owner_id);
-    if (owner) {
-      ownerDoc.value = { name: owner.name, avatar_base64: owner.avatar_base64 };
-    }
-  }
+  // Note: Owner info is loaded from API response in initializeSharedWishlist()
+  // User documents are not synced to other users for privacy
 
   // Load items
   const items = await getItems(wishlistId.value);

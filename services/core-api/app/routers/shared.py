@@ -269,9 +269,10 @@ async def preview_shared_wishlist(
 # =============================================================================
 
 class GrantAccessResponse(BaseModel):
-    """Minimal response for grant access - only returns IDs and permissions."""
+    """Response for grant access - returns IDs, permissions, and owner info."""
     wishlist_id: str
     permissions: list[str]
+    owner: OwnerPublicProfile
 
 
 @router.post(
@@ -289,7 +290,7 @@ async def grant_access(
     1. Validates the share token
     2. Adds user to access arrays
     3. Creates/updates bookmark
-    4. Returns only wishlist_id and permissions
+    4. Returns wishlist_id, permissions, and owner info
 
     Data is then synced via PouchDB.
     """
@@ -299,6 +300,24 @@ async def grant_access(
     # Grant access (updates access arrays, creates bookmark)
     await grant_access_to_user(db, share, user_id)
 
+    # Get wishlist to fetch owner info
+    wishlist = await db.get(share["wishlist_id"])
+
+    # Get owner info
+    try:
+        owner = await db.get(wishlist["owner_id"])
+        owner_profile = OwnerPublicProfile(
+            id=extract_uuid(owner["_id"]),
+            name=owner.get("name", "Unknown"),
+            avatar_base64=owner.get("avatar_base64"),
+        )
+    except DocumentNotFoundError:
+        owner_profile = OwnerPublicProfile(
+            id=extract_uuid(wishlist["owner_id"]),
+            name="Unknown",
+            avatar_base64=None,
+        )
+
     # Determine permissions
     permissions = ["view"]
     if share.get("link_type") == "mark":
@@ -307,6 +326,7 @@ async def grant_access(
     return GrantAccessResponse(
         wishlist_id=share["wishlist_id"],
         permissions=permissions,
+        owner=owner_profile,
     )
 
 
