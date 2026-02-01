@@ -143,7 +143,20 @@ def _extract_price_info(html: str) -> list[str]:
 
     This finds prices in various formats without hardcoding selectors.
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
     prices: list[str] = []
+
+    # Debug: log samples around currency symbols
+    for symbol in ['₽', '$', '€']:
+        idx = html.find(symbol)
+        if idx >= 0:
+            sample_start = max(0, idx - 30)
+            sample_end = min(len(html), idx + 10)
+            sample = html[sample_start:sample_end].replace('\n', ' ').replace('\r', '')
+            logger.info(f"Found {symbol} in HTML at pos {idx}, context: ...{repr(sample)}...")
+            break  # Just log one sample
 
     # Common price patterns (Russian and international)
     # Note: Russian prices often have spaces as thousand separators: "93 499"
