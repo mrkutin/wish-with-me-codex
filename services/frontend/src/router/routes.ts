@@ -40,6 +40,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/pages/SharedWishlistPage.vue'),
         meta: { requiresAuth: true },
       },
+      {
+        path: 'shared/wishlist/:wishlistId',
+        name: 'bookmarked-wishlist',
+        component: () => import('@/pages/SharedWishlistPage.vue'),
+        meta: { requiresAuth: true },
+      },
     ],
   },
   {

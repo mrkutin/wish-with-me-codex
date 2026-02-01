@@ -140,7 +140,7 @@
             :key="bookmark.id"
             class="col-12 col-sm-6 col-md-4"
           >
-            <q-card class="wishlist-card cursor-pointer" @click="openSharedWishlist(bookmark.share_token)">
+            <q-card class="wishlist-card cursor-pointer" @click="openSharedWishlist(bookmark.wishlist_id)">
               <q-card-section>
                 <div class="row items-start justify-between">
                   <div class="row items-center no-wrap">
@@ -541,8 +541,10 @@ function openWishlist(id: string) {
   router.push({ name: 'wishlist-detail', params: { id } });
 }
 
-function openSharedWishlist(token: string) {
-  router.push({ name: 'shared-wishlist', params: { token } });
+function openSharedWishlist(wishlistId: string) {
+  // Navigate using wishlist ID (bookmark route), not share token
+  const id = wishlistId.replace('wishlist:', '');
+  router.push({ name: 'bookmarked-wishlist', params: { wishlistId: id } });
 }
 
 async function removeBookmark(bookmark: SharedWishlistBookmark) {

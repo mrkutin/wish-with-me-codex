@@ -145,7 +145,8 @@ const $q = useQuasar();
 const { t } = useI18n();
 const authStore = useAuthStore();
 
-const token = computed(() => route.params.token as string);
+const token = computed(() => route.params.token as string | undefined);
+const routeWishlistId = computed(() => route.params.wishlistId as string | undefined);
 
 const isLoading = ref(true);
 const wishlistId = ref<string | null>(null);
@@ -214,8 +215,49 @@ async function handleRefresh(done: () => void) {
   }
 }
 
-// Grant access via minimal API call, then load from PouchDB
-async function initializeSharedWishlist() {
+// Initialize from bookmark (already have access, no API call needed)
+async function initializeFromBookmark() {
+  isLoading.value = true;
+  try {
+    // Get wishlist ID from route (format: just the UUID, need to add prefix)
+    const wlId = routeWishlistId.value!.startsWith('wishlist:')
+      ? routeWishlistId.value!
+      : `wishlist:${routeWishlistId.value}`;
+    wishlistId.value = wlId;
+
+    // Find the bookmark to get permissions
+    if (authStore.user) {
+      const bookmarks = await getBookmarks(authStore.user.id);
+      const bookmark = bookmarks.find(b => !b._deleted && b.wishlist_id === wlId);
+      if (bookmark) {
+        // Default permissions for bookmarked wishlists - assume mark permission
+        // (the share link that created the bookmark determined permissions)
+        permissions.value = ['view', 'mark'];
+      }
+    }
+
+    // Load from PouchDB
+    await loadFromPouchDB();
+
+    // Check if user is owner - redirect to normal wishlist view
+    if (wishlistDoc.value && authStore.user && wishlistDoc.value.owner_id === authStore.user.id) {
+      const id = wishlistId.value.replace('wishlist:', '');
+      router.replace({ name: 'wishlist-detail', params: { id } });
+      return;
+    }
+
+    // Setup subscriptions for real-time updates
+    setupSubscriptions();
+
+  } catch (error) {
+    console.error('[SharedWishlist] Error loading from bookmark:', error);
+  } finally {
+    isLoading.value = false;
+  }
+}
+
+// Grant access via share token API call, then load from PouchDB
+async function initializeFromShareToken() {
   isLoading.value = true;
   try {
     // Minimal API call to grant access (adds user to access arrays)
@@ -246,7 +288,7 @@ async function initializeSharedWishlist() {
 
   } catch (error: any) {
     if (error.response?.status === 401) {
-      LocalStorage.set(PENDING_SHARE_TOKEN_KEY, token.value);
+      LocalStorage.set(PENDING_SHARE_TOKEN_KEY, token.value!);
       router.push({ name: 'login', query: { share_token: token.value } });
       return;
     }
@@ -443,11 +485,26 @@ function cleanup() {
 
 onMounted(async () => {
   if (!authStore.isAuthenticated) {
-    LocalStorage.set(PENDING_SHARE_TOKEN_KEY, token.value);
-    router.push({ name: 'login', query: { share_token: token.value } });
+    if (token.value) {
+      LocalStorage.set(PENDING_SHARE_TOKEN_KEY, token.value);
+      router.push({ name: 'login', query: { share_token: token.value } });
+    } else {
+      router.push({ name: 'login' });
+    }
     return;
   }
-  await initializeSharedWishlist();
+
+  // Choose initialization method based on route
+  if (routeWishlistId.value) {
+    // Accessed via bookmark - load directly from PouchDB
+    await initializeFromBookmark();
+  } else if (token.value) {
+    // Accessed via share link - use API to grant access
+    await initializeFromShareToken();
+  } else {
+    // Invalid route
+    router.push({ name: 'wishlists' });
+  }
 });
 
 onUnmounted(() => {
