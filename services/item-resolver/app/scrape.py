@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -433,10 +434,15 @@ async def wait_for_challenge_to_clear(page, *, timeout_ms: int) -> bool:
     return False
 
 
+def _default_timeout_ms() -> int:
+    """Get page load timeout from env, default 90 seconds."""
+    return int(os.environ.get("PAGE_TIMEOUT_MS", "90000"))
+
+
 @dataclass(frozen=True)
 class PageCaptureConfig:
     wait_until: str = "networkidle"  # Wait for network to be idle (better for JS-heavy sites)
-    timeout_ms: int = 60_000
+    timeout_ms: int = 90_000  # Increased from 60s for slow sites like Yandex Market
     settle_ms: int = 5_000  # Increased from 3s - many sites load prices async via API
     max_extra_wait_ms: int = 30_000
     network_quiet_ms: int = 2_000  # Increased from 1.5s for slow API calls
@@ -444,6 +450,11 @@ class PageCaptureConfig:
     dom_stable_samples: int = 3
     challenge_extra_wait_ms: int = 120_000
     post_challenge_settle_ms: int = 3_000  # Extra settle after challenge clears
+
+    @classmethod
+    def from_env(cls) -> "PageCaptureConfig":
+        """Create config with environment variable overrides."""
+        return cls(timeout_ms=_default_timeout_ms())
 
 
 async def capture_page_source(page, url: str, *, cfg: PageCaptureConfig) -> tuple[str, str, str]:

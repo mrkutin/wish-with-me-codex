@@ -88,7 +88,7 @@ class ChangesWatcher:
         self.manager = manager
         self.browser = browser
         self.storage_state_dir = storage_state_dir
-        self.cfg = PageCaptureConfig()
+        self.cfg = PageCaptureConfig.from_env()
         self._running = False
         self._task: asyncio.Task | None = None
         self._sweep_task: asyncio.Task | None = None
