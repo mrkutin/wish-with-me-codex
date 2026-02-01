@@ -26,8 +26,13 @@ def optimize_html(html: str, max_chars: int = 100000) -> str:
     Returns:
         Cleaned HTML suitable for LLM extraction
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
     if not html:
         return ""
+
+    logger.info(f"Before optimize: {len(html)} chars, has ₽: {'₽' in html}")
 
     # Remove scripts, styles, and other non-content elements
     html = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)
@@ -36,12 +41,17 @@ def optimize_html(html: str, max_chars: int = 100000) -> str:
     html = re.sub(r'<svg[^>]*>.*?</svg>', '', html, flags=re.DOTALL | re.IGNORECASE)
     html = re.sub(r'<!--.*?-->', '', html, flags=re.DOTALL)
 
+    logger.info(f"After strip: {len(html)} chars, has ₽: {'₽' in html}")
+
     # Collapse whitespace
     html = re.sub(r'\s+', ' ', html)
+
+    logger.info(f"After whitespace: {len(html)} chars, has ₽: {'₽' in html}")
 
     # Truncate if needed
     if len(html) > max_chars:
         html = html[:max_chars] + "\n[truncated]"
+        logger.info(f"After truncate: {len(html)} chars, has ₽: {'₽' in html}")
 
     return html.strip()
 
