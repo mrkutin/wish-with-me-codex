@@ -592,7 +592,7 @@ export async function find<T extends CouchDBDoc>(
     // PouchDB-find can crash when evaluating selectors on tombstone documents
     // that have missing fields. When this happens, compact and retry once.
     if (error instanceof TypeError && String(error).includes('Cannot read properties of undefined')) {
-      console.warn('[PouchDB] Find error on tombstone, compacting and retrying:', error);
+      console.debug('[PouchDB] Find error on tombstone, compacting and retrying');
       try {
         await localDb.compact();
         const result = await localDb.find({
@@ -604,7 +604,8 @@ export async function find<T extends CouchDBDoc>(
         });
         return (result.docs as T[]).filter(doc => doc && doc._id);
       } catch (retryError) {
-        console.error('[PouchDB] Find retry failed:', retryError);
+        // Retry also failed - return empty array and let sync continue
+        console.debug('[PouchDB] Find retry failed, returning empty result');
         return [];
       }
     }
