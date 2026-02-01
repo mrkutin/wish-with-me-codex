@@ -93,10 +93,8 @@ class ChangesWatcher:
         self._task: asyncio.Task | None = None
         self._sweep_task: asyncio.Task | None = None
         self._last_seq: str = "now"
-        # Limit concurrent resolutions to avoid overwhelming resources
-        max_concurrent = int(os.environ.get("COUCHDB_WATCHER_MAX_CONCURRENT", "3"))
-        self._resolve_semaphore = asyncio.Semaphore(max_concurrent)
-        self._pending_tasks: set[asyncio.Task] = set()
+        # Track if currently processing an item (one at a time)
+        self._processing = False
         logger.info(f"ChangesWatcher initialized with instance_id={INSTANCE_ID}, lease={LEASE_DURATION_SECONDS}s, sweep={SWEEP_INTERVAL_SECONDS}s")
 
     async def start(self) -> None:
@@ -131,13 +129,6 @@ class ChangesWatcher:
             except asyncio.CancelledError:
                 pass
             self._sweep_task = None
-
-        # Cancel and wait for any pending resolution tasks
-        for task in list(self._pending_tasks):
-            task.cancel()
-        if self._pending_tasks:
-            await asyncio.gather(*self._pending_tasks, return_exceptions=True)
-            self._pending_tasks.clear()
 
         logger.info("Stopped CouchDB changes watcher")
 
@@ -250,6 +241,11 @@ class ChangesWatcher:
             if doc.get("type") != "item" or doc.get("status") != "pending":
                 continue
 
+            # Skip if we're already processing an item (one at a time)
+            if self._processing:
+                logger.debug(f"Already processing an item, skipping {doc.get('_id')}")
+                continue
+
             item_id = doc.get("_id", "unknown")
             source_url = doc.get("source_url")
 
@@ -265,15 +261,12 @@ class ChangesWatcher:
 
             logger.info(f"Processing claimed item: {item_id} from {source_url}")
 
-            # Process in background to not block the feed, with concurrency limit
-            task = asyncio.create_task(self._resolve_item_with_semaphore(doc))
-            self._pending_tasks.add(task)
-            task.add_done_callback(self._pending_tasks.discard)
-
-    async def _resolve_item_with_semaphore(self, doc: dict) -> None:
-        """Wrapper to limit concurrent resolutions."""
-        async with self._resolve_semaphore:
-            await self._resolve_item(doc)
+            # Process item inline (one at a time, blocking)
+            self._processing = True
+            try:
+                await self._resolve_item(doc)
+            finally:
+                self._processing = False
 
     async def _resolve_item(self, doc: dict) -> None:
         """Resolve a pending item and update CouchDB."""
