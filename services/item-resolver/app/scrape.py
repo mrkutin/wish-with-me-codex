@@ -441,7 +441,7 @@ def _default_timeout_ms() -> int:
 
 @dataclass(frozen=True)
 class PageCaptureConfig:
-    wait_until: str = "networkidle"  # Wait for network to be idle (better for JS-heavy sites)
+    wait_until: str = "load"  # Changed from networkidle - some sites never reach idle (keep polling)
     timeout_ms: int = 90_000  # Increased from 60s for slow sites like Yandex Market
     settle_ms: int = 5_000  # Increased from 3s - many sites load prices async via API
     max_extra_wait_ms: int = 30_000
@@ -454,7 +454,8 @@ class PageCaptureConfig:
     @classmethod
     def from_env(cls) -> "PageCaptureConfig":
         """Create config with environment variable overrides."""
-        return cls(timeout_ms=_default_timeout_ms())
+        wait_until = os.environ.get("PAGE_WAIT_UNTIL", "load")
+        return cls(timeout_ms=_default_timeout_ms(), wait_until=wait_until)
 
 
 async def capture_page_source(page, url: str, *, cfg: PageCaptureConfig) -> tuple[str, str, str]:
