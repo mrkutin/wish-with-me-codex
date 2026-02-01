@@ -1,0 +1,160 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: wishwithme-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-wishwithme}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-wishwithme}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wishwithme} -d ${POSTGRES_DB:-wishwithme}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - wishwithme
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: wishwithme-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - wishwithme
+
+  # Item Resolver Service
+  item-resolver:
+    build:
+      context: ./services/item-resolver
+      dockerfile: Dockerfile
+    container_name: wishwithme-item-resolver
+    restart: unless-stopped
+    environment:
+      - RU_BEARER_TOKEN=${RU_BEARER_TOKEN:-ru_secret}
+      - RU_FETCHER_MODE=playwright
+      - BROWSER_CHANNEL=${BROWSER_CHANNEL:-chrome}
+      - HEADLESS=${HEADLESS:-true}
+      - MAX_CONCURRENCY=${MAX_CONCURRENCY:-2}
+      - STORAGE_STATE_DIR=/data/storage_state
+      - SSRF_ALLOWLIST_HOSTS=${SSRF_ALLOWLIST_HOSTS:-}
+      - PROXY_SERVER=${PROXY_SERVER:-}
+      - PROXY_USERNAME=${PROXY_USERNAME:-}
+      - PROXY_PASSWORD=${PROXY_PASSWORD:-}
+      - PROXY_BYPASS=${PROXY_BYPASS:-}
+      - PROXY_IGNORE_CERT_ERRORS=${PROXY_IGNORE_CERT_ERRORS:-}
+      - RANDOM_UA=${RANDOM_UA:-}
+      - LLM_MODE=${LLM_MODE:-live}
+      - LLM_BASE_URL=${LLM_BASE_URL:-}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
+      - LLM_TIMEOUT_S=${LLM_TIMEOUT_S:-60}
+      - LLM_MAX_CHARS=${LLM_MAX_CHARS:-200000}
+    volumes:
+      - item_resolver_storage:/data/storage_state
+    # Only expose port in dev - production uses internal network
+    ports:
+      - "${ITEM_RESOLVER_PORT:-8001}:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 -O- --timeout=5 --header='Authorization: Bearer ${RU_BEARER_TOKEN:-ru_secret}' http://localhost:8000/healthz > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    # Playwright needs shared memory
+    shm_size: '2gb'
+    networks:
+      - wishwithme
+
+  # Core API (FastAPI)
+  core-api:
+    build:
+      context: ./services/core-api
+      dockerfile: Dockerfile
+    container_name: wishwithme-core-api
+    restart: unless-stopped
+    environment:
+      # Database
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://wishwithme:postgres@postgres:5432/wishwithme}
+      # Redis
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      # Security - MUST be set in production
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-INSECURE_DEV_ONLY_REPLACE_IN_PRODUCTION_MIN_32_CHARS}
+      - DEBUG=${DEBUG:-false}
+      # CORS
+      - CORS_ALLOW_ALL=${CORS_ALLOW_ALL:-false}
+      # Item Resolver
+      - ITEM_RESOLVER_URL=http://item-resolver:8000
+      - ITEM_RESOLVER_TOKEN=${RU_BEARER_TOKEN:-ru_secret}
+      # OAuth - Google
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      # OAuth - Yandex
+      - YANDEX_CLIENT_ID=${YANDEX_CLIENT_ID:-}
+      - YANDEX_CLIENT_SECRET=${YANDEX_CLIENT_SECRET:-}
+    ports:
+      - "${CORE_API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      item-resolver:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O-", "--timeout=5", "http://localhost:8000/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - wishwithme
+
+  # Frontend (Vue + Quasar PWA)
+  frontend:
+    build:
+      context: ./services/frontend
+      dockerfile: Dockerfile
+      args:
+        API_URL: ${FRONTEND_API_URL:-http://localhost:8000}
+    container_name: wishwithme-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-9000}:80"
+    depends_on:
+      core-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O-", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - wishwithme
+
+volumes:
+  postgres_data:
+    name: wishwithme-postgres-data
+  redis_data:
+    name: wishwithme-redis-data
+  item_resolver_storage:
+    name: wishwithme-item-resolver-storage
+
+networks:
+  wishwithme:
+    name: wishwithme-network
+    driver: bridge
