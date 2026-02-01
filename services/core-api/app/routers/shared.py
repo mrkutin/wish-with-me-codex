@@ -94,10 +94,11 @@ async def grant_access_to_user(db: CouchDBClient, share: dict, user_id: str) -> 
     owner_avatar = None
     try:
         owner = await db.get(wishlist["owner_id"])
-        owner_name = owner.get("name", "Unknown")
+        owner_name = owner.get("name") or "Unknown"
         owner_avatar = owner.get("avatar_base64")
+        logger.info(f"Bookmark owner info: owner_id={wishlist['owner_id']}, name={owner_name}")
     except DocumentNotFoundError:
-        pass
+        logger.warning(f"Owner not found: {wishlist.get('owner_id')}")
 
     # Find existing bookmark for this wishlist
     all_user_bookmarks = await db.find({
