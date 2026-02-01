@@ -137,26 +137,13 @@ def _normalize_whitespace(text: str) -> str:
     return '\n'.join(result_lines)
 
 
-def _extract_price_info(html: str) -> list[str]:
+def _extract_price_info(text: str) -> list[str]:
     """
-    Extract price-related information from HTML using common patterns.
+    Extract price-related information from text using common patterns.
 
-    This finds prices in various formats without hardcoding selectors.
+    This finds prices in various formats from extracted page text.
     """
-    import logging
-    logger = logging.getLogger(__name__)
-
     prices: list[str] = []
-
-    # Debug: log samples around currency symbols
-    for symbol in ['₽', '$', '€']:
-        idx = html.find(symbol)
-        if idx >= 0:
-            sample_start = max(0, idx - 30)
-            sample_end = min(len(html), idx + 10)
-            sample = html[sample_start:sample_end].replace('\n', ' ').replace('\r', '')
-            logger.info(f"Found {symbol} in HTML at pos {idx}, context: ...{repr(sample)}...")
-            break  # Just log one sample
 
     # Common price patterns (Russian and international)
     # Note: Russian prices often have spaces as thousand separators: "93 499"
@@ -179,7 +166,7 @@ def _extract_price_info(html: str) -> list[str]:
     ]
 
     for pattern in patterns:
-        matches = re.findall(pattern, html, re.IGNORECASE)
+        matches = re.findall(pattern, text, re.IGNORECASE)
         for match in matches:
             if isinstance(match, tuple):
                 match = match[0] if match[0] else match[1] if len(match) > 1 else ''
@@ -235,12 +222,10 @@ def optimize_html(
     # Normalize whitespace
     text = _normalize_whitespace(text)
 
-    # Optionally prepend price hints
+    # Optionally prepend price hints - run on EXTRACTED TEXT, not raw HTML
+    # Raw HTML often has prices split across tags which breaks regex matching
     if include_price_hints:
-        prices = _extract_price_info(html)
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.info(f"Price candidates from regex: {prices}")
+        prices = _extract_price_info(text)  # Use extracted text, not raw HTML
         if prices:
             price_hint = f"[Price candidates found: {', '.join(prices)}]\n\n"
             text = price_hint + text
@@ -362,12 +347,8 @@ def format_html_for_llm(
     Returns:
         Formatted text prompt content for LLM
     """
-    import logging
-    logger = logging.getLogger(__name__)
-
     # Extract structured hints first
     hints = extract_structured_hints(html)
-    logger.info(f"Structured hints extracted: {hints}")
 
     # Build the prompt content
     parts = [f"URL: {url}", f"Page title: {title}"]
