@@ -180,12 +180,6 @@ const displayItems = computed<SharedItem[]>(() => {
         my_mark_quantity: myMarkQuantity,
         available_quantity: Math.max(0, (item.quantity || 1) - totalMarked),
       };
-    })
-    .sort((a, b) => {
-      // Sort by available quantity (available first), then by title
-      if (a.available_quantity > 0 && b.available_quantity === 0) return -1;
-      if (a.available_quantity === 0 && b.available_quantity > 0) return 1;
-      return a.title.localeCompare(b.title);
     });
 });
 
