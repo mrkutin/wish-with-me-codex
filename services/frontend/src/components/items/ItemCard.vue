@@ -169,16 +169,7 @@ function formatPrice(price: number, currency: string | null): string {
   background-color: var(--bg-primary)
   border: 1px solid var(--border-subtle)
   border-radius: var(--radius-lg)
-  box-shadow: var(--shadow-sm)
-  // Explicitly list only properties we animate - no transform to avoid sub-pixel artifacts
-  transition: box-shadow var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out)
-
-  &:hover
-    box-shadow: var(--shadow-lg)
-    border-color: rgba(79, 70, 229, 0.15)
-
-  &:active
-    box-shadow: var(--shadow-md)
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04)
 
 .item-card-inner
   display: flex
@@ -190,7 +181,6 @@ function formatPrice(price: number, currency: string | null): string {
   width: 112px
   height: 112px
   padding: var(--space-2)
-  background: var(--bg-tertiary)
   border-radius: var(--radius-md)
 
 .item-image
@@ -312,9 +302,7 @@ function formatPrice(price: number, currency: string | null): string {
   .item-card
     background-color: var(--bg-secondary)
     border-color: var(--border-default)
-
-    &:hover
-      border-color: rgba(99, 102, 241, 0.3)
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2), 0 2px 4px rgba(0, 0, 0, 0.1)
 
   .item-image-placeholder
     background: var(--bg-tertiary)
