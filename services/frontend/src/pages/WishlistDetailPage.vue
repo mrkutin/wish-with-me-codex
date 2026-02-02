@@ -257,6 +257,55 @@
             class="q-mt-md"
             :rules="[(val) => val >= 1 || $t('validation.minValue', { min: 1 })]"
           />
+
+          <q-input
+            v-model="editingItem.source_url"
+            :label="$t('items.sourceUrl')"
+            outlined
+            type="url"
+            class="q-mt-md"
+            :hint="$t('items.sourceUrlHint')"
+            :rules="[
+              (val) => !val || isValidUrl(val) || $t('validation.invalidUrl'),
+            ]"
+          >
+            <template #prepend>
+              <q-icon name="link" />
+            </template>
+          </q-input>
+
+          <!-- Image upload -->
+          <div class="q-mt-md">
+            <div class="text-caption text-grey-7 q-mb-sm">{{ $t('items.image') }}</div>
+            <div class="row items-start q-gutter-md">
+              <q-file
+                v-model="editImageFile"
+                :label="$t('items.uploadImage')"
+                outlined
+                accept="image/*"
+                max-file-size="5242880"
+                class="col"
+                @update:model-value="handleEditImageSelect"
+                @rejected="onEditImageRejected"
+              >
+                <template #prepend>
+                  <q-icon name="image" />
+                </template>
+              </q-file>
+              <div v-if="editImagePreview" class="image-preview">
+                <q-img :src="editImagePreview" :ratio="1" style="width: 80px; height: 80px; border-radius: 8px" />
+                <q-btn
+                  round
+                  dense
+                  flat
+                  icon="close"
+                  size="sm"
+                  class="remove-image-btn"
+                  @click="removeEditImage"
+                />
+              </div>
+            </div>
+          </div>
         </q-card-section>
 
         <q-card-actions align="right">
@@ -265,7 +314,7 @@
             color="primary"
             :label="$t('common.save')"
             @click="updateItem"
-            :disable="!editingItem.title"
+            :disable="!editingItem.title || !isEditSourceUrlValid"
             :loading="itemStore.isLoading"
           />
         </q-card-actions>
@@ -275,7 +324,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
 import { useI18n } from 'vue-i18n';
@@ -310,7 +359,52 @@ const editingItem = reactive<ItemUpdate & { id: string }>({
   price: null,
   currency: 'USD',
   quantity: 1,
+  source_url: null,
+  image_base64: null,
 });
+const editImageFile = ref<File | null>(null);
+const editImagePreview = ref<string | null>(null);
+
+function isValidUrl(url: string | null): boolean {
+  if (!url) return false;
+  try {
+    const urlObj = new URL(url);
+    return urlObj.protocol === 'http:' || urlObj.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+const isEditSourceUrlValid = computed(() => {
+  return !editingItem.source_url || isValidUrl(editingItem.source_url);
+});
+
+async function handleEditImageSelect(file: File | null) {
+  if (!file) {
+    editImagePreview.value = null;
+    return;
+  }
+
+  // Convert to base64
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    editImagePreview.value = e.target?.result as string;
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeEditImage() {
+  editImageFile.value = null;
+  editImagePreview.value = null;
+  editingItem.image_base64 = null;
+}
+
+function onEditImageRejected() {
+  $q.notify({
+    type: 'negative',
+    message: t('items.imageTooLarge'),
+  });
+}
 
 function goBack() {
   router.push({ name: 'wishlists' });
@@ -434,6 +528,11 @@ function editItem(item: Item) {
   editingItem.price = item.price;
   editingItem.currency = item.currency || 'USD';
   editingItem.quantity = item.quantity;
+  editingItem.source_url = item.source_url || null;
+  editingItem.image_base64 = item.image_base64 || null;
+  // Reset file input and set preview from existing image
+  editImageFile.value = null;
+  editImagePreview.value = item.image_base64 || item.image_url || null;
   showEditItemDialog.value = true;
 }
 
@@ -446,7 +545,16 @@ async function updateItem() {
       price: editingItem.price,
       currency: editingItem.currency,
       quantity: editingItem.quantity,
+      source_url: editingItem.source_url || null,
     };
+
+    // Include new image if uploaded, or existing image_base64 if set
+    if (editImagePreview.value) {
+      updateData.image_base64 = editImagePreview.value;
+    } else if (editingItem.image_base64 === null) {
+      // Image was explicitly removed
+      updateData.image_base64 = null;
+    }
 
     await itemStore.updateItem(wishlistId, editingItem.id, updateData);
     showEditItemDialog.value = false;
@@ -532,4 +640,15 @@ onUnmounted(() => {
 .q-gutter-md
   padding: 4px
   margin: -4px
+
+// Image preview in edit dialog
+.image-preview
+  position: relative
+
+.remove-image-btn
+  position: absolute
+  top: -8px
+  right: -8px
+  background: white
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2)
 </style>
