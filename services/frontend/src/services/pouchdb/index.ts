@@ -445,9 +445,10 @@ export function startSync(
     try {
       setSyncStatus('syncing');
 
-      // Pull first, then push
-      await pullFromServer(token, collections);
+      // Push first, then pull - ensures local changes are sent before
+      // reconciliation logic in pull can delete local-only documents
       await pushToServer(token, collections);
+      await pullFromServer(token, collections);
 
       setSyncStatus('idle');
       notifySyncComplete();
