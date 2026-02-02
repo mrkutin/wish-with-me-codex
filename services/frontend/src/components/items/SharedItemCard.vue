@@ -102,34 +102,31 @@
                 {{ $t('sharing.ofAvailable', { available: item.available_quantity }) }}
               </span>
             </div>
-            <div class="button-row">
-              <q-btn
-                color="primary"
-                icon="check"
-                :label="item.available_quantity > 1 ? $t('sharing.markQuantity', { count: selectedQuantity }) : $t('sharing.markAsPurchased')"
-                :loading="isMarking"
-                :disable="isMarking"
-                class="action-button"
-                @click="handleMark"
-              />
-              <q-btn
-                v-if="item.source_url"
-                color="secondary"
-                outline
-                icon="shopping_cart"
-                :label="$t('sharing.buyItem')"
-                :href="item.source_url"
-                target="_blank"
-                class="action-button"
-              />
-            </div>
+            <q-btn
+              color="primary"
+              icon="check"
+              :label="item.available_quantity > 1 ? $t('sharing.markQuantity', { count: selectedQuantity }) : $t('sharing.markAsPurchased')"
+              :loading="isMarking"
+              :disable="isMarking"
+              class="action-button"
+              @click="handleMark"
+            />
           </template>
 
           <!-- User has marked - show unmark option -->
           <template v-else-if="item.my_mark_quantity > 0">
             <div class="button-row">
               <q-btn
-                color="positive"
+                v-if="item.source_url"
+                color="primary"
+                icon="shopping_cart"
+                :label="$t('sharing.buyItem')"
+                :href="item.source_url"
+                target="_blank"
+                class="action-button"
+              />
+              <q-btn
+                color="grey-7"
                 outline
                 icon="undo"
                 :label="$t('sharing.unmark')"
@@ -137,16 +134,6 @@
                 :disable="isMarking"
                 class="action-button"
                 @click="$emit('unmark', item)"
-              />
-              <q-btn
-                v-if="item.source_url"
-                color="secondary"
-                outline
-                icon="shopping_cart"
-                :label="$t('sharing.buyItem')"
-                :href="item.source_url"
-                target="_blank"
-                class="action-button"
               />
             </div>
             <!-- Option to mark more if available -->
@@ -188,53 +175,29 @@
                   {{ $t('sharing.ofAvailable', { available: item.available_quantity }) }}
                 </span>
               </div>
-              <div class="button-row">
-                <q-btn
-                  color="primary"
-                  outline
-                  icon="add"
-                  :label="$t('sharing.markMore')"
-                  :loading="isMarking"
-                  :disable="isMarking"
-                  class="action-button"
-                  @click="handleMark"
-                />
-                <q-btn
-                  v-if="item.source_url"
-                  color="secondary"
-                  outline
-                  icon="shopping_cart"
-                  :label="$t('sharing.buyItem')"
-                  :href="item.source_url"
-                  target="_blank"
-                  class="action-button"
-                />
-              </div>
+              <q-btn
+                color="primary"
+                outline
+                icon="add"
+                :label="$t('sharing.markMore')"
+                :loading="isMarking"
+                :disable="isMarking"
+                class="action-button"
+                @click="handleMark"
+              />
             </template>
           </template>
 
           <!-- Fully marked by others -->
           <template v-else>
-            <div class="button-row">
-              <q-btn
-                color="grey-5"
-                outline
-                disable
-                icon="check"
-                :label="$t('sharing.fullyMarked')"
-                class="action-button"
-              />
-              <q-btn
-                v-if="item.source_url"
-                color="secondary"
-                outline
-                icon="shopping_cart"
-                :label="$t('sharing.buyItem')"
-                :href="item.source_url"
-                target="_blank"
-                class="action-button"
-              />
-            </div>
+            <q-btn
+              color="grey-5"
+              outline
+              disable
+              icon="check"
+              :label="$t('sharing.fullyMarked')"
+              class="action-button"
+            />
           </template>
         </div>
       </div>
