@@ -81,16 +81,99 @@ jobs:
             fi
           fi
 
-  deploy:
-    name: Deploy to Ubuntu Server
+  test-frontend:
+    name: Test Frontend
     needs: detect-changes
     runs-on: ubuntu-latest
-    # Only run if at least one service or infrastructure changed
+    if: needs.detect-changes.outputs.frontend == 'true'
+    defaults:
+      run:
+        working-directory: services/frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: services/frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm run test:unit -- --run
+
+      - name: Run type check
+        run: npm run typecheck
+
+  test-core-api:
+    name: Test Core API
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    if: needs.detect-changes.outputs.core-api == 'true'
+    defaults:
+      run:
+        working-directory: services/core-api
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: services/core-api/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short
+
+  test-item-resolver:
+    name: Test Item Resolver
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    if: needs.detect-changes.outputs.item-resolver == 'true'
+    defaults:
+      run:
+        working-directory: services/item-resolver
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: services/item-resolver/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short
+
+  deploy:
+    name: Deploy to Ubuntu Server
+    needs: [detect-changes, test-frontend, test-core-api, test-item-resolver]
+    runs-on: ubuntu-latest
+    # Only run if at least one service or infrastructure changed AND tests passed
+    # Use always() to evaluate even if test jobs were skipped
     if: |
-      needs.detect-changes.outputs.frontend == 'true' ||
-      needs.detect-changes.outputs.core-api == 'true' ||
-      needs.detect-changes.outputs.item-resolver == 'true' ||
-      needs.detect-changes.outputs.infrastructure == 'true'
+      always() &&
+      (needs.detect-changes.outputs.frontend == 'true' ||
+       needs.detect-changes.outputs.core-api == 'true' ||
+       needs.detect-changes.outputs.item-resolver == 'true' ||
+       needs.detect-changes.outputs.infrastructure == 'true') &&
+      (needs.test-frontend.result == 'success' || needs.test-frontend.result == 'skipped') &&
+      (needs.test-core-api.result == 'success' || needs.test-core-api.result == 'skipped') &&
+      (needs.test-item-resolver.result == 'success' || needs.test-item-resolver.result == 'skipped')
 
     steps:
       - name: Setup SSH agent

@@ -950,8 +950,20 @@ upstream item-resolver {
 
 **Jobs:**
 1. `detect-changes` - Determine which services changed
-2. `deploy` - SSH, git pull, rebuild changed services, health check
-3. `rollback` (on failure) - Reset to last known good commit
+2. `test-frontend` - Run Vitest unit tests + TypeScript check (if frontend changed)
+3. `test-core-api` - Run pytest tests (if core-api changed)
+4. `test-item-resolver` - Run pytest tests (if item-resolver changed)
+5. `deploy` - SSH, git pull, rebuild changed services, health check
+6. `rollback` (on failure) - Reset to last known good commit
+
+**Mandatory Testing:** All tests must pass before deployment proceeds. The deploy job only runs if:
+- At least one service or infrastructure changed
+- All relevant test jobs passed (skipped jobs count as passed)
+
+**Test Coverage (682 tests total):**
+- Frontend: 285 tests (stores, composables, components, PouchDB service)
+- Core API: 150 tests (auth, sync, share, OAuth, security)
+- Item Resolver: 247 tests (SSRF, LLM, HTML optimizer, scrape, browser manager)
 
 **Rollback:** Stores `.last-known-good-commit` before deploy
 
@@ -1022,6 +1034,76 @@ upstream item-resolver {
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `API_URL` | `http://localhost:8000` | API base URL |
+
+---
+
+## Testing
+
+### Test Requirements
+
+**All tests must pass before deployment.** The CI/CD pipeline enforces this automatically:
+- Frontend tests run on any `services/frontend/` changes
+- Core API tests run on any `services/core-api/` changes
+- Item Resolver tests run on any `services/item-resolver/` changes
+- Deployment is blocked if any relevant tests fail
+
+### Test Structure
+
+| Service | Framework | Test Location | Count |
+|---------|-----------|---------------|-------|
+| Frontend | Vitest + Vue Test Utils | `services/frontend/src/**/__tests__/` | 285 |
+| Core API | pytest + pytest-asyncio | `services/core-api/tests/` | 150 |
+| Item Resolver | pytest + pytest-asyncio | `services/item-resolver/tests/` | 247 |
+
+### Frontend Tests (`services/frontend/`)
+
+```bash
+npm run test:unit           # Run all tests
+npm run test:unit -- --run  # Run once (CI mode)
+npm run test:unit -- --watch  # Watch mode
+```
+
+**Test Files:**
+- `src/stores/__tests__/auth.spec.ts` - Auth store (31 tests)
+- `src/stores/__tests__/wishlist.spec.ts` - Wishlist store (30 tests)
+- `src/stores/__tests__/item.spec.ts` - Item store (39 tests)
+- `src/composables/__tests__/useSync.spec.ts` - Sync composable (25 tests)
+- `src/composables/__tests__/useOAuth.spec.ts` - OAuth composable (45 tests)
+- `src/components/__tests__/SyncStatus.spec.ts` - Sync status component (23 tests)
+- `src/components/__tests__/ShareDialog.spec.ts` - Share dialog component (34 tests)
+- `src/components/items/__tests__/ItemCard.spec.ts` - Item card component (21 tests)
+- `src/components/items/__tests__/AddItemDialog.spec.ts` - Add item dialog (24 tests)
+- `src/services/pouchdb/__tests__/types.spec.ts` - PouchDB types (13 tests)
+
+### Core API Tests (`services/core-api/`)
+
+```bash
+pytest tests/ -v            # Run all tests
+pytest tests/ -v --tb=short # Short traceback
+pytest --cov=app            # With coverage
+```
+
+**Test Files:**
+- `tests/test_auth_couchdb.py` - Auth with CouchDB (26 tests)
+- `tests/test_security.py` - Security utilities (29 tests)
+- `tests/test_sync_couchdb.py` - Sync with CouchDB (29 tests)
+- `tests/test_share.py` - Share management (13 tests)
+- `tests/test_shared.py` - Shared access (18 tests)
+- `tests/test_oauth.py` - OAuth providers (35 tests)
+
+### Item Resolver Tests (`services/item-resolver/`)
+
+```bash
+pytest tests/ -v            # Run all tests
+pytest tests/ -v --tb=short # Short traceback
+```
+
+**Test Files:**
+- `tests/test_ssrf.py` - SSRF protection (68 tests)
+- `tests/test_llm.py` - LLM extraction (53 tests)
+- `tests/test_html_optimizer.py` - HTML optimizer (59 tests)
+- `tests/test_scrape.py` - Page scraping (38 tests)
+- `tests/test_browser_manager.py` - Browser manager (29 tests)
 
 ---
 
