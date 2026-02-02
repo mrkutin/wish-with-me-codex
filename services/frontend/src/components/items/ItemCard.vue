@@ -189,7 +189,6 @@ function formatPrice(price: number, currency: string | null): string {
   width: 112px
   height: 112px
   padding: var(--space-2)
-  background: var(--bg-tertiary)
   border-radius: var(--radius-md)
 
 .item-image
