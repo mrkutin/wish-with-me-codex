@@ -215,6 +215,7 @@ export default {
     unmark: 'Unmark',
     yourMark: 'You: {count}',
     youMarkedThis: "You'll get this",
+    buyItem: 'Buy',
     markedSuccess: 'Item marked as purchased',
     unmarkedSuccess: 'Item unmarked',
     quantityExceeds: 'Not enough items available',

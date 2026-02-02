@@ -215,6 +215,7 @@ export default {
     unmark: 'Снять отметку',
     yourMark: 'Вы: {count}',
     youMarkedThis: 'Вы купите это',
+    buyItem: 'Купить',
     markedSuccess: 'Товар отмечен как покупаемый',
     unmarkedSuccess: 'Отметка снята',
     quantityExceeds: 'Недостаточно доступных товаров',

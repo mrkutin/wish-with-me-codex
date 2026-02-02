@@ -38,6 +38,7 @@ export interface SharedItem {
   price_amount: string | null;
   price_currency: string | null;
   image_base64: string | null;
+  source_url: string | null;
   quantity: number;
   marked_quantity: number;
   available_quantity: number;

@@ -63,6 +63,7 @@ class SharedItemResponse(BaseModel):
     price_amount: str | None = None
     price_currency: str | None = None
     image_base64: str | None
+    source_url: str | None = None
     quantity: int
     marked_quantity: int
     available_quantity: int
