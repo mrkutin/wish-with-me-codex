@@ -202,6 +202,8 @@ function handleSubmit() {
     if (formData.currency) data.currency = formData.currency;
     data.quantity = formData.quantity ?? 1;
     if (formData.manual_url) data.source_url = formData.manual_url;
+    // Manual items should not be resolved even if they have a URL
+    data.skip_resolution = true;
   }
 
   emit('submit', data);

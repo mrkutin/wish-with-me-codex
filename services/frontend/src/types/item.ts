@@ -26,6 +26,8 @@ export interface ItemCreate {
   source_url?: string | null;
   image_url?: string | null;
   image_base64?: string | null;
+  /** If true, skip automatic resolution even if source_url is provided */
+  skip_resolution?: boolean;
 }
 
 export interface ItemUpdate {

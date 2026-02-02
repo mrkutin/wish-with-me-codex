@@ -132,7 +132,7 @@ export const useItemStore = defineStore('item', () => {
         source_url: data.source_url || null,
         image_url: data.image_url || null,
         image_base64: data.image_base64 || null,
-        status: data.source_url ? 'pending' : 'resolved',
+        status: data.source_url && !data.skip_resolution ? 'pending' : 'resolved',
         created_at: now,
         updated_at: now,
         access,
