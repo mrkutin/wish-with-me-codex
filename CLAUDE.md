@@ -960,8 +960,8 @@ upstream item-resolver {
 - At least one service or infrastructure changed
 - All relevant test jobs passed (skipped jobs count as passed)
 
-**Test Coverage (682 tests total):**
-- Frontend: 285 tests (stores, composables, components, PouchDB service)
+**Test Coverage (645 tests total):**
+- Frontend: 248 tests (stores, composables, components, PouchDB types)
 - Core API: 150 tests (auth, sync, share, OAuth, security)
 - Item Resolver: 247 tests (SSRF, LLM, HTML optimizer, scrape, browser manager)
 
@@ -1051,7 +1051,7 @@ upstream item-resolver {
 
 | Service | Framework | Test Location | Count |
 |---------|-----------|---------------|-------|
-| Frontend | Vitest + Vue Test Utils | `services/frontend/src/**/__tests__/` | 285 |
+| Frontend | Vitest + Vue Test Utils | `services/frontend/src/**/__tests__/` | 248 |
 | Core API | pytest + pytest-asyncio | `services/core-api/tests/` | 150 |
 | Item Resolver | pytest + pytest-asyncio | `services/item-resolver/tests/` | 247 |
 
