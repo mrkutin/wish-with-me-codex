@@ -327,6 +327,8 @@ function setupSubscriptions() {
 
   // Subscribe to item changes
   unsubscribeItems = subscribeToItems(wishlistId.value, (items) => {
+    // Sort by created_at descending to match getItems() order
+    items.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
     pouchItems.value = items;
     // Re-fetch marks when items change
     loadMarksForItems(items.map(i => i._id));
