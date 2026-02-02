@@ -521,3 +521,17 @@ onUnmounted(() => {
   itemStore.clearItems();
 });
 </script>
+
+<style scoped lang="sass">
+// Fix shadow clipping on swipeable items
+:deep(.q-slide-item)
+  overflow: visible !important
+
+:deep(.q-slide-item__content)
+  overflow: visible !important
+
+// Add padding to items container so shadows have room to display
+.q-gutter-md
+  padding: 4px
+  margin: -4px
+</style>
