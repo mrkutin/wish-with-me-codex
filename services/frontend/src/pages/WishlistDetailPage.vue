@@ -169,11 +169,6 @@
             rows="3"
             class="q-mt-md"
           />
-          <q-checkbox
-            v-model="editingWishlist.is_public"
-            :label="$t('wishlists.isPublic')"
-            class="q-mt-sm"
-          />
         </q-card-section>
 
         <q-card-actions align="right">
