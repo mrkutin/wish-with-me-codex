@@ -214,6 +214,7 @@ export default {
     fullyMarked: 'Всё отмечено',
     unmark: 'Снять отметку',
     yourMark: 'Вы: {count}',
+    youMarkedThis: 'Вы купите это',
     markedSuccess: 'Товар отмечен как покупаемый',
     unmarkedSuccess: 'Отметка снята',
     quantityExceeds: 'Недостаточно доступных товаров',
