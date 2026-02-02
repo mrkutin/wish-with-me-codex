@@ -31,8 +31,7 @@ def _register_providers() -> None:
             client_secret=settings.google_client_secret,
             server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
             client_kwargs={
-                # Request birthday scope from People API
-                "scope": "openid email profile https://www.googleapis.com/auth/user.birthday.read",
+                "scope": "openid email profile",
             },
         )
         _registered_providers.add("google")
@@ -154,13 +153,9 @@ async def _parse_google_user(token: dict, userinfo: dict | None) -> OAuthUserInf
     # Google returns userinfo in the token response via OIDC
     info = userinfo or token.get("userinfo", {})
 
-    # Fetch birthday from People API if we have an access token
+    # Birthday requires user.birthday.read scope which needs Google verification
+    # Skip birthday fetch - use basic profile scopes only
     birthday = None
-    access_token = token.get("access_token")
-    if not access_token and hasattr(token, "access_token"):
-        access_token = token.access_token
-    if access_token:
-        birthday = await _fetch_google_birthday(access_token)
 
     return OAuthUserInfo(
         provider=OAuthProvider.GOOGLE,
