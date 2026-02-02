@@ -34,6 +34,7 @@ let db: PouchDB.Database<CouchDBDoc> | null = null;
 let syncStatus: SyncStatus = 'idle';
 let syncAbortController: AbortController | null = null;
 let syncIntervalId: ReturnType<typeof setInterval> | null = null;
+let currentSyncUserId: string | null = null; // Track current user for filtering
 
 // Sync callbacks
 type SyncCallbacks = {
@@ -333,7 +334,19 @@ async function pushToServer(
           docMap.set(change.id, change.doc as CouchDBDoc);
         }
       }
-      const docs = Array.from(docMap.values());
+      let docs = Array.from(docMap.values());
+
+      // Filter documents to only include those owned by the current user
+      // This prevents pushing documents received from other users during pull
+      if (currentSyncUserId) {
+        if (collection === 'marks') {
+          // Only push marks created by the current user
+          docs = docs.filter(doc => (doc as MarkDoc).marked_by === currentSyncUserId);
+        } else if (collection === 'bookmarks') {
+          // Only push bookmarks owned by the current user
+          docs = docs.filter(doc => (doc as BookmarkDoc).user_id === currentSyncUserId);
+        }
+      }
 
       if (docs.length === 0) continue;
 
@@ -405,6 +418,9 @@ export function startSync(
 ): void {
   // Stop any existing sync
   stopSync();
+
+  // Store user ID for filtering during push
+  currentSyncUserId = userId;
 
   // Store callbacks
   syncCallbacks = {
