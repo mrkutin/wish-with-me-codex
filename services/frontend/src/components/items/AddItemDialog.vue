@@ -95,6 +95,22 @@
               class="q-mt-md"
               :rules="[(val) => val >= 1 || $t('validation.minValue', { min: 1 })]"
             />
+
+            <q-input
+              v-model="formData.manual_url"
+              :label="$t('items.sourceUrl')"
+              outlined
+              type="url"
+              class="q-mt-md"
+              :hint="$t('items.sourceUrlHint')"
+              :rules="[
+                (val) => !val || isValidUrl(val) || $t('validation.invalidUrl'),
+              ]"
+            >
+              <template #prepend>
+                <q-icon name="link" />
+              </template>
+            </q-input>
           </q-tab-panel>
         </q-tab-panels>
       </q-card-section>
@@ -133,20 +149,22 @@ const emit = defineEmits<{
 
 const tab = ref<'url' | 'manual'>('url');
 
-const formData = reactive<ItemCreate & { source_url: string | null }>({
+const formData = reactive<ItemCreate & { source_url: string | null; manual_url: string | null }>({
   title: '',
   description: null,
   price: null,
   currency: 'RUB',
   quantity: 1,
   source_url: null,
+  manual_url: null,
 });
 
 const isValid = computed(() => {
   if (tab.value === 'url') {
     return !!formData.source_url && isValidUrl(formData.source_url);
   } else {
-    return !!formData.title && (formData.quantity ?? 1) >= 1;
+    const urlValid = !formData.manual_url || isValidUrl(formData.manual_url);
+    return !!formData.title && (formData.quantity ?? 1) >= 1 && urlValid;
   }
 });
 
@@ -183,6 +201,7 @@ function handleSubmit() {
     if (formData.price !== null) data.price = formData.price;
     if (formData.currency) data.currency = formData.currency;
     data.quantity = formData.quantity ?? 1;
+    if (formData.manual_url) data.source_url = formData.manual_url;
   }
 
   emit('submit', data);
@@ -196,9 +215,10 @@ function resetForm() {
   formData.title = '';
   formData.description = null;
   formData.price = null;
-  formData.currency = 'USD';
+  formData.currency = 'RUB';
   formData.quantity = 1;
   formData.source_url = null;
+  formData.manual_url = null;
   tab.value = 'url';
 }
 

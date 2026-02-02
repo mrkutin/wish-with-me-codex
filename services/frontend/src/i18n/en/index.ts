@@ -117,6 +117,8 @@ export default {
     url: 'Product URL',
     urlHint: 'Paste a product link from any online store',
     urlDescription: 'Product information will be automatically extracted',
+    sourceUrl: 'Link to buy (optional)',
+    sourceUrlHint: 'URL where this item can be purchased',
     pending: 'Pending',
     resolving: 'Resolving',
     resolved: 'Resolved',
