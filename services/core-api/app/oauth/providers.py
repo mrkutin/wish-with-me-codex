@@ -46,7 +46,7 @@ def _register_providers() -> None:
             access_token_url="https://oauth.yandex.ru/token",
             userinfo_endpoint="https://login.yandex.ru/info",
             client_kwargs={
-                "scope": "login:email login:info login:avatar login:birthday",
+                "scope": "login:email login:info login:avatar",
             },
         )
         _registered_providers.add("yandex")
@@ -177,13 +177,9 @@ def _parse_yandex_user(token: dict, userinfo: dict | None) -> OAuthUserInfo:
     if info.get("default_avatar_id"):
         avatar_url = f"https://avatars.yandex.net/get-yapic/{info['default_avatar_id']}/islands-200"
 
-    # Extract birthday if available
+    # Birthday requires login:birthday scope which may trigger verification warning
+    # Skip birthday - use basic profile scopes only
     birthday = None
-    if info.get("birthday"):
-        try:
-            birthday = datetime.strptime(info["birthday"], "%Y-%m-%d").date()
-        except ValueError:
-            logger.warning(f"Failed to parse Yandex birthday: {info['birthday']}")
 
     return OAuthUserInfo(
         provider=OAuthProvider.YANDEX,
