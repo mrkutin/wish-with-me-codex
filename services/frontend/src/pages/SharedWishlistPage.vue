@@ -17,10 +17,6 @@
       <q-skeleton type="text" width="100%" class="q-mb-md" />
       <!-- Items section skeleton -->
       <div class="q-mt-lg">
-        <div class="row items-center justify-between q-mb-md">
-          <q-skeleton type="text" width="80px" class="text-h6" />
-          <q-skeleton type="QBadge" width="60px" />
-        </div>
         <!-- Item cards skeleton -->
         <div class="q-gutter-md">
           <q-card v-for="n in 3" :key="n">
@@ -68,13 +64,6 @@
 
       <!-- Items section -->
       <div class="q-mt-lg">
-        <div class="row items-center justify-between q-mb-md">
-          <h2 class="text-h6 q-ma-none">{{ $t('items.title') }}</h2>
-          <q-badge color="primary" outline>
-            {{ displayItems.length }} {{ $t('items.title').toLowerCase() }}
-          </q-badge>
-        </div>
-
         <!-- Empty state -->
         <div
           v-if="displayItems.length === 0"

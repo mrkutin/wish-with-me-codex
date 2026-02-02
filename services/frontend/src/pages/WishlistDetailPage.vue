@@ -12,8 +12,7 @@
       <q-skeleton type="text" width="100%" class="q-mb-md" />
       <q-skeleton type="text" width="60%" class="q-mb-lg" />
       <!-- Items section skeleton -->
-      <div class="row items-center justify-between q-mb-md">
-        <q-skeleton type="text" width="80px" class="text-h6" />
+      <div class="row justify-end q-mb-md">
         <q-skeleton type="QBtn" width="100px" height="36px" />
       </div>
       <!-- Item cards skeleton -->
@@ -81,8 +80,7 @@
 
       <!-- Items section -->
       <div class="q-mt-lg">
-        <div class="row items-center justify-between q-mb-md">
-          <h2 class="text-h6 q-ma-none">{{ $t('items.title') }}</h2>
+        <div class="row justify-end q-mb-md">
           <q-btn
             color="primary"
             icon="add"
