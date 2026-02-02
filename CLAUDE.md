@@ -950,7 +950,7 @@ upstream item-resolver {
 
 **Jobs:**
 1. `detect-changes` - Determine which services changed
-2. `test-frontend` - Run Vitest unit tests + TypeScript check (if frontend changed)
+2. `test-frontend` - Run Vitest unit tests (if frontend changed)
 3. `test-core-api` - Run pytest tests (if core-api changed)
 4. `test-item-resolver` - Run pytest tests (if item-resolver changed)
 5. `deploy` - SSH, git pull, rebuild changed services, health check

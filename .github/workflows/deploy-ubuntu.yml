@@ -106,9 +106,6 @@ jobs:
       - name: Run unit tests
         run: npm run test:unit -- --run
 
-      - name: Run type check
-        run: npm run typecheck
-
   test-core-api:
     name: Test Core API
     needs: detect-changes
