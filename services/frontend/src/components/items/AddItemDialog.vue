@@ -111,6 +111,39 @@
                 <q-icon name="link" />
               </template>
             </q-input>
+
+            <!-- Image upload -->
+            <div class="q-mt-md">
+              <div class="text-caption text-grey-7 q-mb-sm">{{ $t('items.image') }}</div>
+              <div class="row items-start q-gutter-md">
+                <q-file
+                  v-model="imageFile"
+                  :label="$t('items.uploadImage')"
+                  outlined
+                  accept="image/*"
+                  max-file-size="5242880"
+                  class="col"
+                  @update:model-value="handleImageSelect"
+                  @rejected="onImageRejected"
+                >
+                  <template #prepend>
+                    <q-icon name="image" />
+                  </template>
+                </q-file>
+                <div v-if="imagePreview" class="image-preview">
+                  <q-img :src="imagePreview" :ratio="1" style="width: 80px; height: 80px; border-radius: 8px" />
+                  <q-btn
+                    round
+                    dense
+                    flat
+                    icon="close"
+                    size="sm"
+                    class="remove-image-btn"
+                    @click="removeImage"
+                  />
+                </div>
+              </div>
+            </div>
           </q-tab-panel>
         </q-tab-panels>
       </q-card-section>
@@ -131,7 +164,12 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, watch } from 'vue';
+import { useQuasar } from 'quasar';
+import { useI18n } from 'vue-i18n';
 import type { ItemCreate } from '@/types/item';
+
+const $q = useQuasar();
+const { t } = useI18n();
 
 interface Props {
   modelValue: boolean;
@@ -148,6 +186,8 @@ const emit = defineEmits<{
 }>();
 
 const tab = ref<'url' | 'manual'>('url');
+const imageFile = ref<File | null>(null);
+const imagePreview = ref<string | null>(null);
 
 const formData = reactive<ItemCreate & { source_url: string | null; manual_url: string | null }>({
   title: '',
@@ -178,6 +218,32 @@ function isValidUrl(url: string | null): boolean {
   }
 }
 
+async function handleImageSelect(file: File | null) {
+  if (!file) {
+    imagePreview.value = null;
+    return;
+  }
+
+  // Convert to base64
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    imagePreview.value = e.target?.result as string;
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeImage() {
+  imageFile.value = null;
+  imagePreview.value = null;
+}
+
+function onImageRejected() {
+  $q.notify({
+    type: 'negative',
+    message: t('items.imageTooLarge'),
+  });
+}
+
 function handleSubmit() {
   if (!isValid.value) return;
 
@@ -202,6 +268,7 @@ function handleSubmit() {
     if (formData.currency) data.currency = formData.currency;
     data.quantity = formData.quantity ?? 1;
     if (formData.manual_url) data.source_url = formData.manual_url;
+    if (imagePreview.value) data.image_base64 = imagePreview.value;
     // Manual items should not be resolved even if they have a URL
     data.skip_resolution = true;
   }
@@ -221,6 +288,8 @@ function resetForm() {
   formData.quantity = 1;
   formData.source_url = null;
   formData.manual_url = null;
+  imageFile.value = null;
+  imagePreview.value = null;
   tab.value = 'url';
 }
 
@@ -231,3 +300,17 @@ watch(() => props.modelValue, (newValue) => {
   }
 });
 </script>
+
+<style scoped>
+.image-preview {
+  position: relative;
+}
+
+.remove-image-btn {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background: white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+</style>
