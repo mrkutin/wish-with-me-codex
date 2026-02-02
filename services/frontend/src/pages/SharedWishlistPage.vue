@@ -171,7 +171,7 @@ const displayItems = computed<SharedItem[]>(() => {
         id: itemId,
         title: item.title,
         description: item.description || null,
-        url: item.source_url || null,
+        source_url: item.source_url || null,
         price_amount: item.price != null ? String(item.price) : null,
         price_currency: item.currency || null,
         image_base64: item.image_base64 || null,
