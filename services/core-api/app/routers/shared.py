@@ -420,6 +420,7 @@ async def get_shared_wishlist(
             price_amount=str(item["price"]) if item.get("price") else None,
             price_currency=item.get("currency"),
             image_base64=item.get("image_base64"),
+            source_url=item.get("source_url"),
             quantity=quantity,
             marked_quantity=total_marked,
             available_quantity=max(0, quantity - total_marked),
