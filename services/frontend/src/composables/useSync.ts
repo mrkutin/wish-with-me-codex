@@ -41,22 +41,29 @@ async function initializeSync(): Promise<void> {
     db.value = getDatabase();
 
     // Start sync with backend API
-    startSync(userId, token, {
-      onStatusChange: (status) => {
-        syncStatus.value = status;
-        isSyncing.value = status === 'syncing';
-        if (status === 'idle') {
-          syncError.value = null;
-        }
-      },
-      onError: (error) => {
-        console.error('Sync error:', error);
-        syncError.value = error.message || 'Sync error';
-      },
-      onChange: (change) => {
-        console.debug('Sync change:', change.id);
-      },
-    });
+    // Pass token getter and refresher functions so sync can get fresh tokens
+    // and refresh them on 401 errors (e.g., when app resumes from sleep)
+    startSync(
+      userId,
+      () => authStore.getAccessToken(),
+      () => authStore.refreshToken(),
+      {
+        onStatusChange: (status) => {
+          syncStatus.value = status;
+          isSyncing.value = status === 'syncing';
+          if (status === 'idle') {
+            syncError.value = null;
+          }
+        },
+        onError: (error) => {
+          console.error('Sync error:', error);
+          syncError.value = error.message || 'Sync error';
+        },
+        onChange: (change) => {
+          console.debug('Sync change:', change.id);
+        },
+      }
+    );
 
     isInitialized.value = true;
   } catch (error) {
@@ -96,12 +103,11 @@ export function useSync() {
    * Manually trigger a sync.
    */
   async function triggerSync(): Promise<void> {
-    const token = authStore.getAccessToken();
-    if (!isOnline.value || !token) return;
+    if (!isOnline.value || !authStore.getAccessToken()) return;
 
     syncError.value = null;
     try {
-      await pouchTriggerSync(token);
+      await pouchTriggerSync();
     } catch (error) {
       console.error('Manual sync failed:', error);
       syncError.value = (error as Error).message || 'Sync failed';

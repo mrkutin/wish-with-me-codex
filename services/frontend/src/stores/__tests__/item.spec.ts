@@ -264,7 +264,8 @@ describe('useItemStore', () => {
 
       await store.createItem(testWishlistId, { title: 'Online Item' });
 
-      expect(mockTriggerSync).toHaveBeenCalledWith('test-access-token');
+      // triggerSync no longer takes arguments - it uses the token manager internally
+      expect(mockTriggerSync).toHaveBeenCalled();
     });
 
     it('should show offline notification when offline', async () => {
@@ -467,7 +468,8 @@ describe('useItemStore', () => {
           status: 'pending',
         })
       );
-      expect(mockTriggerSync).toHaveBeenCalledWith('test-access-token');
+      // triggerSync no longer takes arguments - it uses the token manager internally
+      expect(mockTriggerSync).toHaveBeenCalled();
     });
 
     it('should throw error when offline', async () => {

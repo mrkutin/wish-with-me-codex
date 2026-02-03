@@ -45,6 +45,13 @@ type SyncCallbacks = {
 };
 let syncCallbacks: SyncCallbacks = {};
 
+// Token management for sync - allows getting fresh tokens and refreshing on 401
+type TokenManager = {
+  getToken: () => string | null;
+  refreshToken: () => Promise<void>;
+};
+let tokenManager: TokenManager | null = null;
+
 // Global sync complete listeners for components to subscribe to
 const syncCompleteListeners: Set<() => void> = new Set();
 
@@ -117,6 +124,64 @@ async function createIndexes(database: PouchDB.Database<CouchDBDoc>): Promise<vo
 }
 
 /**
+ * Perform a fetch with automatic token refresh and retry on 401.
+ * This handles the case where the token expires while the app is idle.
+ */
+async function fetchWithTokenRefresh(
+  url: string,
+  options: RequestInit,
+  signal?: AbortSignal
+): Promise<Response> {
+  if (!tokenManager) {
+    throw new Error('Token manager not initialized');
+  }
+
+  const token = tokenManager.getToken();
+  if (!token) {
+    throw new Error('No access token available');
+  }
+
+  // First attempt with current token
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      ...options.headers,
+      Authorization: `Bearer ${token}`,
+    },
+    signal,
+  });
+
+  // If 401, try to refresh token and retry once
+  if (response.status === 401) {
+    console.log('[PouchDB] Got 401, attempting token refresh and retry');
+    try {
+      await tokenManager.refreshToken();
+      const newToken = tokenManager.getToken();
+      if (!newToken) {
+        throw new Error('Authentication expired');
+      }
+
+      // Retry with new token
+      const retryResponse = await fetch(url, {
+        ...options,
+        headers: {
+          ...options.headers,
+          Authorization: `Bearer ${newToken}`,
+        },
+        signal,
+      });
+
+      return retryResponse;
+    } catch (refreshError) {
+      console.error('[PouchDB] Token refresh failed:', refreshError);
+      throw new Error('Authentication expired');
+    }
+  }
+
+  return response;
+}
+
+/**
  * Get the API base URL for sync endpoints.
  */
 function getApiBaseUrl(): string {
@@ -163,7 +228,6 @@ let failedPushDocIds: Set<string> = new Set();
  * Excludes documents that failed to push (to preserve local changes until successfully synced).
  */
 async function pullFromServer(
-  token: string,
   collections: Array<'wishlists' | 'items' | 'marks' | 'bookmarks'>
 ): Promise<void> {
   const localDb = getDatabase();
@@ -179,14 +243,16 @@ async function pullFromServer(
 
   for (const collection of collections) {
     try {
-      const response = await fetch(`${baseUrl}/api/v2/sync/pull/${collection}`, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
+      const response = await fetchWithTokenRefresh(
+        `${baseUrl}/api/v2/sync/pull/${collection}`,
+        {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
         },
-        signal: syncAbortController?.signal,
-      });
+        syncAbortController?.signal
+      );
 
       if (!response.ok) {
         if (response.status === 401) {
@@ -297,7 +363,6 @@ async function pullFromServer(
  * Tracks documents that fail to push for reconciliation skip.
  */
 async function pushToServer(
-  token: string,
   collections: Array<'wishlists' | 'items' | 'marks' | 'bookmarks'>
 ): Promise<void> {
   // Clear failed push tracking at start of new push cycle
@@ -351,15 +416,17 @@ async function pushToServer(
       if (docs.length === 0) continue;
 
       // Send to server
-      const response = await fetch(`${baseUrl}/api/v2/sync/push/${collection}`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
+      const response = await fetchWithTokenRefresh(
+        `${baseUrl}/api/v2/sync/push/${collection}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ documents: docs }),
         },
-        body: JSON.stringify({ documents: docs }),
-        signal: syncAbortController?.signal,
-      });
+        syncAbortController?.signal
+      );
 
       if (!response.ok) {
         if (response.status === 401) {
@@ -405,10 +472,16 @@ async function pushToServer(
 /**
  * Start sync with the backend API.
  * Uses polling for simplicity, can be enhanced with WebSocket later.
+ *
+ * @param userId - The current user ID for filtering documents
+ * @param getToken - Function to get fresh access token
+ * @param refreshToken - Function to refresh the token when expired
+ * @param options - Sync options
  */
 export function startSync(
   userId: string,
-  token: string,
+  getToken: () => string | null,
+  refreshToken: () => Promise<void>,
   options?: {
     onStatusChange?: (status: SyncStatus) => void;
     onChange?: (change: PouchDBChange) => void;
@@ -421,6 +494,9 @@ export function startSync(
 
   // Store user ID for filtering during push
   currentSyncUserId = userId;
+
+  // Store token manager for fetching fresh tokens and refreshing on 401
+  tokenManager = { getToken, refreshToken };
 
   // Store callbacks
   syncCallbacks = {
@@ -442,13 +518,19 @@ export function startSync(
       return;
     }
 
+    // Check if we have a valid token before starting sync
+    if (!tokenManager?.getToken()) {
+      console.log('[PouchDB] No token available, skipping sync');
+      return;
+    }
+
     try {
       setSyncStatus('syncing');
 
       // Push first, then pull - ensures local changes are sent before
       // reconciliation logic in pull can delete local-only documents
-      await pushToServer(token, collections);
-      await pullFromServer(token, collections);
+      await pushToServer(collections);
+      await pullFromServer(collections);
 
       setSyncStatus('idle');
       notifySyncComplete();
@@ -494,8 +576,9 @@ async function waitForSyncComplete(): Promise<void> {
 /**
  * Trigger an immediate sync (e.g., after local write).
  * If a sync is already in progress, waits for it to complete then performs another sync.
+ * Uses the token manager set up by startSync() for fresh tokens.
  */
-export async function triggerSync(token: string): Promise<void> {
+export async function triggerSync(): Promise<void> {
   // If sync is already in progress, wait for it to complete first
   if (syncStatus === 'syncing') {
     console.log('[PouchDB] Sync in progress, waiting for completion...');
@@ -507,13 +590,19 @@ export async function triggerSync(token: string): Promise<void> {
     }
   }
 
+  // Check if we have a token manager and valid token
+  if (!tokenManager?.getToken()) {
+    console.log('[PouchDB] No token available, skipping triggered sync');
+    return;
+  }
+
   const collections: Array<'wishlists' | 'items' | 'marks' | 'bookmarks'> = ['wishlists', 'items', 'marks', 'bookmarks'];
 
   const doSync = async () => {
     try {
       setSyncStatus('syncing');
-      await pushToServer(token, collections);
-      await pullFromServer(token, collections);
+      await pushToServer(collections);
+      await pullFromServer(collections);
       setSyncStatus('idle');
       notifySyncComplete();
     } catch (error) {
@@ -549,8 +638,9 @@ export function stopSync(): void {
   window.removeEventListener('online', () => {});
   window.removeEventListener('offline', () => {});
 
-  // Clear callbacks
+  // Clear callbacks and token manager
   syncCallbacks = {};
+  tokenManager = null;
 
   setSyncStatus('idle');
   console.log('[PouchDB] Sync stopped');

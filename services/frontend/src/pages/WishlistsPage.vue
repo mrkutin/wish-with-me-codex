@@ -385,7 +385,7 @@ async function fetchBookmarks(silent = false) {
   try {
     // Trigger sync first to get latest bookmarks from server
     if (authStore.token) {
-      await triggerSync(authStore.token);
+      await triggerSync();
     }
     // Fetch enriched bookmark list via REST (includes wishlist details, owner, item count)
     const response = await api.get<SharedWishlistBookmarkListResponse>('/api/v1/shared/bookmarks');

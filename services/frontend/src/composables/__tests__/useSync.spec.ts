@@ -88,7 +88,8 @@ describe('useSync', () => {
       expect(mockGetDatabase).toHaveBeenCalled();
       expect(mockStartSync).toHaveBeenCalledWith(
         'user:123',
-        'mock-access-token',
+        expect.any(Function), // getToken function
+        expect.any(Function), // refreshToken function
         expect.objectContaining({
           onStatusChange: expect.any(Function),
           onError: expect.any(Function),
@@ -187,7 +188,7 @@ describe('useSync', () => {
   });
 
   describe('triggerSync', () => {
-    it('should call pouchTriggerSync with token', async () => {
+    it('should call pouchTriggerSync when online and authenticated', async () => {
       const authStore = useAuthStore();
       Object.assign(authStore, {
         user: { id: 'user:123', email: 'test@example.com', name: 'Test' },
@@ -200,7 +201,8 @@ describe('useSync', () => {
 
       await triggerSync();
 
-      expect(mockPouchTriggerSync).toHaveBeenCalledWith('mock-access-token');
+      // triggerSync no longer takes a token - it uses the token manager internally
+      expect(mockPouchTriggerSync).toHaveBeenCalled();
     });
 
     it('should return early when offline', async () => {
@@ -353,7 +355,7 @@ describe('useSync', () => {
 
       // Capture the onStatusChange callback when startSync is called
       let capturedOnStatusChange: ((status: string) => void) | undefined;
-      mockStartSync.mockImplementation((_userId, _token, options) => {
+      mockStartSync.mockImplementation((_userId, _getToken, _refreshToken, options) => {
         capturedOnStatusChange = options?.onStatusChange;
       });
 
@@ -380,7 +382,7 @@ describe('useSync', () => {
 
       // Capture the onStatusChange callback
       let capturedOnStatusChange: ((status: string) => void) | undefined;
-      mockStartSync.mockImplementation((_userId, _token, options) => {
+      mockStartSync.mockImplementation((_userId, _getToken, _refreshToken, options) => {
         capturedOnStatusChange = options?.onStatusChange;
       });
 
@@ -428,7 +430,7 @@ describe('useSync', () => {
       });
 
       let capturedOnStatusChange: ((status: string) => void) | undefined;
-      mockStartSync.mockImplementation((_userId, _token, options) => {
+      mockStartSync.mockImplementation((_userId, _getToken, _refreshToken, options) => {
         capturedOnStatusChange = options?.onStatusChange;
       });
 
@@ -457,7 +459,7 @@ describe('useSync', () => {
 
       let capturedOnStatusChange: ((status: string) => void) | undefined;
       let capturedOnError: ((error: Error) => void) | undefined;
-      mockStartSync.mockImplementation((_userId, _token, options) => {
+      mockStartSync.mockImplementation((_userId, _getToken, _refreshToken, options) => {
         capturedOnStatusChange = options?.onStatusChange;
         capturedOnError = options?.onError;
       });
@@ -483,7 +485,7 @@ describe('useSync', () => {
       });
 
       let capturedOnError: ((error: Error) => void) | undefined;
-      mockStartSync.mockImplementation((_userId, _token, options) => {
+      mockStartSync.mockImplementation((_userId, _getToken, _refreshToken, options) => {
         capturedOnError = options?.onError;
       });
 
@@ -509,7 +511,7 @@ describe('useSync', () => {
       });
 
       let capturedOnError: ((error: Error) => void) | undefined;
-      mockStartSync.mockImplementation((_userId, _token, options) => {
+      mockStartSync.mockImplementation((_userId, _getToken, _refreshToken, options) => {
         capturedOnError = options?.onError;
       });
 

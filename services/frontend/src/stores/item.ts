@@ -141,9 +141,8 @@ export const useItemStore = defineStore('item', () => {
       const saved = await upsert(newDoc as ItemDoc);
 
       // Trigger sync if online
-      const token = authStore.getAccessToken();
-      if (isOnline.value && token) {
-        triggerSync(token).catch(console.error);
+      if (isOnline.value && authStore.getAccessToken()) {
+        triggerSync().catch(console.error);
       } else {
         // Show offline notification
         Notify.create({
@@ -189,9 +188,8 @@ export const useItemStore = defineStore('item', () => {
       }
 
       // Trigger sync if online
-      const token = authStore.getAccessToken();
-      if (isOnline.value && token) {
-        triggerSync(token).catch(console.error);
+      if (isOnline.value && authStore.getAccessToken()) {
+        triggerSync().catch(console.error);
       }
 
       return docToItem(updated);
@@ -214,9 +212,8 @@ export const useItemStore = defineStore('item', () => {
       }
 
       // Trigger sync if online
-      const token = authStore.getAccessToken();
-      if (isOnline.value && token) {
-        triggerSync(token).catch(console.error);
+      if (isOnline.value && authStore.getAccessToken()) {
+        triggerSync().catch(console.error);
       }
     } finally {
       isLoading.value = false;
@@ -242,9 +239,8 @@ export const useItemStore = defineStore('item', () => {
 
       // Trigger sync to push the pending status to server
       // Server will pick it up via changes watcher and resolve it
-      const token = authStore.getAccessToken();
-      if (isOnline.value && token) {
-        await triggerSync(token);
+      if (isOnline.value && authStore.getAccessToken()) {
+        await triggerSync();
 
         // Return current item state (will be updated when resolution completes)
         const updated = await findById<ItemDoc>(itemId);

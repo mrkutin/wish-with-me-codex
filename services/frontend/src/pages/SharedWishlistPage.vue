@@ -190,7 +190,7 @@ function goBack() {
 async function handleRefresh(done: () => void) {
   try {
     if (authStore.token) {
-      await triggerSync(authStore.token);
+      await triggerSync();
     }
     await loadFromPouchDB();
   } finally {
@@ -252,7 +252,7 @@ async function initializeFromShareToken() {
 
     // Trigger sync to pull the newly accessible documents (including bookmark with owner info)
     if (authStore.token) {
-      await triggerSync(authStore.token);
+      await triggerSync();
     }
 
     // Load from PouchDB (including owner info from bookmark)
@@ -405,7 +405,7 @@ async function markItem(item: SharedItem, quantity: number = 1) {
 
     // Trigger sync
     if (authStore.token) {
-      await triggerSync(authStore.token);
+      await triggerSync();
     }
 
     $q.notify({
@@ -441,7 +441,7 @@ async function unmarkItem(item: SharedItem) {
 
       // Trigger sync
       if (authStore.token) {
-        await triggerSync(authStore.token);
+        await triggerSync();
       }
 
       $q.notify({

@@ -148,9 +148,8 @@ export const useWishlistStore = defineStore('wishlist', () => {
       const saved = await upsert(newDoc as WishlistDoc);
 
       // Trigger sync if online
-      const token = authStore.getAccessToken();
-      if (isOnline.value && token) {
-        triggerSync(token).catch(console.error);
+      if (isOnline.value && authStore.getAccessToken()) {
+        triggerSync().catch(console.error);
       } else {
         // Show offline notification
         Notify.create({
@@ -191,9 +190,8 @@ export const useWishlistStore = defineStore('wishlist', () => {
       }
 
       // Trigger sync if online
-      const token = authStore.getAccessToken();
-      if (isOnline.value && token) {
-        triggerSync(token).catch(console.error);
+      if (isOnline.value && authStore.getAccessToken()) {
+        triggerSync().catch(console.error);
       }
 
       return docToWishlist(updated);
@@ -216,9 +214,8 @@ export const useWishlistStore = defineStore('wishlist', () => {
       }
 
       // Trigger sync if online
-      const token = authStore.getAccessToken();
-      if (isOnline.value && token) {
-        triggerSync(token).catch(console.error);
+      if (isOnline.value && authStore.getAccessToken()) {
+        triggerSync().catch(console.error);
       }
     } finally {
       isLoading.value = false;

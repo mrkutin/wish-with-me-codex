@@ -173,7 +173,8 @@ describe('useWishlistStore', () => {
           access: [mockUser.id],
         })
       );
-      expect(mockTriggerSync).toHaveBeenCalledWith('test-access-token');
+      // triggerSync no longer takes arguments - it uses the token manager internally
+      expect(mockTriggerSync).toHaveBeenCalled();
       expect(result.name).toBe('Birthday Wishlist');
       expect(result.id).toBe('wishlist:test-uuid-123');
     });
