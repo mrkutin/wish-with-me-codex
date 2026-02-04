@@ -8,6 +8,8 @@ import { upsert, triggerSync, getCurrentUser as getPouchUser } from '@/services/
 import type { UserDoc } from '@/services/pouchdb';
 
 const REFRESH_TOKEN_KEY = 'refresh_token';
+const ACCESS_TOKEN_KEY = 'access_token';
+const USER_DATA_KEY = 'user_data';
 
 // API version - v2 uses CouchDB for all operations
 const API_VERSION = 'v2';
@@ -49,13 +51,42 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function initializeAuth(): Promise<void> {
     const storedRefreshToken = LocalStorage.getItem<string>(REFRESH_TOKEN_KEY);
-    if (storedRefreshToken) {
-      refreshTokenValue.value = storedRefreshToken;
-      try {
-        await refreshToken();
-      } catch {
-        clearAuth();
+    const storedAccessToken = LocalStorage.getItem<string>(ACCESS_TOKEN_KEY);
+    const storedUserData = LocalStorage.getItem<User>(USER_DATA_KEY);
+
+    if (!storedRefreshToken) {
+      // No refresh token, user not logged in
+      return;
+    }
+
+    refreshTokenValue.value = storedRefreshToken;
+
+    // Restore session immediately from stored data for faster UX
+    if (storedAccessToken && storedUserData) {
+      accessToken.value = storedAccessToken;
+      user.value = storedUserData;
+
+      // Check if access token is still valid
+      const payload = decodeJwtPayload(storedAccessToken);
+      const now = Date.now();
+      const expiresAt = payload?.exp ? payload.exp * 1000 : 0;
+
+      if (expiresAt > now + REFRESH_BUFFER_MS) {
+        // Token still valid, schedule refresh for later
+        console.log('[Auth] Restored session from storage, token still valid');
+        scheduleTokenRefresh(storedAccessToken);
+        return;
       }
+      console.log('[Auth] Stored access token expired, refreshing...');
+    }
+
+    // Need to refresh tokens
+    try {
+      await refreshToken();
+      console.log('[Auth] Token refresh successful');
+    } catch (error) {
+      console.error('[Auth] Token refresh failed:', error);
+      clearAuth();
     }
   }
 
@@ -131,7 +162,10 @@ export const useAuthStore = defineStore('auth', () => {
 
     accessToken.value = response.data.access_token;
     refreshTokenValue.value = response.data.refresh_token;
+
+    // Persist new tokens
     LocalStorage.set(REFRESH_TOKEN_KEY, response.data.refresh_token);
+    LocalStorage.set(ACCESS_TOKEN_KEY, response.data.access_token);
 
     // Schedule next proactive refresh
     scheduleTokenRefresh(response.data.access_token);
@@ -146,6 +180,9 @@ export const useAuthStore = defineStore('auth', () => {
     // Fetch user data from /me endpoint using access token
     const response = await api.get<User>(`/api/${API_VERSION}/auth/me`);
     user.value = response.data;
+
+    // Persist user data for session restoration
+    LocalStorage.set(USER_DATA_KEY, response.data);
 
     // Also save to PouchDB for offline-first sync
     // Convert User to UserDoc format
@@ -187,7 +224,11 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = data.user;
     accessToken.value = data.access_token;
     refreshTokenValue.value = data.refresh_token;
+
+    // Persist tokens and user data for session restoration
     LocalStorage.set(REFRESH_TOKEN_KEY, data.refresh_token);
+    LocalStorage.set(ACCESS_TOKEN_KEY, data.access_token);
+    LocalStorage.set(USER_DATA_KEY, data.user);
 
     // Schedule proactive token refresh
     scheduleTokenRefresh(data.access_token);
@@ -203,12 +244,15 @@ export const useAuthStore = defineStore('auth', () => {
   }): Promise<void> {
     accessToken.value = tokens.access_token;
     refreshTokenValue.value = tokens.refresh_token;
+
+    // Persist tokens
     LocalStorage.set(REFRESH_TOKEN_KEY, tokens.refresh_token);
+    LocalStorage.set(ACCESS_TOKEN_KEY, tokens.access_token);
 
     // Schedule proactive token refresh
     scheduleTokenRefresh(tokens.access_token);
 
-    // Fetch user data using the access token
+    // Fetch user data using the access token (also persists user data)
     await fetchCurrentUser();
   }
 
@@ -222,7 +266,11 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null;
     accessToken.value = null;
     refreshTokenValue.value = null;
+
+    // Clear all persisted auth data
     LocalStorage.remove(REFRESH_TOKEN_KEY);
+    LocalStorage.remove(ACCESS_TOKEN_KEY);
+    LocalStorage.remove(USER_DATA_KEY);
   }
 
   function getAccessToken(): string | null {

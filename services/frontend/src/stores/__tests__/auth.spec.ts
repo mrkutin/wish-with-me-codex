@@ -313,7 +313,11 @@ describe('useAuthStore', () => {
   describe('initializeAuth', () => {
     it('should restore session from stored refresh token', async () => {
       const tokenResponse = createMockTokenResponse();
-      vi.mocked(LocalStorage.getItem).mockReturnValue('stored-refresh-token');
+      // Mock localStorage to return different values based on key
+      vi.mocked(LocalStorage.getItem).mockImplementation((key: string) => {
+        if (key === 'refresh_token') return 'stored-refresh-token';
+        return null; // No stored access token or user data
+      });
       vi.mocked(api.post).mockResolvedValueOnce({ data: tokenResponse });
       vi.mocked(api.get).mockResolvedValueOnce({ data: mockUser });
 
@@ -328,8 +332,53 @@ describe('useAuthStore', () => {
       expect(store.user).toEqual(mockUser);
     });
 
+    it('should restore session immediately from stored access token and user', async () => {
+      const validAccessToken = createMockJwt(3600); // Valid for 1 hour
+      // Mock localStorage with stored session data
+      vi.mocked(LocalStorage.getItem).mockImplementation((key: string) => {
+        if (key === 'refresh_token') return 'stored-refresh-token';
+        if (key === 'access_token') return validAccessToken;
+        if (key === 'user_data') return mockUser;
+        return null;
+      });
+
+      const store = useAuthStore();
+      await store.initializeAuth();
+
+      // Should restore from storage without API call
+      expect(api.post).not.toHaveBeenCalled();
+      expect(store.accessToken).toBe(validAccessToken);
+      expect(store.user).toEqual(mockUser);
+    });
+
+    it('should refresh when stored access token is expired', async () => {
+      const expiredAccessToken = createExpiredJwt();
+      const tokenResponse = createMockTokenResponse();
+      // Mock localStorage with expired access token
+      vi.mocked(LocalStorage.getItem).mockImplementation((key: string) => {
+        if (key === 'refresh_token') return 'stored-refresh-token';
+        if (key === 'access_token') return expiredAccessToken;
+        if (key === 'user_data') return mockUser;
+        return null;
+      });
+      vi.mocked(api.post).mockResolvedValueOnce({ data: tokenResponse });
+      vi.mocked(api.get).mockResolvedValueOnce({ data: mockUser });
+
+      const store = useAuthStore();
+      await store.initializeAuth();
+
+      // Should call refresh since token is expired
+      expect(api.post).toHaveBeenCalledWith('/api/v2/auth/refresh', {
+        refresh_token: 'stored-refresh-token',
+      });
+      expect(store.accessToken).toBe(tokenResponse.access_token);
+    });
+
     it('should clear state when stored token is invalid', async () => {
-      vi.mocked(LocalStorage.getItem).mockReturnValue('invalid-token');
+      vi.mocked(LocalStorage.getItem).mockImplementation((key: string) => {
+        if (key === 'refresh_token') return 'invalid-token';
+        return null;
+      });
       vi.mocked(api.post).mockRejectedValueOnce(new Error('Invalid token'));
 
       const store = useAuthStore();
