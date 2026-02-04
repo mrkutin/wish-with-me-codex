@@ -429,12 +429,12 @@ class TestPullEndpoint:
         self,
         client_with_mock_db: tuple[AsyncClient, MagicMock],
     ):
-        """Unauthenticated requests should return 401."""
+        """Unauthenticated requests should return 403."""
         client, _ = client_with_mock_db
 
         response = await client.get("/api/v2/sync/pull/wishlists")
 
-        assert response.status_code == 401  # HTTPBearer returns 401 when no token
+        assert response.status_code == 403  # HTTPBearer returns 403 when no token
 
     # -------------------------------------------------------------------------
     # Test 6: Pull invalid collection returns 422
@@ -1050,7 +1050,7 @@ class TestPushEndpoint:
         self,
         client_with_mock_db: tuple[AsyncClient, MagicMock],
     ):
-        """Unauthenticated push should return 401/403."""
+        """Unauthenticated push should return 403."""
         client, _ = client_with_mock_db
 
         response = await client.post(
@@ -1058,7 +1058,7 @@ class TestPushEndpoint:
             json={"documents": []},
         )
 
-        assert response.status_code == 401  # HTTPBearer returns 401 when no token
+        assert response.status_code == 403  # HTTPBearer returns 403 when no token
 
     # -------------------------------------------------------------------------
     # Test 22: Push with type mismatch returns conflict

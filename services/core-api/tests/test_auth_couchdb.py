@@ -501,10 +501,10 @@ class TestMe:
         self,
         client: AsyncClient,
     ) -> None:
-        """Test /me without token returns 401."""
+        """Test /me without token returns 403."""
         response = await client.get("/api/v2/auth/me")
 
-        assert response.status_code == 401  # HTTPBearer returns 401 when no token
+        assert response.status_code == 403  # HTTPBearer returns 403 when no token
 
     async def test_me_expired_token(
         self,
