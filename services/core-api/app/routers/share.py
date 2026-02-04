@@ -15,7 +15,6 @@ from app.couchdb import CouchDBClient, DocumentNotFoundError, get_couchdb
 from app.dependencies import CurrentUserCouchDB
 from app.schemas.share import (
     ShareLinkCreate,
-    ShareLinkListResponse,
     ShareLinkResponse,
 )
 
@@ -99,59 +98,6 @@ def share_doc_to_response(doc: dict) -> ShareLinkResponse:
         share_url=share_url,
         qr_code_base64=generate_qr_code(share_url),
     )
-
-
-@router.get(
-    "/{wishlist_id}/share",
-    response_model=ShareLinkListResponse,
-    responses={
-        403: {"description": "Not the wishlist owner"},
-        404: {"description": "Wishlist not found"},
-    },
-)
-async def list_share_links(
-    wishlist_id: str,
-    current_user: CurrentUserCouchDB,
-    db: Annotated[CouchDBClient, Depends(get_db)],
-) -> ShareLinkListResponse:
-    """List all share links for a wishlist (owner only)."""
-    user_id = current_user["_id"]
-    wishlist_doc_id = normalize_wishlist_id(wishlist_id)
-
-    # Check wishlist exists and user is owner
-    try:
-        wishlist = await db.get(wishlist_doc_id)
-    except DocumentNotFoundError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Wishlist not found",
-        )
-
-    if wishlist.get("owner_id") != user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the wishlist owner can manage share links",
-        )
-
-    # Find all share links for this wishlist
-    shares = await db.find({
-        "type": "share",
-        "wishlist_id": wishlist_doc_id,
-        "owner_id": user_id,
-        "revoked": False,
-    })
-
-    # Filter out expired links
-    now = datetime.now(timezone.utc)
-    active_shares = []
-    for share in shares:
-        if share.get("expires_at"):
-            expires = datetime.fromisoformat(share["expires_at"])
-            if expires < now:
-                continue
-        active_shares.append(share_doc_to_response(share))
-
-    return ShareLinkListResponse(items=active_shares)
 
 
 @router.post(
