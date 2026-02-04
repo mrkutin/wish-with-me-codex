@@ -192,18 +192,10 @@ async function handleLogout() {
   router.push({ name: 'login' });
 }
 
-// Initialize sync when authenticated
-onMounted(() => {
-  if (authStore.isAuthenticated) {
-    initializeSync();
-  }
-});
-
-// Watch for auth changes to init/cleanup sync
+// Watch for auth changes to cleanup sync on logout
+// Note: initializeSync is handled by useSync composable in SyncStatus component
 watch(() => authStore.isAuthenticated, async (isAuth) => {
-  if (isAuth) {
-    await initializeSync();
-  } else {
+  if (!isAuth) {
     await cleanupSync();
   }
 });
