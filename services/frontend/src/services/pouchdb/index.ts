@@ -12,6 +12,7 @@ import PouchDB from 'pouchdb-browser';
 import PouchDBFind from 'pouchdb-find';
 import type {
   CouchDBDoc,
+  UserDoc,
   WishlistDoc,
   ItemDoc,
   MarkDoc,
@@ -228,7 +229,7 @@ let failedPushDocIds: Set<string> = new Set();
  * Excludes documents that failed to push (to preserve local changes until successfully synced).
  */
 async function pullFromServer(
-  collections: Array<'wishlists' | 'items' | 'marks' | 'bookmarks'>
+  collections: Array<'wishlists' | 'items' | 'marks' | 'bookmarks' | 'users'>
 ): Promise<void> {
   const localDb = getDatabase();
   const baseUrl = getApiBaseUrl();
@@ -239,6 +240,7 @@ async function pullFromServer(
     items: 'item',
     marks: 'mark',
     bookmarks: 'bookmark',
+    users: 'user',
   };
 
   for (const collection of collections) {
@@ -363,7 +365,7 @@ async function pullFromServer(
  * Tracks documents that fail to push for reconciliation skip.
  */
 async function pushToServer(
-  collections: Array<'wishlists' | 'items' | 'marks' | 'bookmarks'>
+  collections: Array<'wishlists' | 'items' | 'marks' | 'bookmarks' | 'users'>
 ): Promise<void> {
   // Clear failed push tracking at start of new push cycle
   failedPushDocIds = new Set();
@@ -377,6 +379,7 @@ async function pushToServer(
     items: 'item',
     marks: 'mark',
     bookmarks: 'bookmark',
+    users: 'user',
   };
 
   for (const collection of collections) {
@@ -410,6 +413,9 @@ async function pushToServer(
         } else if (collection === 'bookmarks') {
           // Only push bookmarks owned by the current user
           docs = docs.filter(doc => (doc as BookmarkDoc).user_id === currentSyncUserId);
+        } else if (collection === 'users') {
+          // Only push the current user's own document
+          docs = docs.filter(doc => doc._id === currentSyncUserId);
         }
       }
 
@@ -509,7 +515,7 @@ export function startSync(
   syncAbortController = new AbortController();
 
   const interval = options?.interval || 30000;
-  const collections: Array<'wishlists' | 'items' | 'marks' | 'bookmarks'> = ['wishlists', 'items', 'marks', 'bookmarks'];
+  const collections: Array<'wishlists' | 'items' | 'marks' | 'bookmarks' | 'users'> = ['wishlists', 'items', 'marks', 'bookmarks', 'users'];
 
   // Initial sync
   const doSync = async () => {
@@ -596,7 +602,7 @@ export async function triggerSync(): Promise<void> {
     return;
   }
 
-  const collections: Array<'wishlists' | 'items' | 'marks' | 'bookmarks'> = ['wishlists', 'items', 'marks', 'bookmarks'];
+  const collections: Array<'wishlists' | 'items' | 'marks' | 'bookmarks' | 'users'> = ['wishlists', 'items', 'marks', 'bookmarks', 'users'];
 
   const doSync = async () => {
     try {
@@ -1027,6 +1033,53 @@ export function subscribeToBookmarks(
   );
 }
 
+// ============================================
+// User helpers
+// ============================================
+
+/**
+ * Get the current user document from PouchDB.
+ */
+export async function getCurrentUser(userId: string): Promise<UserDoc | null> {
+  return findById<UserDoc>(userId);
+}
+
+/**
+ * Update the current user document in PouchDB.
+ * This will be synced to the server on the next sync cycle.
+ */
+export async function updateCurrentUser(
+  userId: string,
+  updates: Partial<Pick<UserDoc, 'name' | 'bio' | 'public_url_slug' | 'birthday' | 'avatar_base64' | 'locale'>>
+): Promise<UserDoc> {
+  const existing = await findById<UserDoc>(userId);
+  if (!existing) {
+    throw new Error('User document not found');
+  }
+
+  const updated: UserDoc = {
+    ...existing,
+    ...updates,
+    updated_at: new Date().toISOString(),
+  };
+
+  return upsert<UserDoc>(updated);
+}
+
+/**
+ * Subscribe to the current user document changes.
+ */
+export function subscribeToCurrentUser(
+  userId: string,
+  callback: (user: UserDoc | null) => void
+): () => void {
+  return subscribeToChanges<UserDoc>(
+    'user',
+    (docs) => callback(docs[0] || null),
+    (doc) => doc?._id === userId
+  );
+}
+
 // Export types and helpers
 export { createId, extractId } from './types';
-export type { CouchDBDoc, WishlistDoc, ItemDoc, MarkDoc, BookmarkDoc, PouchDBChange, SyncStatus };
+export type { CouchDBDoc, UserDoc, WishlistDoc, ItemDoc, MarkDoc, BookmarkDoc, PouchDBChange, SyncStatus };

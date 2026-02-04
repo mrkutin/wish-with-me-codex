@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v2/sync", tags=["sync-v2"])
 
-CollectionType = Literal["wishlists", "items", "marks", "bookmarks"]
+CollectionType = Literal["wishlists", "items", "marks", "bookmarks", "users"]
 
 
 class SyncDocument(BaseModel):
@@ -85,11 +85,12 @@ async def pull_collection(
         "items": "item",
         "marks": "mark",
         "bookmarks": "bookmark",
+        "users": "user",
     }
     doc_type = type_map[collection]
 
     # Find all documents of this type that user has access to
-    selector = {
+    selector: dict = {
         "type": doc_type,
         "access": {"$elemMatch": {"$eq": user_id}},
     }
@@ -98,6 +99,13 @@ async def pull_collection(
     # (marks are hidden from wishlist owner in "surprise mode")
     if collection == "marks":
         selector["owner_id"] = {"$ne": user_id}
+
+    # For users, only return the user's own document
+    if collection == "users":
+        selector = {
+            "type": "user",
+            "_id": user_id,
+        }
 
     try:
         # Note: CouchDB Mango with $elemMatch doesn't work well with indexes,
@@ -144,6 +152,7 @@ async def push_collection(
         "items": "item",
         "marks": "mark",
         "bookmarks": "bookmark",
+        "users": "user",
     }
     doc_type = type_map[collection]
 
@@ -205,6 +214,20 @@ async def push_collection(
                         error="Unauthorized: not the mark owner",
                     ))
                     continue
+            elif collection == "users":
+                # User can only push their own user document
+                if doc_id != user_id:
+                    conflicts.append(ConflictInfo(
+                        document_id=doc_id,
+                        error="Unauthorized: can only update own user document",
+                    ))
+                    continue
+                # Don't allow syncing sensitive fields
+                # These should only be changed via dedicated auth endpoints
+                sensitive_fields = ["password_hash", "email", "refresh_tokens"]
+                for field in sensitive_fields:
+                    if field in doc:
+                        del doc[field]
 
             # Try to get existing document
             try:
@@ -265,6 +288,9 @@ async def push_collection(
                         ]
                     except DocumentNotFoundError:
                         doc["access"] = [user_id]
+                elif collection == "users":
+                    # Users can only access their own document
+                    doc["access"] = [user_id]
 
             # Save document
             try:

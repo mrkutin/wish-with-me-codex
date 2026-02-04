@@ -4,6 +4,8 @@ import { LocalStorage } from 'quasar';
 import { api } from '@/boot/axios';
 import type { User } from '@/types/user';
 import type { AuthResponse, TokenResponse, LoginRequest, RegisterRequest } from '@/types/api';
+import { upsert, triggerSync, getCurrentUser as getPouchUser } from '@/services/pouchdb';
+import type { UserDoc } from '@/services/pouchdb';
 
 const REFRESH_TOKEN_KEY = 'refresh_token';
 
@@ -144,6 +146,28 @@ export const useAuthStore = defineStore('auth', () => {
     // Fetch user data from /me endpoint using access token
     const response = await api.get<User>(`/api/${API_VERSION}/auth/me`);
     user.value = response.data;
+
+    // Also save to PouchDB for offline-first sync
+    // Convert User to UserDoc format
+    const userDoc: UserDoc = {
+      _id: response.data.id,
+      type: 'user',
+      email: response.data.email,
+      name: response.data.name,
+      avatar_base64: response.data.avatar_base64 || null,
+      bio: response.data.bio || null,
+      public_url_slug: response.data.public_url_slug || null,
+      locale: response.data.locale || 'en',
+      birthday: response.data.birthday || null,
+      access: [response.data.id],
+      created_at: response.data.created_at || new Date().toISOString(),
+      updated_at: response.data.updated_at || new Date().toISOString(),
+    };
+    try {
+      await upsert<UserDoc>(userDoc);
+    } catch (e) {
+      console.warn('[Auth] Failed to save user to PouchDB:', e);
+    }
   }
 
   async function logout(): Promise<void> {
@@ -205,6 +229,65 @@ export const useAuthStore = defineStore('auth', () => {
     return accessToken.value;
   }
 
+  /**
+   * Update user profile via PouchDB (offline-first).
+   * Changes are synced to server on next sync cycle.
+   */
+  async function updateUser(updates: {
+    name?: string;
+    bio?: string | null;
+    public_url_slug?: string | null;
+    birthday?: string | null;
+    avatar_base64?: string | null;
+    locale?: string;
+  }): Promise<void> {
+    if (!user.value) {
+      throw new Error('No user logged in');
+    }
+
+    const currentUserId = (user.value as { _id?: string; id?: string })._id || user.value.id;
+
+    // Get current user doc from PouchDB
+    let userDoc = await getPouchUser(currentUserId);
+    if (!userDoc) {
+      // Create user doc if it doesn't exist (shouldn't happen normally)
+      userDoc = {
+        _id: currentUserId,
+        type: 'user',
+        email: user.value.email,
+        name: user.value.name,
+        avatar_base64: user.value.avatar_base64 || null,
+        bio: user.value.bio || null,
+        public_url_slug: user.value.public_url_slug || null,
+        locale: user.value.locale || 'en',
+        birthday: user.value.birthday || null,
+        access: [currentUserId],
+        created_at: user.value.created_at || new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+    }
+
+    // Apply updates
+    const updatedDoc: UserDoc = {
+      ...userDoc,
+      ...updates,
+      updated_at: new Date().toISOString(),
+    };
+
+    // Save to PouchDB
+    await upsert<UserDoc>(updatedDoc);
+
+    // Update local state immediately for responsive UI
+    user.value = {
+      ...user.value,
+      ...updates,
+      updated_at: updatedDoc.updated_at,
+    } as User;
+
+    // Trigger sync to push changes to server
+    await triggerSync();
+  }
+
   return {
     user,
     userId,
@@ -219,5 +302,6 @@ export const useAuthStore = defineStore('auth', () => {
     fetchCurrentUser,
     getAccessToken,
     setTokensFromOAuth,
+    updateUser,
   };
 });

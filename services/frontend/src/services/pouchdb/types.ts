@@ -23,6 +23,7 @@ export interface UserDoc extends BaseDoc {
   bio?: string | null;
   public_url_slug?: string | null;
   locale: string;
+  birthday?: string | null;
   password_hash?: string; // Only on server, never synced to client
 }
 

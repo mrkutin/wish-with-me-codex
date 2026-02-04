@@ -1367,3 +1367,226 @@ class TestEdgeCases:
         assert docs[0]["_id"] == "wishlist:new"
         assert docs[1]["_id"] == "wishlist:mid"
         assert docs[2]["_id"] == "wishlist:old"
+
+
+# =============================================================================
+# User Sync Tests
+# =============================================================================
+
+
+class TestUserSync:
+    """Tests for user document sync (profile updates via PouchDB)."""
+
+    @pytest.mark.asyncio
+    async def test_pull_users_returns_only_own_document(
+        self,
+        client_with_mock_db: tuple[AsyncClient, MagicMock],
+        auth_token: str,
+        user_id: str,
+        user_doc: dict[str, Any],
+        another_user_doc: dict[str, Any],
+    ):
+        """Pull users should only return the current user's document."""
+        client, mock_db = client_with_mock_db
+
+        # Mock returns only the user's own document (selector uses _id = user_id)
+        mock_db.find = AsyncMock(return_value=[user_doc])
+
+        response = await client.get(
+            "/api/v2/sync/pull/users",
+            headers={"Authorization": f"Bearer {auth_token}"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["documents"]) == 1
+        assert data["documents"][0]["_id"] == user_id
+
+        # Verify selector was correct (should query by _id, not access array)
+        call_args = mock_db.find.call_args
+        selector = call_args.kwargs.get("selector") or call_args[0][0]
+        assert selector.get("_id") == user_id
+        assert selector.get("type") == "user"
+
+    @pytest.mark.asyncio
+    async def test_push_users_update_own_document(
+        self,
+        client_with_mock_db: tuple[AsyncClient, MagicMock],
+        auth_token: str,
+        user_id: str,
+        user_doc: dict[str, Any],
+    ):
+        """User should be able to update their own user document."""
+        client, mock_db = client_with_mock_db
+
+        # Existing document on server (older)
+        old_time = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        user_doc["updated_at"] = old_time
+
+        # Updated document from client
+        updated_doc = {
+            **user_doc,
+            "name": "Updated Name",
+            "bio": "New bio",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        async def mock_get(doc_id: str) -> dict[str, Any]:
+            if doc_id == user_id:
+                return user_doc
+            raise DocumentNotFoundError(doc_id)
+
+        mock_db.get = AsyncMock(side_effect=mock_get)
+        mock_db.put = AsyncMock(return_value={"ok": True, "rev": "2-xyz"})
+
+        response = await client.post(
+            "/api/v2/sync/push/users",
+            headers={"Authorization": f"Bearer {auth_token}"},
+            json={"documents": [updated_doc]},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["conflicts"] == []
+        mock_db.put.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_push_users_cannot_update_other_user(
+        self,
+        client_with_mock_db: tuple[AsyncClient, MagicMock],
+        auth_token: str,
+        user_id: str,
+        another_user_id: str,
+        another_user_doc: dict[str, Any],
+    ):
+        """User should not be able to update another user's document."""
+        client, mock_db = client_with_mock_db
+
+        # Trying to update another user's document
+        updated_doc = {
+            **another_user_doc,
+            "name": "Hacked Name",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        async def mock_get(doc_id: str) -> dict[str, Any]:
+            if doc_id == user_id:
+                return {"_id": user_id, "type": "user"}
+            raise DocumentNotFoundError(doc_id)
+
+        mock_db.get = AsyncMock(side_effect=mock_get)
+
+        response = await client.post(
+            "/api/v2/sync/push/users",
+            headers={"Authorization": f"Bearer {auth_token}"},
+            json={"documents": [updated_doc]},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["conflicts"]) == 1
+        assert "unauthorized" in data["conflicts"][0]["error"].lower()
+        mock_db.put.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_push_users_strips_sensitive_fields(
+        self,
+        client_with_mock_db: tuple[AsyncClient, MagicMock],
+        auth_token: str,
+        user_id: str,
+        user_doc: dict[str, Any],
+    ):
+        """Sensitive fields (password_hash, email, refresh_tokens) should be stripped."""
+        client, mock_db = client_with_mock_db
+
+        # Existing document on server
+        old_time = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        user_doc["updated_at"] = old_time
+
+        # Client tries to update sensitive fields
+        updated_doc = {
+            **user_doc,
+            "name": "Updated Name",
+            "password_hash": "new_hash_attempt",
+            "email": "hacked@example.com",
+            "refresh_tokens": ["stolen_token"],
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        async def mock_get(doc_id: str) -> dict[str, Any]:
+            if doc_id == user_id:
+                return user_doc
+            raise DocumentNotFoundError(doc_id)
+
+        mock_db.get = AsyncMock(side_effect=mock_get)
+        mock_db.put = AsyncMock(return_value={"ok": True, "rev": "2-xyz"})
+
+        response = await client.post(
+            "/api/v2/sync/push/users",
+            headers={"Authorization": f"Bearer {auth_token}"},
+            json={"documents": [updated_doc]},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["conflicts"] == []
+
+        # Verify put was called and sensitive fields were stripped
+        mock_db.put.assert_called_once()
+        saved_doc = mock_db.put.call_args[0][0]
+        assert "password_hash" not in saved_doc
+        assert "email" not in saved_doc
+        assert "refresh_tokens" not in saved_doc
+        # Non-sensitive field should be updated
+        assert saved_doc["name"] == "Updated Name"
+
+    @pytest.mark.asyncio
+    async def test_push_users_new_document_sets_access(
+        self,
+        client_with_mock_db: tuple[AsyncClient, MagicMock],
+        auth_token: str,
+        user_id: str,
+    ):
+        """New user document should have access array set to [user_id]."""
+        client, mock_db = client_with_mock_db
+
+        # New user doc (no existing on server for the sync endpoint)
+        new_user_doc = {
+            "_id": user_id,
+            "type": "user",
+            "email": "test@example.com",
+            "name": "New User",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        # Track get calls - auth middleware needs user, sync endpoint should not find it
+        get_calls = []
+
+        async def mock_get(doc_id: str) -> dict[str, Any]:
+            get_calls.append(doc_id)
+            if doc_id == user_id:
+                # First call is from auth middleware, return user
+                # Second call is from sync endpoint checking existing doc
+                if len([c for c in get_calls if c == user_id]) == 1:
+                    return {"_id": user_id, "type": "user"}
+                # Second call - document doesn't exist for sync purposes
+                raise DocumentNotFoundError(doc_id)
+            raise DocumentNotFoundError(doc_id)
+
+        mock_db.get = AsyncMock(side_effect=mock_get)
+        mock_db.put = AsyncMock(return_value={"ok": True, "rev": "1-abc"})
+
+        response = await client.post(
+            "/api/v2/sync/push/users",
+            headers={"Authorization": f"Bearer {auth_token}"},
+            json={"documents": [new_user_doc]},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["conflicts"] == []
+
+        # Verify access array was set
+        mock_db.put.assert_called_once()
+        saved_doc = mock_db.put.call_args[0][0]
+        assert saved_doc["access"] == [user_id]

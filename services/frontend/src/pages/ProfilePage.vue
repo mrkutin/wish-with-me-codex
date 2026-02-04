@@ -76,7 +76,6 @@
 import { ref, reactive, watchEffect } from 'vue';
 import { useQuasar } from 'quasar';
 import { useAuthStore } from '@/stores/auth';
-import { api } from '@/boot/axios';
 import { useI18n } from 'vue-i18n';
 
 const $q = useQuasar();
@@ -103,13 +102,13 @@ watchEffect(() => {
 async function updateProfile() {
   saving.value = true;
   try {
-    await api.patch('/api/v1/users/me', {
+    // Update via PouchDB (offline-first) - syncs to server automatically
+    await authStore.updateUser({
       name: profileForm.name,
       bio: profileForm.bio || null,
       public_url_slug: profileForm.public_url_slug || null,
       birthday: profileForm.birthday || null,
     });
-    await authStore.fetchCurrentUser();
     $q.notify({
       type: 'positive',
       message: t('common.success'),
