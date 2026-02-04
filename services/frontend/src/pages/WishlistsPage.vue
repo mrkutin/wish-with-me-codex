@@ -396,10 +396,8 @@ async function fetchBookmarks(silent = false) {
     isLoadingBookmarks.value = true;
   }
   try {
-    // Trigger sync first to get latest bookmarks from server
-    await triggerSync();
-
     // Fetch bookmarks from local PouchDB and construct enriched response
+    // Don't wait for sync - load immediately from local cache, sync updates in background
     const bookmarks = await getBookmarks(authStore.user.id);
     const enriched: SharedWishlistBookmark[] = [];
 
@@ -649,9 +647,13 @@ onMounted(async () => {
   // Setup PouchDB subscription for real-time bookmark updates
   setupBookmarkSubscription();
 
-  // Subscribe to sync completion to refresh item counts after sync
+  // Subscribe to sync completion to refresh data after sync
   unsubscribeSyncComplete = onSyncComplete(() => {
     fetchItemCounts();
+    // Also refresh bookmarks if on shared tab (sync may have pulled new data)
+    if (activeTab.value === 'shared') {
+      fetchBookmarks(true);
+    }
   });
 
   // Check for tab query parameter
