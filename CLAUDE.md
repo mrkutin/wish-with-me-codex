@@ -39,7 +39,7 @@ Internet → nginx :443 → ┬→ frontend :80 (Vue PWA)
 
 ### Frontend (`services/frontend/`)
 - `src/pages/` - Route pages
-- `src/components/` - UI components (`items/ItemCard`, `items/AddItemDialog`)
+- `src/components/` - UI components (ItemCard, AddItemDialog, ShareDialog, SocialLoginButtons, SyncStatus, OfflineBanner, AppInstallPrompt, BackgroundDecorations)
 - `src/stores/` - Pinia stores (auth, wishlist, item)
 - `src/composables/` - Vue composables (useSync, useOAuth)
 - `src/services/pouchdb/` - Offline storage
@@ -57,8 +57,16 @@ Internet → nginx :443 → ┬→ frontend :80 (Vue PWA)
 - `app/changes_watcher.py` - CouchDB `_changes` listener
 - `app/scrape.py` - Page capture with anti-bot
 - `app/html_optimizer.py` - HTML cleaning for LLM
+- `app/html_parser.py` - HTML parsing utilities
 - `app/llm.py` - DeepSeek extraction
 - `app/ssrf.py` - SSRF protection
+- `app/couchdb.py` - CouchDB client
+- `app/fetcher.py` - URL fetching abstraction
+- `app/image_utils.py` - Image processing
+- `app/auth.py` - Bearer token auth
+- `app/errors.py` - Error definitions
+- `app/middleware.py` - Request middleware
+- `app/logging_config.py` - Logging setup
 
 **Resolution Flow:** Playwright captures → clean HTML → LLM extracts (title, price, image) → update CouchDB
 
@@ -71,8 +79,8 @@ Internet → nginx :443 → ┬→ frontend :80 (Vue PWA)
 |--------|------|------|-------------|
 | POST | /register | - | Register (email, password, name, locale) |
 | POST | /login | - | Login → AuthResponse |
-| POST | /refresh | - | Refresh tokens |
-| POST | /logout | Bearer | Revoke refresh token |
+| POST | /refresh | - | Refresh tokens → TokenResponse |
+| POST | /logout | Bearer | Revoke refresh token (body: `{refresh_token}`) |
 | GET | /me | Bearer | Current user |
 
 ### OAuth (`/api/v1/oauth`)
@@ -93,33 +101,30 @@ Internet → nginx :443 → ┬→ frontend :80 (Vue PWA)
 | GET | /pull/{collection} | Pull docs user has access to |
 | POST | /push/{collection} | Push with LWW conflict resolution |
 
-**Collections:** `wishlists`, `items`, `marks`, `bookmarks`
+**Collections:** `wishlists`, `items`, `marks`, `bookmarks`, `users`, `shares`
 
-**Push Rules:** wishlists (owner only), items (wishlist access), marks (marker only), bookmarks (owner only)
+**Push Rules:** wishlists (owner only), items (wishlist access), marks (marker only), bookmarks (owner only), shares (owner only)
 
 ### Share (`/api/v1/wishlists/{wishlist_id}/share`)
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | / | List share links |
 | POST | / | Create (link_type: view|mark, expires_in_days) |
 | DELETE | /{share_id} | Revoke |
+
+*Note: List share links via sync (`/api/v2/sync/pull/shares`).*
 
 ### Shared (`/api/v1/shared`)
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | /bookmarks | Bearer | User's bookmarks |
-| GET | /{token}/preview | - | Preview (no auth) |
-| POST | /{token}/grant-access | Bearer | Grant access |
-| GET | /{token} | Bearer | Access wishlist+items |
-| POST | /{token}/items/{item_id}/mark | Bearer | Mark item |
-| DELETE | /{token}/items/{item_id}/mark | Bearer | Unmark |
-| POST | /{token}/bookmark | Bearer | Create bookmark |
-| DELETE | /{token}/bookmark | Bearer | Delete bookmark |
+| POST | /{token}/grant-access | Bearer | Grant access to shared wishlist |
 
-### Item Resolver (`/resolver/v1`)
+*Note: Most shared wishlist operations (view, mark, bookmark) are handled via PouchDB sync.*
+
+### Item Resolver
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | /resolve | Extract metadata from URL |
+| GET | /healthz | Health check |
+| POST | /resolver/v1/resolve | Extract metadata from URL |
 | POST | /v1/page_source | Fetch page HTML |
 | POST | /v1/image_base64 | Fetch image as base64 |
 
@@ -132,21 +137,26 @@ All docs use **type-prefixed IDs** (`{type}:{uuid}`) and **`access` array** for 
 ### User (`user:{uuid}`)
 ```json
 {"type": "user", "email": "...", "password_hash": "...", "name": "...",
- "avatar_base64": "...", "locale": "ru|en", "refresh_tokens": [...],
- "access": ["user:self"], "created_at": "...", "updated_at": "..."}
+ "avatar_base64": "...", "bio": "...", "public_url_slug": "...", "birthday": "...",
+ "locale": "ru|en", "refresh_tokens": [...],
+ "access": ["user:{uuid}"], "created_at": "...", "updated_at": "..."}
 ```
 
 ### Wishlist (`wishlist:{uuid}`)
 ```json
-{"type": "wishlist", "owner_id": "user:...", "name": "...", "icon": "cake",
+{"type": "wishlist", "owner_id": "user:...", "name": "...", "description": "...",
+ "icon": "card_giftcard", "is_public": false,
  "access": ["user:owner", "user:granted..."], "created_at": "...", "updated_at": "..."}
 ```
 
 ### Item (`item:{uuid}`)
 ```json
 {"type": "item", "wishlist_id": "...", "owner_id": "...", "title": "...",
- "price": 100, "currency": "RUB", "source_url": "...", "image_base64": "...",
- "status": "pending|in_progress|resolved|error", "skip_resolution": false,
+ "description": "...", "price": 100, "currency": "RUB", "quantity": 1,
+ "source_url": "...", "image_url": "...", "image_base64": "...",
+ "status": "pending|in_progress|resolved|error",
+ "resolve_confidence": 0.95, "resolve_error": "...", "resolved_at": "...", "resolved_by": "...",
+ "claimed_by": "...", "claimed_at": "...", "lease_expires_at": "...",
  "access": ["..."], "created_at": "...", "updated_at": "..."}
 ```
 
@@ -154,20 +164,25 @@ All docs use **type-prefixed IDs** (`{type}:{uuid}`) and **`access` array** for 
 ```json
 {"type": "mark", "item_id": "...", "wishlist_id": "...", "owner_id": "...",
  "marked_by": "user:...", "quantity": 1,
- "access": ["user:marked_by"]}  // EXCLUDES owner!
+ "access": ["user:all_viewers_except_owner"],
+ "created_at": "...", "updated_at": "..."}
 ```
+*Note: `access` includes all wishlist viewers EXCEPT owner (surprise mode).*
 
 ### Share (`share:{uuid}`)
 ```json
 {"type": "share", "wishlist_id": "...", "owner_id": "...", "token": "...",
  "link_type": "view|mark", "expires_at": null, "granted_users": [...],
- "access": ["user:owner"]}
+ "access_count": 0, "revoked": false,
+ "access": ["user:owner"], "created_at": "..."}
 ```
 
 ### Bookmark (`bookmark:{uuid}`)
 ```json
 {"type": "bookmark", "user_id": "...", "share_id": "...", "wishlist_id": "...",
- "owner_name": "...", "wishlist_name": "...", "access": ["user:self"]}
+ "owner_name": "...", "owner_avatar_base64": "...",
+ "wishlist_name": "...", "wishlist_icon": "...",
+ "access": ["user:{uuid}"], "created_at": "...", "last_accessed_at": "..."}
 ```
 
 ## Access Control
@@ -213,10 +228,11 @@ selector = {"type": doc_type, "access": {"$elemMatch": {"$eq": user_id}}}
 | /wishlists | WishlistsPage | Yes |
 | /wishlists/:id | WishlistDetailPage | Yes |
 | /s/:token | SharedWishlistPage | Yes |
+| /shared/wishlist/:wishlistId | SharedWishlistPage | Yes |
 | /profile, /settings | Profile pages | Yes |
 | /auth/callback | OAuth callback | No |
 
-**Components:** ItemCard, SharedItemCard, AddItemDialog, ShareDialog, SocialLoginButtons, SyncStatus, OfflineBanner
+**Components:** ItemCard, SharedItemCard, AddItemDialog, ShareDialog, SocialLoginButtons, SyncStatus, OfflineBanner, AppInstallPrompt, BackgroundDecorations
 
 **Stores:** auth (user, tokens), wishlist (CRUD), item (CRUD)
 
@@ -253,9 +269,16 @@ selector = {"type": doc_type, "access": {"$elemMatch": {"$eq": user_id}}}
 | REFRESH_TOKEN_EXPIRE_DAYS | 30 | |
 | GOOGLE_CLIENT_ID/SECRET | - | |
 | YANDEX_CLIENT_ID/SECRET | - | |
+| OAUTH_STATE_SECRET | - | For OAuth state HMAC |
 | API_BASE_URL | https://api.wishwith.me | |
 | FRONTEND_CALLBACK_URL | https://wishwith.me/auth/callback | |
-| ITEM_RESOLVER_URL/TOKEN/TIMEOUT | -/-/180 | |
+| ITEM_RESOLVER_URL | http://localhost:8080 | |
+| ITEM_RESOLVER_TOKEN | dev-token | |
+| ITEM_RESOLVER_TIMEOUT | 180 | |
+| CORS_ORIGINS | (see config.py) | |
+| CORS_ALLOW_ALL | false | |
+| DEBUG | false | |
+| ENVIRONMENT | development | |
 
 ### Item Resolver
 | Var | Default | Required |
@@ -263,14 +286,23 @@ selector = {"type": doc_type, "access": {"$elemMatch": {"$eq": user_id}}}
 | RU_BEARER_TOKEN | - | Yes |
 | RU_FETCHER_MODE | playwright | |
 | COUCHDB_URL/DATABASE | localhost/wishwithme | |
+| COUCHDB_ADMIN_USER/PASSWORD | admin/- | |
 | COUCHDB_WATCHER_ENABLED | true | |
-| INSTANCE_ID | hostname | |
+| INSTANCE_ID | HOSTNAME or socket.gethostname() | |
 | LEASE_DURATION_SECONDS | 300 | |
+| SWEEP_INTERVAL_SECONDS | 60 | |
 | LLM_MODE/BASE_URL/API_KEY/MODEL | live/-/-/- | |
 | LLM_MAX_CHARS | 100000 | |
+| LLM_TIMEOUT_S | 60 | |
+| LLM_CLIENT_TYPE | auto (vision/text) | |
 | BROWSER_CHANNEL | chromium | |
 | HEADLESS | true | |
 | MAX_CONCURRENCY | 2 | |
+| STORAGE_STATE_DIR | storage_state | |
+| PAGE_TIMEOUT_MS | 90000 | |
+| PAGE_WAIT_UNTIL | load | |
+| RANDOM_UA | false | |
+| PROXY_SERVER/USERNAME/PASSWORD/BYPASS | - | |
 | SSRF_ALLOWLIST_HOSTS | - | |
 
 ### Frontend (build-time)
@@ -284,9 +316,9 @@ selector = {"type": doc_type, "access": {"$elemMatch": {"$eq": user_id}}}
 
 | Service | Framework | Location | Count |
 |---------|-----------|----------|-------|
-| Frontend | Vitest | src/**/__tests__/ | 248 |
-| Core API | pytest | tests/ | 150 |
-| Item Resolver | pytest | tests/ | 247 |
+| Frontend | Vitest | src/**/__tests__/ | 290 |
+| Core API | pytest | tests/ | 154 |
+| Item Resolver | pytest | tests/ | 305 |
 
 ```bash
 # Frontend
