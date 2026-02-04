@@ -566,6 +566,13 @@ export function startSync(
 // Track pending sync promise for waiting
 let currentSyncPromise: Promise<void> | null = null;
 
+// Debounce state for triggerSync
+const SYNC_DEBOUNCE_MS = 1000; // Coalesce calls within 1 second
+let debouncedSyncTimer: ReturnType<typeof setTimeout> | null = null;
+let debouncedSyncPromise: Promise<void> | null = null;
+let debouncedSyncResolvers: Array<() => void> = [];
+let debouncedSyncRejecters: Array<(error: Error) => void> = [];
+
 /**
  * Wait for any in-progress sync to complete.
  */
@@ -580,14 +587,11 @@ async function waitForSyncComplete(): Promise<void> {
 }
 
 /**
- * Trigger an immediate sync (e.g., after local write).
- * If a sync is already in progress, waits for it to complete then performs another sync.
- * Uses the token manager set up by startSync() for fresh tokens.
+ * Execute the actual sync operation.
  */
-export async function triggerSync(): Promise<void> {
+async function executeSync(): Promise<void> {
   // If sync is already in progress, wait for it to complete first
   if (syncStatus === 'syncing') {
-    console.log('[PouchDB] Sync in progress, waiting for completion...');
     await waitForSyncComplete();
     // After waiting, check again (another trigger might have started)
     if (syncStatus === 'syncing') {
@@ -615,6 +619,7 @@ export async function triggerSync(): Promise<void> {
       console.error('[PouchDB] Trigger sync error:', error);
       setSyncStatus('error');
       syncCallbacks.onError?.(error as Error);
+      throw error;
     }
   };
 
@@ -622,6 +627,52 @@ export async function triggerSync(): Promise<void> {
   currentSyncPromise = doSync();
   await currentSyncPromise;
   currentSyncPromise = null;
+}
+
+/**
+ * Trigger a sync with debouncing.
+ * Multiple calls within SYNC_DEBOUNCE_MS are coalesced into a single sync.
+ * All callers receive the same promise that resolves when sync completes.
+ */
+export function triggerSync(): Promise<void> {
+  // If there's already a debounced sync waiting, return its promise
+  if (debouncedSyncPromise) {
+    return debouncedSyncPromise;
+  }
+
+  // Create a new promise that all callers within the debounce window will share
+  debouncedSyncPromise = new Promise<void>((resolve, reject) => {
+    debouncedSyncResolvers.push(resolve);
+    debouncedSyncRejecters.push(reject);
+  });
+
+  // Clear any existing timer
+  if (debouncedSyncTimer) {
+    clearTimeout(debouncedSyncTimer);
+  }
+
+  // Set up debounced execution
+  debouncedSyncTimer = setTimeout(async () => {
+    const resolvers = debouncedSyncResolvers;
+    const rejecters = debouncedSyncRejecters;
+
+    // Reset state before executing
+    debouncedSyncTimer = null;
+    debouncedSyncPromise = null;
+    debouncedSyncResolvers = [];
+    debouncedSyncRejecters = [];
+
+    try {
+      await executeSync();
+      // Resolve all waiting promises
+      resolvers.forEach(resolve => resolve());
+    } catch (error) {
+      // Reject all waiting promises
+      rejecters.forEach(reject => reject(error as Error));
+    }
+  }, SYNC_DEBOUNCE_MS);
+
+  return debouncedSyncPromise;
 }
 
 /**
