@@ -151,10 +151,13 @@ async def get_current_user_info(
     current_user: CurrentUser,
 ) -> UserResponse:
     """Get current authenticated user's information."""
+    user_email = current_user.get("email") or f"{current_user['_id']}@unknown.oauth"
+    user_name = current_user.get("name") or user_email.split("@")[0]
+
     return UserResponse(
         id=current_user["_id"],
-        email=current_user["email"],
-        name=current_user["name"],
+        email=user_email,
+        name=user_name,
         avatar_base64=current_user.get("avatar_base64"),
         bio=current_user.get("bio"),
         public_url_slug=current_user.get("public_url_slug"),

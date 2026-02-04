@@ -245,10 +245,13 @@ class CouchDBAuthService:
 
     def _user_to_response(self, user: dict) -> UserResponse:
         """Convert CouchDB user document to UserResponse."""
+        user_email = user.get("email") or f"{user['_id']}@unknown.oauth"
+        user_name = user.get("name") or user_email.split("@")[0]
+
         return UserResponse(
             id=user["_id"],
-            email=user["email"],
-            name=user["name"],
+            email=user_email,
+            name=user_name,
             avatar_base64=user.get("avatar_base64"),
             bio=user.get("bio"),
             public_url_slug=user.get("public_url_slug"),
