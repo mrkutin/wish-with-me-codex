@@ -328,6 +328,7 @@ import {
   softDelete,
   findById,
   extractId,
+  onSyncComplete,
 } from '@/services/pouchdb';
 import type { BookmarkDoc, ShareDoc, WishlistDoc } from '@/services/pouchdb';
 import ShareDialog from '@/components/ShareDialog.vue';
@@ -350,6 +351,7 @@ const sharedBookmarks = ref<SharedWishlistBookmark[]>([]);
 const isLoadingBookmarks = ref(false);
 const itemCounts = ref<Record<string, number>>({});
 let unsubscribeBookmarks: (() => void) | null = null;
+let unsubscribeSyncComplete: (() => void) | null = null;
 
 const iconOptions = [
   { value: 'card_giftcard', label: 'Gift' },
@@ -647,6 +649,11 @@ onMounted(async () => {
   // Setup PouchDB subscription for real-time bookmark updates
   setupBookmarkSubscription();
 
+  // Subscribe to sync completion to refresh item counts after sync
+  unsubscribeSyncComplete = onSyncComplete(() => {
+    fetchItemCounts();
+  });
+
   // Check for tab query parameter
   const tabParam = route.query.tab as string;
   if (tabParam === 'shared') {
@@ -659,6 +666,10 @@ onMounted(async () => {
 
 onUnmounted(() => {
   cleanupBookmarkSubscription();
+  if (unsubscribeSyncComplete) {
+    unsubscribeSyncComplete();
+    unsubscribeSyncComplete = null;
+  }
 });
 </script>
 
