@@ -2,7 +2,7 @@
 
 from datetime import date
 from enum import Enum
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 
 
 class OAuthProvider(str, Enum):
@@ -17,7 +17,17 @@ class OAuthUserInfo(BaseModel):
 
     provider: OAuthProvider
     provider_user_id: str
-    email: EmailStr | None = None
+    email: str | None = None  # Use str instead of EmailStr to avoid validation errors
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, v):
+        """Normalize email - convert empty strings to None."""
+        if v is None or v == "":
+            return None
+        if isinstance(v, str):
+            return v.strip().lower()
+        return v
     name: str | None = None
     avatar_url: str | None = None
     birthday: date | None = None

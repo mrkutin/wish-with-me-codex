@@ -1,9 +1,12 @@
 """OAuth authentication router - CouchDB-based."""
 
 import logging
+import traceback
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
+from pydantic import ValidationError
 
 from app.config import settings
 from app.dependencies import CurrentUser
@@ -21,6 +24,14 @@ from app.services.oauth import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _build_error_redirect(error_code: str, message: str | None = None) -> RedirectResponse:
+    """Build redirect URL with error information."""
+    url = f"{settings.frontend_callback_url}?error={error_code}"
+    if message:
+        url += f"&error_message={quote(message[:200])}"  # Limit message length
+    return RedirectResponse(url=url, status_code=status.HTTP_302_FOUND)
 
 router = APIRouter(prefix="/api/v1/oauth", tags=["oauth"])
 
@@ -138,19 +149,24 @@ async def oauth_callback(
             status_code=status.HTTP_302_FOUND,
         )
 
+    except ValidationError as e:
+        error_details = str(e)
+        logger.error(f"OAuth validation error: {error_details}")
+        logger.error(f"Validation error details: {e.errors()}")
+        return _build_error_redirect("validation_error", "Invalid data from OAuth provider")
+
     except ValueError as e:
         logger.error(f"OAuth callback error: {e}")
-        return RedirectResponse(
-            url=f"{settings.frontend_callback_url}?error=auth_failed",
-            status_code=status.HTTP_302_FOUND,
-        )
+        return _build_error_redirect("auth_failed", str(e))
 
     except Exception as e:
-        logger.exception(f"Unexpected OAuth error: {e}")
-        return RedirectResponse(
-            url=f"{settings.frontend_callback_url}?error=server_error",
-            status_code=status.HTTP_302_FOUND,
-        )
+        # Log full traceback for debugging
+        error_msg = str(e)
+        error_type = type(e).__name__
+        tb = traceback.format_exc()
+        logger.error(f"Unexpected OAuth error ({error_type}): {error_msg}")
+        logger.error(f"Full traceback:\n{tb}")
+        return _build_error_redirect("server_error", f"{error_type}: {error_msg}")
 
 
 @router.post("/{provider}/link/initiate")

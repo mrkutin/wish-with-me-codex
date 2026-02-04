@@ -45,18 +45,26 @@ const loginRedirect = computed(() => ({
 
 const PENDING_SHARE_TOKEN_KEY = 'pending_share_token';
 
-function getErrorMessage(error: string, email?: string, provider?: string): string {
+function getErrorMessage(
+  error: string,
+  email?: string,
+  provider?: string,
+  errorMessage?: string
+): string {
   switch (error) {
     case 'email_exists':
       return t('oauth.emailConflict', { email: email || '', provider: provider || '' });
     case 'already_linked':
       return t('oauth.alreadyLinked', { provider: provider || '' });
     case 'auth_failed':
-      return t('oauth.authFailed');
+      return errorMessage || t('oauth.authFailed');
+    case 'validation_error':
+      return errorMessage || t('errors.generic');
     case 'server_error':
-      return t('errors.generic');
+      // Show detailed error message if provided for debugging
+      return errorMessage || t('errors.generic');
     default:
-      return error || t('errors.generic');
+      return errorMessage || error || t('errors.generic');
   }
 }
 
@@ -68,7 +76,8 @@ async function processCallback(): Promise<void> {
     const error = query.error as string;
     const email = query.email as string | undefined;
     const provider = query.provider as string | undefined;
-    errorMessage.value = getErrorMessage(error, email, provider);
+    const errorDetail = query.error_message as string | undefined;
+    errorMessage.value = getErrorMessage(error, email, provider, errorDetail);
     isEmailExistsError.value = error === 'email_exists';
     isProcessing.value = false;
     return;
