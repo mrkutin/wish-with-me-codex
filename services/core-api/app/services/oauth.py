@@ -459,11 +459,15 @@ class OAuthService:
         user["updated_at"] = now
         await self.db.put(user)
 
+        # Use .get() for email and name to handle legacy users without these fields
+        user_email = user.get("email") or f"{user['_id']}@unknown.oauth"
+        user_name = user.get("name") or user_email.split("@")[0]
+
         return AuthResponse(
             user=UserResponse(
                 id=user["_id"],
-                email=user["email"],
-                name=user["name"],
+                email=user_email,
+                name=user_name,
                 avatar_base64=user.get("avatar_base64"),
                 bio=user.get("bio"),
                 public_url_slug=user.get("public_url_slug"),
