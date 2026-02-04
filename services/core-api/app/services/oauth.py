@@ -167,9 +167,21 @@ class OAuthService:
             redirect_uri=redirect_uri,
         )
 
+        logger.debug(f"OAuth token response keys: {list(token.keys()) if token else 'None'}")
+
         userinfo = None
         if provider in (OAuthProvider.GOOGLE, OAuthProvider.YANDEX):
-            userinfo = await client.userinfo(token=token)
+            try:
+                userinfo = await client.userinfo(token=token)
+                logger.debug(f"OAuth userinfo keys: {list(userinfo.keys()) if userinfo else 'None'}")
+            except KeyError as e:
+                # authlib may raise KeyError if token structure is unexpected
+                logger.warning(f"Failed to fetch userinfo, will use token claims: {e}")
+                # For Google OIDC, userinfo is embedded in the token response
+                userinfo = token.get("userinfo") or {}
+            except Exception as e:
+                logger.warning(f"Userinfo endpoint failed: {type(e).__name__}: {e}")
+                userinfo = token.get("userinfo") or {}
 
         user_info = await parse_user_info(provider, token, userinfo)
         return user_info, state_data

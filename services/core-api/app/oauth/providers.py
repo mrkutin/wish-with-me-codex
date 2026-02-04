@@ -150,16 +150,33 @@ async def _fetch_google_birthday(access_token: str) -> date | None:
 
 async def _parse_google_user(token: dict, userinfo: dict | None) -> OAuthUserInfo:
     """Parse Google user info."""
-    # Google returns userinfo in the token response via OIDC
-    info = userinfo or token.get("userinfo", {})
+    # Google returns userinfo in multiple places:
+    # 1. Direct userinfo response from userinfo endpoint
+    # 2. token.get("userinfo") - parsed ID token claims
+    # 3. token itself might contain claims directly
+    info = userinfo or token.get("userinfo") or {}
+
+    # If info is empty, try to extract from token directly (fallback)
+    if not info.get("sub"):
+        # Look for claims in the token response itself
+        for key in ["sub", "email", "name", "picture"]:
+            if key in token and key not in info:
+                info[key] = token[key]
+
+    logger.debug(f"Google user info parsed: sub={info.get('sub')}, email={info.get('email')}")
 
     # Birthday requires user.birthday.read scope which needs Google verification
     # Skip birthday fetch - use basic profile scopes only
     birthday = None
 
+    provider_user_id = info.get("sub", "")
+    if not provider_user_id:
+        logger.error(f"Missing 'sub' claim in Google user info. Token keys: {list(token.keys())}")
+        raise ValueError("Missing user ID (sub claim) from Google OAuth response")
+
     return OAuthUserInfo(
         provider=OAuthProvider.GOOGLE,
-        provider_user_id=info.get("sub", ""),
+        provider_user_id=provider_user_id,
         email=info.get("email"),
         name=info.get("name"),
         avatar_url=info.get("picture"),
