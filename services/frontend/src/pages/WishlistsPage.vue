@@ -319,11 +319,20 @@ import { useQuasar } from 'quasar';
 import { useI18n } from 'vue-i18n';
 import { useWishlistStore } from '@/stores/wishlist';
 import { useAuthStore } from '@/stores/auth';
-import { api } from '@/boot/axios';
-import { triggerSync, subscribeToBookmarks, getItemCounts } from '@/services/pouchdb';
+import {
+  triggerSync,
+  subscribeToBookmarks,
+  getItemCounts,
+  getBookmarks,
+  getItems,
+  softDelete,
+  findById,
+  extractId,
+} from '@/services/pouchdb';
+import type { BookmarkDoc, ShareDoc, WishlistDoc } from '@/services/pouchdb';
 import ShareDialog from '@/components/ShareDialog.vue';
 import type { Wishlist } from '@/types/wishlist';
-import type { SharedWishlistBookmark, SharedWishlistBookmarkListResponse } from '@/types/share';
+import type { SharedWishlistBookmark } from '@/types/share';
 
 const route = useRoute();
 const router = useRouter();
@@ -379,17 +388,56 @@ async function fetchItemCounts() {
 }
 
 async function fetchBookmarks(silent = false) {
+  if (!authStore.user) return;
+
   if (!silent) {
     isLoadingBookmarks.value = true;
   }
   try {
     // Trigger sync first to get latest bookmarks from server
-    if (authStore.token) {
-      await triggerSync();
+    await triggerSync();
+
+    // Fetch bookmarks from local PouchDB and construct enriched response
+    const bookmarks = await getBookmarks(authStore.user.id);
+    const enriched: SharedWishlistBookmark[] = [];
+
+    for (const bm of bookmarks) {
+      // Get share document for the token
+      const share = bm.share_id ? await findById<ShareDoc>(bm.share_id) : null;
+
+      // Get wishlist for item count and fallback info
+      const wishlistId = bm.wishlist_id || share?.wishlist_id;
+      let itemCount = 0;
+      let wishlistDoc: WishlistDoc | null = null;
+
+      if (wishlistId) {
+        wishlistDoc = await findById<WishlistDoc>(wishlistId);
+        const items = await getItems(wishlistId);
+        itemCount = items.length;
+      }
+
+      // Construct the enriched bookmark using cached data + local data
+      enriched.push({
+        id: extractId(bm._id),
+        wishlist_id: wishlistId ? extractId(wishlistId) : '',
+        share_token: share?.token || '',
+        last_accessed_at: bm.last_accessed_at || bm.created_at,
+        wishlist: {
+          id: wishlistId ? extractId(wishlistId) : '',
+          title: bm.wishlist_name || wishlistDoc?.name || 'Unknown',
+          description: wishlistDoc?.description || null,
+          icon: bm.wishlist_icon || wishlistDoc?.icon || 'card_giftcard',
+          owner: {
+            id: wishlistDoc?.owner_id ? extractId(wishlistDoc.owner_id) : '',
+            name: bm.owner_name || 'Unknown',
+            avatar_base64: bm.owner_avatar_base64 || '',
+          },
+          item_count: itemCount,
+        },
+      });
     }
-    // Fetch enriched bookmark list via REST (includes wishlist details, owner, item count)
-    const response = await api.get<SharedWishlistBookmarkListResponse>('/api/v1/shared/bookmarks');
-    sharedBookmarks.value = response.data.items;
+
+    sharedBookmarks.value = enriched;
   } catch (error) {
     if (!silent) {
       console.error('Failed to fetch bookmarks:', error);
@@ -545,13 +593,22 @@ async function removeBookmark(bookmark: SharedWishlistBookmark) {
     persistent: true,
   }).onOk(async () => {
     try {
-      await api.delete(`/api/v1/shared/${bookmark.share_token}/bookmark`);
+      // Soft delete the bookmark locally
+      const bookmarkId = `bookmark:${bookmark.id}`;
+      await softDelete(bookmarkId);
+
+      // Remove from local display immediately
       sharedBookmarks.value = sharedBookmarks.value.filter(b => b.id !== bookmark.id);
+
+      // Sync to push the deletion to server
+      await triggerSync();
+
       $q.notify({
         type: 'info',
         message: t('wishlists.bookmarkRemoved'),
       });
     } catch (error) {
+      console.error('Failed to remove bookmark:', error);
       $q.notify({
         type: 'negative',
         message: t('errors.generic'),
