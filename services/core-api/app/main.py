@@ -45,14 +45,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"] if settings.cors_allow_all else settings.cors_origins,
-    allow_credentials=not settings.cors_allow_all,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
-)
+# CORS is handled by nginx to ensure headers are present on ALL responses
+# including error responses from exception handlers
+# DO NOT enable CORSMiddleware here - it causes duplicate headers
 
 
 @app.middleware("http")
