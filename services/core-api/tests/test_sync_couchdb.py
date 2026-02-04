@@ -1590,3 +1590,197 @@ class TestUserSync:
         mock_db.put.assert_called_once()
         saved_doc = mock_db.put.call_args[0][0]
         assert saved_doc["access"] == [user_id]
+
+
+# =============================================================================
+# SHARE SYNC TESTS
+# =============================================================================
+
+
+class TestShareSync:
+    """Tests for shares collection sync."""
+
+    # -------------------------------------------------------------------------
+    # Pull tests
+    # -------------------------------------------------------------------------
+    @pytest.mark.asyncio
+    async def test_pull_shares_returns_only_user_owned_non_revoked(
+        self,
+        client_with_mock_db: tuple[AsyncClient, MagicMock],
+        auth_token: str,
+        user_id: str,
+        wishlist_id: str,
+    ):
+        """Pull shares returns only non-revoked shares owned by the user."""
+        client, mock_db = client_with_mock_db
+
+        user_share = {
+            "_id": f"share:{uuid4()}",
+            "type": "share",
+            "wishlist_id": wishlist_id,
+            "owner_id": user_id,
+            "token": "abc123",
+            "link_type": "mark",
+            "revoked": False,
+            "access": [user_id],
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        mock_db.find = AsyncMock(return_value=[user_share])
+
+        response = await client.get(
+            "/api/v2/sync/pull/shares",
+            headers={"Authorization": f"Bearer {auth_token}"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["documents"]) == 1
+        assert data["documents"][0]["_id"] == user_share["_id"]
+
+        # Verify correct selector was used
+        mock_db.find.assert_called_once()
+        call_kwargs = mock_db.find.call_args[1]
+        selector = call_kwargs["selector"]
+        assert selector["type"] == "share"
+        assert selector["owner_id"] == user_id
+        assert selector["revoked"] == {"$ne": True}
+
+    @pytest.mark.asyncio
+    async def test_pull_shares_excludes_revoked(
+        self,
+        client_with_mock_db: tuple[AsyncClient, MagicMock],
+        auth_token: str,
+        user_id: str,
+        wishlist_id: str,
+    ):
+        """Pull shares excludes revoked shares."""
+        client, mock_db = client_with_mock_db
+
+        # Only non-revoked share should be returned by the find query
+        mock_db.find = AsyncMock(return_value=[])
+
+        response = await client.get(
+            "/api/v2/sync/pull/shares",
+            headers={"Authorization": f"Bearer {auth_token}"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["documents"]) == 0
+
+    # -------------------------------------------------------------------------
+    # Push tests
+    # -------------------------------------------------------------------------
+    @pytest.mark.asyncio
+    async def test_push_share_as_owner_succeeds(
+        self,
+        client_with_mock_db: tuple[AsyncClient, MagicMock],
+        auth_token: str,
+        user_id: str,
+        wishlist_id: str,
+    ):
+        """User can push their own share document."""
+        client, mock_db = client_with_mock_db
+
+        share_id = f"share:{uuid4()}"
+        share_doc = {
+            "_id": share_id,
+            "type": "share",
+            "wishlist_id": wishlist_id,
+            "owner_id": user_id,
+            "token": "abc123",
+            "link_type": "mark",
+            "revoked": False,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        async def mock_get(doc_id: str) -> dict[str, Any]:
+            if doc_id == user_id:
+                return {"_id": user_id, "type": "user"}
+            raise DocumentNotFoundError(doc_id)
+
+        mock_db.get = AsyncMock(side_effect=mock_get)
+        mock_db.put = AsyncMock(return_value={"ok": True, "rev": "1-abc"})
+
+        response = await client.post(
+            "/api/v2/sync/push/shares",
+            headers={"Authorization": f"Bearer {auth_token}"},
+            json={"documents": [share_doc]},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["conflicts"] == []
+
+        # Verify document was saved with access array
+        mock_db.put.assert_called_once()
+        saved_doc = mock_db.put.call_args[0][0]
+        assert saved_doc["access"] == [user_id]
+
+    @pytest.mark.asyncio
+    async def test_push_share_as_non_owner_fails(
+        self,
+        client_with_mock_db: tuple[AsyncClient, MagicMock],
+        auth_token: str,
+        user_id: str,
+        another_user_id: str,
+        wishlist_id: str,
+    ):
+        """User cannot push share documents they don't own."""
+        client, mock_db = client_with_mock_db
+
+        # Share owned by another user
+        share_doc = {
+            "_id": f"share:{uuid4()}",
+            "type": "share",
+            "wishlist_id": wishlist_id,
+            "owner_id": another_user_id,  # Different user owns this
+            "token": "abc123",
+            "link_type": "mark",
+            "revoked": False,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        response = await client.post(
+            "/api/v2/sync/push/shares",
+            headers={"Authorization": f"Bearer {auth_token}"},
+            json={"documents": [share_doc]},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["conflicts"]) == 1
+        assert data["conflicts"][0]["error"] == "Unauthorized: not the share owner"
+
+        # Verify document was NOT saved
+        mock_db.put.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_push_share_type_mismatch_fails(
+        self,
+        client_with_mock_db: tuple[AsyncClient, MagicMock],
+        auth_token: str,
+        user_id: str,
+        wishlist_id: str,
+    ):
+        """Push to shares collection with wrong type fails."""
+        client, mock_db = client_with_mock_db
+
+        wrong_type_doc = {
+            "_id": f"share:{uuid4()}",
+            "type": "wishlist",  # Wrong type
+            "owner_id": user_id,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        response = await client.post(
+            "/api/v2/sync/push/shares",
+            headers={"Authorization": f"Bearer {auth_token}"},
+            json={"documents": [wrong_type_doc]},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["conflicts"]) == 1
+        assert "type mismatch" in data["conflicts"][0]["error"]

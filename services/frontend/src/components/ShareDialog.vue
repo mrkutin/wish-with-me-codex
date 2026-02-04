@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue';
+import { ref, watch, computed, onUnmounted } from 'vue';
 import { useQuasar, copyToClipboard } from 'quasar';
 import { useI18n } from 'vue-i18n';
 import { api } from '@/boot/axios';
-import type { ShareLink, ShareLinkListResponse } from '@/types/share';
+import { useAuthStore } from '@/stores/auth';
+import { getShares, subscribeToShares, extractId, triggerSync } from '@/services/pouchdb';
+import type { ShareDoc } from '@/services/pouchdb';
+import type { ShareLink } from '@/types/share';
 
 interface Props {
   modelValue: boolean;
@@ -18,6 +21,7 @@ const emit = defineEmits<{
 
 const $q = useQuasar();
 const { t } = useI18n();
+const authStore = useAuthStore();
 
 const shareLinks = ref<ShareLink[]>([]);
 const isLoading = ref(false);
@@ -27,19 +31,55 @@ const newLinkType = ref<'mark' | 'view'>('mark');
 const showQrDialog = ref(false);
 const currentQrCode = ref<string | null>(null);
 
+// Subscription cleanup
+let unsubscribe: (() => void) | null = null;
+
 const isOpen = computed({
   get: () => props.modelValue,
   set: (value) => emit('update:modelValue', value),
 });
 
+/**
+ * Generate share URL from token.
+ */
+function getShareUrl(token: string): string {
+  const hostname = window.location.hostname;
+  const protocol = window.location.protocol;
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return `${protocol}//${hostname}:${window.location.port}/s/${token}`;
+  }
+  return `${protocol}//${hostname}/s/${token}`;
+}
+
+/**
+ * Convert ShareDoc from PouchDB to ShareLink format.
+ */
+function shareDocToLink(doc: ShareDoc): ShareLink {
+  return {
+    id: extractId(doc._id),
+    wishlist_id: doc.wishlist_id,
+    token: doc.token,
+    link_type: doc.link_type,
+    expires_at: doc.expires_at || null,
+    access_count: doc.access_count,
+    created_at: doc.created_at,
+    share_url: getShareUrl(doc.token),
+    // QR code is generated server-side, may not be available from PouchDB
+    qr_code_base64: (doc as ShareDoc & { qr_code_base64?: string }).qr_code_base64,
+  };
+}
+
 async function fetchShareLinks() {
   isLoading.value = true;
   try {
-    const response = await api.get<ShareLinkListResponse>(
-      `/api/v1/wishlists/${props.wishlistId}/share`
-    );
-    shareLinks.value = response.data.items;
+    const userId = authStore.userId;
+    if (!userId) return;
+
+    // Get shares from PouchDB (offline-first)
+    const shares = await getShares(props.wishlistId, userId);
+    shareLinks.value = shares.map(shareDocToLink);
   } catch (error) {
+    console.error('[ShareDialog] Error fetching shares:', error);
     $q.notify({
       type: 'negative',
       message: t('errors.generic'),
@@ -59,11 +99,14 @@ async function createShareLink() {
         expires_in_days: newLinkExpiry.value,
       }
     );
+    // Add to local list immediately for responsive UI
     shareLinks.value.unshift(response.data);
     $q.notify({
       type: 'positive',
       message: t('sharing.linkCreated'),
     });
+    // Trigger sync to pull the new share into PouchDB
+    triggerSync().catch(console.error);
   } catch (error) {
     $q.notify({
       type: 'negative',
@@ -83,11 +126,14 @@ async function revokeShareLink(link: ShareLink) {
   }).onOk(async () => {
     try {
       await api.delete(`/api/v1/wishlists/${props.wishlistId}/share/${link.id}`);
+      // Remove from local list immediately for responsive UI
       shareLinks.value = shareLinks.value.filter(l => l.id !== link.id);
       $q.notify({
         type: 'info',
         message: t('sharing.linkRevoked'),
       });
+      // Trigger sync to update PouchDB
+      triggerSync().catch(console.error);
     } catch (error) {
       $q.notify({
         type: 'negative',
@@ -131,8 +177,29 @@ function closeQrDialog() {
 watch(isOpen, (open) => {
   if (open) {
     fetchShareLinks();
+
+    // Subscribe to share changes for real-time updates
+    const userId = authStore.userId;
+    if (userId) {
+      unsubscribe = subscribeToShares(props.wishlistId, userId, (shares) => {
+        shareLinks.value = shares.map(shareDocToLink);
+      });
+    }
   } else {
     closeQrDialog();
+    // Cleanup subscription when dialog closes
+    if (unsubscribe) {
+      unsubscribe();
+      unsubscribe = null;
+    }
+  }
+});
+
+// Cleanup on unmount
+onUnmounted(() => {
+  if (unsubscribe) {
+    unsubscribe();
+    unsubscribe = null;
   }
 });
 </script>

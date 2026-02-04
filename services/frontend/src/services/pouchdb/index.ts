@@ -16,6 +16,7 @@ import type {
   WishlistDoc,
   ItemDoc,
   MarkDoc,
+  ShareDoc,
   BookmarkDoc,
   PouchDBFindOptions,
   PouchDBChange,
@@ -229,7 +230,7 @@ let failedPushDocIds: Set<string> = new Set();
  * Excludes documents that failed to push (to preserve local changes until successfully synced).
  */
 async function pullFromServer(
-  collections: Array<'wishlists' | 'items' | 'marks' | 'bookmarks' | 'users'>
+  collections: Array<'wishlists' | 'items' | 'marks' | 'bookmarks' | 'users' | 'shares'>
 ): Promise<void> {
   const localDb = getDatabase();
   const baseUrl = getApiBaseUrl();
@@ -241,6 +242,7 @@ async function pullFromServer(
     marks: 'mark',
     bookmarks: 'bookmark',
     users: 'user',
+    shares: 'share',
   };
 
   for (const collection of collections) {
@@ -365,7 +367,7 @@ async function pullFromServer(
  * Tracks documents that fail to push for reconciliation skip.
  */
 async function pushToServer(
-  collections: Array<'wishlists' | 'items' | 'marks' | 'bookmarks' | 'users'>
+  collections: Array<'wishlists' | 'items' | 'marks' | 'bookmarks' | 'users' | 'shares'>
 ): Promise<void> {
   // Clear failed push tracking at start of new push cycle
   failedPushDocIds = new Set();
@@ -380,6 +382,7 @@ async function pushToServer(
     marks: 'mark',
     bookmarks: 'bookmark',
     users: 'user',
+    shares: 'share',
   };
 
   for (const collection of collections) {
@@ -416,6 +419,9 @@ async function pushToServer(
         } else if (collection === 'users') {
           // Only push the current user's own document
           docs = docs.filter(doc => doc._id === currentSyncUserId);
+        } else if (collection === 'shares') {
+          // Only push shares owned by the current user
+          docs = docs.filter(doc => (doc as ShareDoc).owner_id === currentSyncUserId);
         }
       }
 
@@ -515,7 +521,7 @@ export function startSync(
   syncAbortController = new AbortController();
 
   const interval = options?.interval || 30000;
-  const collections: Array<'wishlists' | 'items' | 'marks' | 'bookmarks' | 'users'> = ['wishlists', 'items', 'marks', 'bookmarks', 'users'];
+  const collections: Array<'wishlists' | 'items' | 'marks' | 'bookmarks' | 'users' | 'shares'> = ['wishlists', 'items', 'marks', 'bookmarks', 'users', 'shares'];
 
   // Initial sync
   const doSync = async () => {
@@ -606,7 +612,7 @@ async function executeSync(): Promise<void> {
     return;
   }
 
-  const collections: Array<'wishlists' | 'items' | 'marks' | 'bookmarks' | 'users'> = ['wishlists', 'items', 'marks', 'bookmarks', 'users'];
+  const collections: Array<'wishlists' | 'items' | 'marks' | 'bookmarks' | 'users' | 'shares'> = ['wishlists', 'items', 'marks', 'bookmarks', 'users', 'shares'];
 
   const doSync = async () => {
     try {
@@ -1085,6 +1091,52 @@ export function subscribeToBookmarks(
 }
 
 // ============================================
+// Share helpers
+// ============================================
+
+/**
+ * Get shares for a wishlist owned by the user.
+ */
+export async function getShares(wishlistId: string, userId: string): Promise<ShareDoc[]> {
+  return find<ShareDoc>({
+    selector: {
+      type: 'share',
+      wishlist_id: wishlistId,
+      owner_id: userId,
+      revoked: { $ne: true },
+    },
+  });
+}
+
+/**
+ * Get all shares owned by a user.
+ */
+export async function getSharesByUser(userId: string): Promise<ShareDoc[]> {
+  return find<ShareDoc>({
+    selector: {
+      type: 'share',
+      owner_id: userId,
+      revoked: { $ne: true },
+    },
+  });
+}
+
+/**
+ * Subscribe to share changes for a wishlist.
+ */
+export function subscribeToShares(
+  wishlistId: string,
+  userId: string,
+  callback: (shares: ShareDoc[]) => void
+): () => void {
+  return subscribeToChanges<ShareDoc>(
+    'share',
+    callback,
+    (doc) => doc?.wishlist_id === wishlistId && doc?.owner_id === userId && doc?.revoked !== true
+  );
+}
+
+// ============================================
 // User helpers
 // ============================================
 
@@ -1133,4 +1185,4 @@ export function subscribeToCurrentUser(
 
 // Export types and helpers
 export { createId, extractId } from './types';
-export type { CouchDBDoc, UserDoc, WishlistDoc, ItemDoc, MarkDoc, BookmarkDoc, PouchDBChange, SyncStatus };
+export type { CouchDBDoc, UserDoc, WishlistDoc, ItemDoc, MarkDoc, ShareDoc, BookmarkDoc, PouchDBChange, SyncStatus };

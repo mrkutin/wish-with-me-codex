@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v2/sync", tags=["sync-v2"])
 
-CollectionType = Literal["wishlists", "items", "marks", "bookmarks", "users"]
+CollectionType = Literal["wishlists", "items", "marks", "bookmarks", "users", "shares"]
 
 
 class SyncDocument(BaseModel):
@@ -86,6 +86,7 @@ async def pull_collection(
         "marks": "mark",
         "bookmarks": "bookmark",
         "users": "user",
+        "shares": "share",
     }
     doc_type = type_map[collection]
 
@@ -105,6 +106,14 @@ async def pull_collection(
         selector = {
             "type": "user",
             "_id": user_id,
+        }
+
+    # For shares, only return non-revoked shares owned by the user
+    if collection == "shares":
+        selector = {
+            "type": "share",
+            "owner_id": user_id,
+            "revoked": {"$ne": True},
         }
 
     try:
@@ -153,6 +162,7 @@ async def push_collection(
         "marks": "mark",
         "bookmarks": "bookmark",
         "users": "user",
+        "shares": "share",
     }
     doc_type = type_map[collection]
 
@@ -228,6 +238,14 @@ async def push_collection(
                 for field in sensitive_fields:
                     if field in doc:
                         del doc[field]
+            elif collection == "shares":
+                # User must be the owner of the share
+                if doc.get("owner_id") != user_id:
+                    conflicts.append(ConflictInfo(
+                        document_id=doc_id,
+                        error="Unauthorized: not the share owner",
+                    ))
+                    continue
 
             # Try to get existing document
             try:
@@ -290,6 +308,12 @@ async def push_collection(
                         doc["access"] = [user_id]
                 elif collection == "users":
                     # Users can only access their own document
+                    doc["access"] = [user_id]
+                elif collection == "shares":
+                    # Only owner can access their own shares
+                    doc["access"] = [user_id]
+                elif collection == "bookmarks":
+                    # Only owner can access their own bookmarks
                     doc["access"] = [user_id]
 
             # Save document

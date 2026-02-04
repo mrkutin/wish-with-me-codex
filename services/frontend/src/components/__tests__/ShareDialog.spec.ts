@@ -5,9 +5,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, VueWrapper, flushPromises } from '@vue/test-utils';
 import { nextTick } from 'vue';
+import { createPinia, setActivePinia } from 'pinia';
 import ShareDialog from '../ShareDialog.vue';
 import { mockApi, createMockResponse, mockNotify, mockDialog, mockDialogResult } from '@/test/setup';
-import type { ShareLink, ShareLinkListResponse } from '@/types/share';
+import type { ShareLink } from '@/types/share';
+import type { ShareDoc } from '@/services/pouchdb';
 
 // Mock vue-i18n
 vi.mock('vue-i18n', () => ({
@@ -29,18 +31,59 @@ vi.mock('quasar', async () => {
   };
 });
 
-// Helper to create mock share links
+// Mock PouchDB service
+const mockGetShares = vi.fn();
+const mockSubscribeToShares = vi.fn();
+const mockTriggerSync = vi.fn();
+const mockExtractId = vi.fn((id: string) => id.split(':')[1] || id);
+
+vi.mock('@/services/pouchdb', () => ({
+  getShares: (...args: unknown[]) => mockGetShares(...args),
+  subscribeToShares: (...args: unknown[]) => mockSubscribeToShares(...args),
+  triggerSync: (...args: unknown[]) => mockTriggerSync(...args),
+  extractId: (id: string) => mockExtractId(id),
+}));
+
+// Mock auth store
+vi.mock('@/stores/auth', () => ({
+  useAuthStore: () => ({
+    userId: 'user:test123',
+  }),
+}));
+
+// Helper to create mock share links (API response format)
 function createMockShareLink(overrides: Partial<ShareLink> = {}): ShareLink {
   return {
-    id: 'share:123',
+    id: '123',
     wishlist_id: 'wishlist:456',
     token: 'abc123token',
     link_type: 'mark',
     expires_at: null,
     access_count: 0,
     created_at: '2024-01-01T00:00:00Z',
-    share_url: 'https://wishwith.me/shared/abc123token',
+    share_url: 'https://wishwith.me/s/abc123token',
     qr_code_base64: 'data:image/png;base64,QRCodeData',
+    ...overrides,
+  };
+}
+
+// Helper to create mock share docs (PouchDB format)
+function createMockShareDoc(overrides: Partial<ShareDoc> = {}): ShareDoc {
+  return {
+    _id: 'share:123',
+    _rev: '1-abc',
+    type: 'share',
+    wishlist_id: 'wishlist:456',
+    owner_id: 'user:test123',
+    token: 'abc123token',
+    link_type: 'mark',
+    expires_at: null,
+    access_count: 0,
+    revoked: false,
+    granted_users: [],
+    access: ['user:test123'],
+    created_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-01T00:00:00Z',
     ...overrides,
   };
 }
@@ -49,6 +92,10 @@ describe('ShareDialog', () => {
   let wrapper: VueWrapper;
 
   function mountDialog(props = {}) {
+    // Set up Pinia for auth store
+    const pinia = createPinia();
+    setActivePinia(pinia);
+
     return mount(ShareDialog, {
       props: {
         modelValue: true,
@@ -57,6 +104,7 @@ describe('ShareDialog', () => {
         ...props,
       },
       global: {
+        plugins: [pinia],
         stubs: {
           QDialog: {
             name: 'QDialog',
@@ -77,6 +125,10 @@ describe('ShareDialog', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default mock implementations
+    mockGetShares.mockResolvedValue([]);
+    mockSubscribeToShares.mockReturnValue(() => {});
+    mockTriggerSync.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -84,14 +136,9 @@ describe('ShareDialog', () => {
   });
 
   describe('fetching share links', () => {
-    it('fetches share links when dialog opens', async () => {
-      const mockLinks: ShareLinkListResponse = {
-        items: [createMockShareLink()],
-      };
-
-      vi.mocked(mockApi.get).mockResolvedValueOnce(
-        createMockResponse(mockLinks)
-      );
+    it('fetches share links from PouchDB when dialog opens', async () => {
+      const mockDocs = [createMockShareDoc()];
+      mockGetShares.mockResolvedValueOnce(mockDocs);
 
       wrapper = mountDialog({ modelValue: false });
 
@@ -99,17 +146,15 @@ describe('ShareDialog', () => {
       await wrapper.setProps({ modelValue: true });
       await flushPromises();
 
-      expect(mockApi.get).toHaveBeenCalledWith(
-        '/api/v1/wishlists/wishlist:456/share'
-      );
+      expect(mockGetShares).toHaveBeenCalledWith('wishlist:456', 'user:test123');
     });
 
     it('displays loading state while fetching', async () => {
-      let resolveGet: (value: unknown) => void;
-      const getPromise = new Promise((resolve) => {
+      let resolveGet: (value: ShareDoc[]) => void;
+      const getPromise = new Promise<ShareDoc[]>((resolve) => {
         resolveGet = resolve;
       });
-      vi.mocked(mockApi.get).mockReturnValueOnce(getPromise as Promise<never>);
+      mockGetShares.mockReturnValueOnce(getPromise);
 
       wrapper = mountDialog({ modelValue: false });
       await wrapper.setProps({ modelValue: true });
@@ -120,23 +165,18 @@ describe('ShareDialog', () => {
       expect(vm.isLoading).toBe(true);
 
       // Resolve the promise
-      resolveGet!(createMockResponse({ items: [] }));
+      resolveGet!([]);
       await flushPromises();
 
       expect(vm.isLoading).toBe(false);
     });
 
     it('displays share links after fetching', async () => {
-      const mockLinks: ShareLinkListResponse = {
-        items: [
-          createMockShareLink({ id: 'share:1' }),
-          createMockShareLink({ id: 'share:2' }),
-        ],
-      };
-
-      vi.mocked(mockApi.get).mockResolvedValueOnce(
-        createMockResponse(mockLinks)
-      );
+      const mockDocs = [
+        createMockShareDoc({ _id: 'share:1' }),
+        createMockShareDoc({ _id: 'share:2' }),
+      ];
+      mockGetShares.mockResolvedValueOnce(mockDocs);
 
       wrapper = mountDialog({ modelValue: false });
       await wrapper.setProps({ modelValue: true });
@@ -147,9 +187,7 @@ describe('ShareDialog', () => {
     });
 
     it('shows empty state when no links exist', async () => {
-      vi.mocked(mockApi.get).mockResolvedValueOnce(
-        createMockResponse({ items: [] })
-      );
+      mockGetShares.mockResolvedValueOnce([]);
 
       wrapper = mountDialog({ modelValue: false });
       await wrapper.setProps({ modelValue: true });
@@ -160,7 +198,7 @@ describe('ShareDialog', () => {
     });
 
     it('shows error notification on fetch failure', async () => {
-      vi.mocked(mockApi.get).mockRejectedValueOnce(new Error('Network error'));
+      mockGetShares.mockRejectedValueOnce(new Error('PouchDB error'));
 
       wrapper = mountDialog({ modelValue: false });
       await wrapper.setProps({ modelValue: true });
@@ -174,13 +212,11 @@ describe('ShareDialog', () => {
   });
 
   describe('creating share links', () => {
-    it('creates share link and prepends to list', async () => {
-      const existingLink = createMockShareLink({ id: 'share:existing' });
-      const newLink = createMockShareLink({ id: 'share:new' });
+    it('creates share link via API and triggers sync', async () => {
+      const existingDoc = createMockShareDoc({ _id: 'share:existing' });
+      const newLink = createMockShareLink({ id: 'new' });
 
-      vi.mocked(mockApi.get).mockResolvedValueOnce(
-        createMockResponse({ items: [existingLink] })
-      );
+      mockGetShares.mockResolvedValueOnce([existingDoc]);
       vi.mocked(mockApi.post).mockResolvedValueOnce(
         createMockResponse(newLink)
       );
@@ -206,7 +242,10 @@ describe('ShareDialog', () => {
       );
 
       // New link should be at the beginning
-      expect(vm.shareLinks[0].id).toBe('share:new');
+      expect(vm.shareLinks[0].id).toBe('new');
+
+      // Should trigger sync to pull the new share into PouchDB
+      expect(mockTriggerSync).toHaveBeenCalled();
 
       expect(mockNotify).toHaveBeenCalledWith({
         type: 'positive',
@@ -215,9 +254,7 @@ describe('ShareDialog', () => {
     });
 
     it('shows loading state while creating', async () => {
-      vi.mocked(mockApi.get).mockResolvedValueOnce(
-        createMockResponse({ items: [] })
-      );
+      mockGetShares.mockResolvedValueOnce([]);
 
       let resolvePost: (value: unknown) => void;
       const postPromise = new Promise((resolve) => {
@@ -246,9 +283,7 @@ describe('ShareDialog', () => {
     });
 
     it('shows error notification on create failure', async () => {
-      vi.mocked(mockApi.get).mockResolvedValueOnce(
-        createMockResponse({ items: [] })
-      );
+      mockGetShares.mockResolvedValueOnce([]);
       vi.mocked(mockApi.post).mockRejectedValueOnce(new Error('Create failed'));
 
       wrapper = mountDialog();
@@ -269,29 +304,22 @@ describe('ShareDialog', () => {
   });
 
   describe('revoking share links', () => {
-    it('revokes share link with confirmation dialog', async () => {
-      const linkToRevoke = createMockShareLink({ id: 'share:123' });
-
-      vi.mocked(mockApi.get).mockResolvedValueOnce(
-        createMockResponse({ items: [linkToRevoke] })
-      );
-      vi.mocked(mockApi.delete).mockResolvedValueOnce(createMockResponse({}));
-
-      // Configure dialog to call onOk callback
-      let onOkCallback: () => void;
-      mockDialogResult.onOk.mockImplementation((cb: () => void) => {
-        onOkCallback = cb;
-        return mockDialogResult;
-      });
+    it('shows confirmation dialog when revoking', async () => {
+      mockGetShares.mockResolvedValueOnce([]);
 
       wrapper = mountDialog();
       await flushPromises();
 
       const vm = wrapper.vm as unknown as {
+        shareLinks: ShareLink[];
         revokeShareLink: (link: ShareLink) => void;
       };
 
-      vm.revokeShareLink(linkToRevoke);
+      // Manually add a link to revoke
+      const link = createMockShareLink({ id: '123' });
+      vm.shareLinks = [link];
+
+      vm.revokeShareLink(link);
       await nextTick();
 
       // Confirmation dialog should be shown
@@ -301,38 +329,56 @@ describe('ShareDialog', () => {
         cancel: true,
         persistent: true,
       });
-
-      // Simulate clicking OK
-      onOkCallback!();
-      await flushPromises();
-
-      expect(mockApi.delete).toHaveBeenCalledWith(
-        '/api/v1/wishlists/wishlist:456/share/share:123'
-      );
-
-      expect(mockNotify).toHaveBeenCalledWith({
-        type: 'info',
-        message: 'sharing.linkRevoked',
-      });
     });
 
-    it('removes revoked link from list', async () => {
-      const link1 = createMockShareLink({ id: 'share:1' });
-      const link2 = createMockShareLink({ id: 'share:2' });
-
-      vi.mocked(mockApi.get).mockResolvedValueOnce(
-        createMockResponse({ items: [link1, link2] })
-      );
+    it('calls delete API and triggers sync on confirmation', async () => {
+      mockGetShares.mockResolvedValueOnce([]);
       vi.mocked(mockApi.delete).mockResolvedValueOnce(createMockResponse({}));
 
-      let onOkCallback: () => void;
+      // Set up dialog to immediately call onOk callback
+      let capturedCallback: () => void;
       mockDialogResult.onOk.mockImplementation((cb: () => void) => {
-        onOkCallback = cb;
+        capturedCallback = cb;
         return mockDialogResult;
       });
 
-      wrapper = mountDialog({ modelValue: false });
-      await wrapper.setProps({ modelValue: true });
+      wrapper = mountDialog();
+      await flushPromises();
+
+      const vm = wrapper.vm as unknown as {
+        shareLinks: ShareLink[];
+        revokeShareLink: (link: ShareLink) => void;
+      };
+
+      // Manually add a link to revoke
+      const link = createMockShareLink({ id: '123' });
+      vm.shareLinks = [link];
+
+      // Trigger revoke
+      vm.revokeShareLink(link);
+      await nextTick();
+
+      // Execute the captured callback
+      capturedCallback!();
+      await flushPromises();
+
+      expect(mockApi.delete).toHaveBeenCalledWith(
+        '/api/v1/wishlists/wishlist:456/share/123'
+      );
+      expect(mockTriggerSync).toHaveBeenCalled();
+    });
+
+    it('removes revoked link from list', async () => {
+      mockGetShares.mockResolvedValueOnce([]);
+      vi.mocked(mockApi.delete).mockResolvedValueOnce(createMockResponse({}));
+
+      let capturedCallback: () => void;
+      mockDialogResult.onOk.mockImplementation((cb: () => void) => {
+        capturedCallback = cb;
+        return mockDialogResult;
+      });
+
+      wrapper = mountDialog();
       await flushPromises();
 
       const vm = wrapper.vm as unknown as {
@@ -341,53 +387,45 @@ describe('ShareDialog', () => {
       };
 
       // Manually set shareLinks to test the removal logic
+      const link1 = createMockShareLink({ id: '1' });
+      const link2 = createMockShareLink({ id: '2' });
       vm.shareLinks = [link1, link2];
-      expect(vm.shareLinks).toHaveLength(2);
 
       vm.revokeShareLink(link1);
-      onOkCallback!();
+      capturedCallback!();
       await flushPromises();
 
       expect(vm.shareLinks).toHaveLength(1);
-      expect(vm.shareLinks[0].id).toBe('share:2');
+      expect(vm.shareLinks[0].id).toBe('2');
     });
 
     it('shows error notification on revoke failure', async () => {
-      const link = createMockShareLink();
+      mockGetShares.mockResolvedValueOnce([]);
 
-      vi.mocked(mockApi.get).mockResolvedValueOnce(
-        createMockResponse({ items: [] })
-      );
-
-      // Make delete fail
-      vi.mocked(mockApi.delete).mockRejectedValueOnce(
-        new Error('Revoke failed')
-      );
-
-      // Track async callback
-      let onOkCallback: () => Promise<void>;
-      mockDialogResult.onOk.mockImplementation((cb: () => Promise<void>) => {
-        onOkCallback = cb;
+      let capturedCallback: () => void;
+      mockDialogResult.onOk.mockImplementation((cb: () => void) => {
+        capturedCallback = cb;
         return mockDialogResult;
       });
 
-      wrapper = mountDialog({ modelValue: false });
-      await wrapper.setProps({ modelValue: true });
+      wrapper = mountDialog();
       await flushPromises();
 
-      vi.clearAllMocks(); // Clear mock calls from fetch
+      // Set up delete to fail AFTER mounting
+      vi.mocked(mockApi.delete).mockRejectedValueOnce(
+        new Error('Revoke failed')
+      );
 
       const vm = wrapper.vm as unknown as {
         shareLinks: ShareLink[];
         revokeShareLink: (link: ShareLink) => void;
       };
 
-      // Manually add link so it can be revoked
+      const link = createMockShareLink();
       vm.shareLinks = [link];
 
       vm.revokeShareLink(link);
-      // Simulate clicking OK - the callback is async
-      await onOkCallback!();
+      capturedCallback!();
       await flushPromises();
 
       expect(mockNotify).toHaveBeenCalledWith({
@@ -399,13 +437,7 @@ describe('ShareDialog', () => {
 
   describe('copying links', () => {
     it('copies link to clipboard', async () => {
-      const link = createMockShareLink({
-        share_url: 'https://wishwith.me/shared/test123',
-      });
-
-      vi.mocked(mockApi.get).mockResolvedValueOnce(
-        createMockResponse({ items: [link] })
-      );
+      mockGetShares.mockResolvedValueOnce([]);
 
       wrapper = mountDialog();
       await flushPromises();
@@ -414,7 +446,7 @@ describe('ShareDialog', () => {
         copyLink: (url: string) => Promise<void>;
       };
 
-      await vm.copyLink(link.share_url);
+      await vm.copyLink('https://wishwith.me/s/test123');
       await flushPromises();
 
       expect(mockNotify).toHaveBeenCalledWith({
@@ -424,11 +456,7 @@ describe('ShareDialog', () => {
     });
 
     it('shows error on clipboard failure', async () => {
-      const link = createMockShareLink();
-
-      vi.mocked(mockApi.get).mockResolvedValueOnce(
-        createMockResponse({ items: [link] })
-      );
+      mockGetShares.mockResolvedValueOnce([]);
 
       // Mock copyToClipboard to fail
       const { copyToClipboard } = await import('quasar');
@@ -441,7 +469,7 @@ describe('ShareDialog', () => {
         copyLink: (url: string) => Promise<void>;
       };
 
-      await vm.copyLink(link.share_url);
+      await vm.copyLink('https://wishwith.me/s/test123');
       await flushPromises();
 
       expect(mockNotify).toHaveBeenCalledWith({
@@ -453,13 +481,7 @@ describe('ShareDialog', () => {
 
   describe('QR code dialog', () => {
     it('shows QR code image in dialog', async () => {
-      const link = createMockShareLink({
-        qr_code_base64: 'data:image/png;base64,MockQRCode',
-      });
-
-      vi.mocked(mockApi.get).mockResolvedValueOnce(
-        createMockResponse({ items: [link] })
-      );
+      mockGetShares.mockResolvedValueOnce([]);
 
       wrapper = mountDialog();
       await flushPromises();
@@ -470,7 +492,7 @@ describe('ShareDialog', () => {
         openQrDialog: (qrCode: string) => void;
       };
 
-      vm.openQrDialog(link.qr_code_base64!);
+      vm.openQrDialog('data:image/png;base64,MockQRCode');
       await nextTick();
 
       expect(vm.showQrDialog).toBe(true);
@@ -478,13 +500,7 @@ describe('ShareDialog', () => {
     });
 
     it('closes QR code dialog on button click', async () => {
-      const link = createMockShareLink({
-        qr_code_base64: 'data:image/png;base64,MockQRCode',
-      });
-
-      vi.mocked(mockApi.get).mockResolvedValueOnce(
-        createMockResponse({ items: [link] })
-      );
+      mockGetShares.mockResolvedValueOnce([]);
 
       wrapper = mountDialog();
       await flushPromises();
@@ -497,7 +513,7 @@ describe('ShareDialog', () => {
       };
 
       // Open and close
-      vm.openQrDialog(link.qr_code_base64!);
+      vm.openQrDialog('data:image/png;base64,MockQRCode');
       await nextTick();
       expect(vm.showQrDialog).toBe(true);
 
@@ -508,19 +524,14 @@ describe('ShareDialog', () => {
     });
 
     it('does not show QR button when qr_code_base64 is not provided', async () => {
-      const link = createMockShareLink({
-        qr_code_base64: undefined,
-      });
-
-      vi.mocked(mockApi.get).mockResolvedValueOnce(
-        createMockResponse({ items: [] })
-      );
+      mockGetShares.mockResolvedValueOnce([]);
 
       wrapper = mountDialog({ modelValue: false });
       await wrapper.setProps({ modelValue: true });
       await flushPromises();
 
       // Manually set shareLinks to test the condition
+      const link = createMockShareLink({ qr_code_base64: undefined });
       const vm = wrapper.vm as unknown as { shareLinks: ShareLink[] };
       vm.shareLinks = [link];
       await nextTick();
@@ -532,9 +543,7 @@ describe('ShareDialog', () => {
 
   describe('link type selector', () => {
     it('defaults to mark link type', async () => {
-      vi.mocked(mockApi.get).mockResolvedValueOnce(
-        createMockResponse({ items: [] })
-      );
+      mockGetShares.mockResolvedValueOnce([]);
 
       wrapper = mountDialog();
       await flushPromises();
@@ -544,9 +553,7 @@ describe('ShareDialog', () => {
     });
 
     it('updates link type state when changed', async () => {
-      vi.mocked(mockApi.get).mockResolvedValueOnce(
-        createMockResponse({ items: [] })
-      );
+      mockGetShares.mockResolvedValueOnce([]);
 
       wrapper = mountDialog();
       await flushPromises();
@@ -559,9 +566,7 @@ describe('ShareDialog', () => {
     });
 
     it('sends selected link type when creating link', async () => {
-      vi.mocked(mockApi.get).mockResolvedValueOnce(
-        createMockResponse({ items: [] })
-      );
+      mockGetShares.mockResolvedValueOnce([]);
       vi.mocked(mockApi.post).mockResolvedValueOnce(
         createMockResponse(createMockShareLink({ link_type: 'view' }))
       );
@@ -591,9 +596,7 @@ describe('ShareDialog', () => {
 
   describe('expiry selector', () => {
     it('defaults to 30 days expiry', async () => {
-      vi.mocked(mockApi.get).mockResolvedValueOnce(
-        createMockResponse({ items: [] })
-      );
+      mockGetShares.mockResolvedValueOnce([]);
 
       wrapper = mountDialog();
       await flushPromises();
@@ -603,9 +606,7 @@ describe('ShareDialog', () => {
     });
 
     it('updates expiry state when changed', async () => {
-      vi.mocked(mockApi.get).mockResolvedValueOnce(
-        createMockResponse({ items: [] })
-      );
+      mockGetShares.mockResolvedValueOnce([]);
 
       wrapper = mountDialog();
       await flushPromises();
@@ -618,9 +619,7 @@ describe('ShareDialog', () => {
     });
 
     it('allows never expire option (null)', async () => {
-      vi.mocked(mockApi.get).mockResolvedValueOnce(
-        createMockResponse({ items: [] })
-      );
+      mockGetShares.mockResolvedValueOnce([]);
 
       wrapper = mountDialog();
       await flushPromises();
@@ -633,9 +632,7 @@ describe('ShareDialog', () => {
     });
 
     it('sends selected expiry when creating link', async () => {
-      vi.mocked(mockApi.get).mockResolvedValueOnce(
-        createMockResponse({ items: [] })
-      );
+      mockGetShares.mockResolvedValueOnce([]);
       vi.mocked(mockApi.post).mockResolvedValueOnce(
         createMockResponse(createMockShareLink())
       );
@@ -665,9 +662,7 @@ describe('ShareDialog', () => {
 
   describe('dialog close', () => {
     it('emits update:modelValue false when close button is clicked', async () => {
-      vi.mocked(mockApi.get).mockResolvedValueOnce(
-        createMockResponse({ items: [] })
-      );
+      mockGetShares.mockResolvedValueOnce([]);
 
       wrapper = mountDialog();
       await flushPromises();
@@ -681,13 +676,7 @@ describe('ShareDialog', () => {
     });
 
     it('closes QR dialog when main dialog closes', async () => {
-      const link = createMockShareLink({
-        qr_code_base64: 'data:image/png;base64,MockQRCode',
-      });
-
-      vi.mocked(mockApi.get).mockResolvedValueOnce(
-        createMockResponse({ items: [link] })
-      );
+      mockGetShares.mockResolvedValueOnce([]);
 
       wrapper = mountDialog();
       await flushPromises();
@@ -699,7 +688,7 @@ describe('ShareDialog', () => {
       };
 
       // Open QR dialog
-      vm.openQrDialog(link.qr_code_base64!);
+      vm.openQrDialog('data:image/png;base64,MockQRCode');
       await nextTick();
       expect(vm.showQrDialog).toBe(true);
 
@@ -709,6 +698,38 @@ describe('ShareDialog', () => {
 
       // QR dialog should also close (via watch)
       expect(vm.showQrDialog).toBe(false);
+    });
+  });
+
+  describe('subscription management', () => {
+    it('subscribes to share changes when dialog opens', async () => {
+      mockGetShares.mockResolvedValueOnce([]);
+
+      wrapper = mountDialog({ modelValue: false });
+      await wrapper.setProps({ modelValue: true });
+      await flushPromises();
+
+      expect(mockSubscribeToShares).toHaveBeenCalledWith(
+        'wishlist:456',
+        'user:test123',
+        expect.any(Function)
+      );
+    });
+
+    it('cleans up subscription when dialog closes', async () => {
+      const mockUnsubscribe = vi.fn();
+      mockSubscribeToShares.mockReturnValue(mockUnsubscribe);
+      mockGetShares.mockResolvedValueOnce([]);
+
+      wrapper = mountDialog({ modelValue: false });
+      await wrapper.setProps({ modelValue: true });
+      await flushPromises();
+
+      // Close dialog
+      await wrapper.setProps({ modelValue: false });
+      await flushPromises();
+
+      expect(mockUnsubscribe).toHaveBeenCalled();
     });
   });
 });
