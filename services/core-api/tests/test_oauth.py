@@ -693,15 +693,16 @@ class TestOAuthServiceState:
             # Use simple user_id without colons to test state structure
             state = service._generate_state("login", user_id="user123")
 
-        # State format: nonce:action:user_id:timestamp:signature
+        # State format: nonce:action:user_id:timestamp:callback_b64:signature
         parts = state.split(":")
-        assert len(parts) == 5
+        assert len(parts) == 6
 
-        nonce, action, user_id, timestamp, signature = parts
+        nonce, action, user_id, timestamp, callback_b64, signature = parts
         assert len(nonce) > 0  # nonce is present
         assert action == "login"
         assert user_id == "user123"
         assert timestamp.isdigit()
+        assert callback_b64 == ""  # No callback URL provided
         assert len(signature) == 32  # HMAC-SHA256 truncated to 32 chars
 
     def test_generate_state_with_user_id_containing_colon_limitation(

@@ -50,6 +50,7 @@ async def oauth_authorize(
     request: Request,
     provider: OAuthProvider,
     redirect: bool = Query(True, description="Redirect to provider if true, return URL if false"),
+    callback_url: str | None = Query(None, description="Custom callback URL for mobile apps (e.g. wishwithme://auth/callback)"),
 ):
     """Initiate OAuth login flow."""
     if not is_provider_configured(provider):
@@ -65,6 +66,7 @@ async def oauth_authorize(
             request=request,
             provider=provider,
             action="login",
+            callback_url=callback_url,
         )
     except ValueError as e:
         raise HTTPException(
@@ -88,15 +90,20 @@ async def oauth_callback(
     error_description: str | None = Query(None),
 ) -> RedirectResponse:
     """Handle OAuth callback from provider."""
+    # Try to extract callback URL from state early for error redirects
+    service = OAuthService()
+    base_callback = settings.frontend_callback_url
+    state_peek = service._verify_state(state)
+    if state_peek and state_peek.get("callback_url"):
+        base_callback = state_peek["callback_url"]
+
     if error:
         logger.warning(f"OAuth error from {provider.value}: {error} - {error_description}")
         error_msg = error_description or error
         return RedirectResponse(
-            url=f"{settings.frontend_callback_url}?error={error_msg}",
+            url=f"{base_callback}?error={error_msg}",
             status_code=status.HTTP_302_FOUND,
         )
-
-    service = OAuthService()
 
     try:
         user_info, state_data = await service.exchange_code(
@@ -107,6 +114,8 @@ async def oauth_callback(
         )
 
         action = state_data.get("action", "login")
+        # Use custom callback URL from state if provided, otherwise default
+        cb = state_data.get("callback_url") or settings.frontend_callback_url
 
         if action == "link":
             user_id = state_data.get("user_id")
@@ -116,7 +125,7 @@ async def oauth_callback(
             await service.link_account(user_id, user_info)
 
             return RedirectResponse(
-                url=f"{settings.frontend_callback_url}?linked={provider.value}",
+                url=f"{cb}?linked={provider.value}",
                 status_code=status.HTTP_302_FOUND,
             )
 
@@ -126,7 +135,7 @@ async def oauth_callback(
         )
 
         redirect_url = (
-            f"{settings.frontend_callback_url}"
+            f"{cb}"
             f"?access_token={auth_response.access_token}"
             f"&refresh_token={auth_response.refresh_token}"
             f"&expires_in={auth_response.expires_in}"
@@ -139,13 +148,13 @@ async def oauth_callback(
     except EmailConflictError as e:
         logger.info(f"OAuth email conflict: {e.email} already registered")
         return RedirectResponse(
-            url=f"{settings.frontend_callback_url}?error=email_exists&email={e.email}&provider={e.provider.value}",
+            url=f"{base_callback}?error=email_exists&email={e.email}&provider={e.provider.value}",
             status_code=status.HTTP_302_FOUND,
         )
 
     except DuplicateLinkError as e:
         return RedirectResponse(
-            url=f"{settings.frontend_callback_url}?error=already_linked&provider={e.provider.value}",
+            url=f"{base_callback}?error=already_linked&provider={e.provider.value}",
             status_code=status.HTTP_302_FOUND,
         )
 
@@ -153,11 +162,17 @@ async def oauth_callback(
         error_details = str(e)
         logger.error(f"OAuth validation error: {error_details}")
         logger.error(f"Validation error details: {e.errors()}")
-        return _build_error_redirect("validation_error", "Invalid data from OAuth provider")
+        return RedirectResponse(
+            url=f"{base_callback}?error=validation_error&error_message={quote('Invalid data from OAuth provider')}",
+            status_code=status.HTTP_302_FOUND,
+        )
 
     except ValueError as e:
         logger.error(f"OAuth callback error: {e}")
-        return _build_error_redirect("auth_failed", str(e))
+        return RedirectResponse(
+            url=f"{base_callback}?error=auth_failed&error_message={quote(str(e)[:200])}",
+            status_code=status.HTTP_302_FOUND,
+        )
 
     except Exception as e:
         # Log full traceback for debugging
@@ -166,7 +181,10 @@ async def oauth_callback(
         tb = traceback.format_exc()
         logger.error(f"Unexpected OAuth error ({error_type}): {error_msg}")
         logger.error(f"Full traceback:\n{tb}")
-        return _build_error_redirect("server_error", f"{error_type}: {error_msg}")
+        return RedirectResponse(
+            url=f"{base_callback}?error=server_error&error_message={quote(f'{error_type}: {error_msg}'[:200])}",
+            status_code=status.HTTP_302_FOUND,
+        )
 
 
 @router.post("/{provider}/link/initiate")

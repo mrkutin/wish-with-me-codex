@@ -67,13 +67,22 @@ class OAuthService:
     def __init__(self):
         self.db = get_couchdb()
 
-    def _generate_state(self, action: Literal["login", "link"], user_id: str | None = None) -> str:
+    # Allowed callback URL schemes for mobile clients
+    ALLOWED_CALLBACK_SCHEMES = {"https", "wishwithme"}
+
+    def _generate_state(
+        self,
+        action: Literal["login", "link"],
+        user_id: str | None = None,
+        callback_url: str | None = None,
+    ) -> str:
         """Generate a signed state parameter for OAuth."""
         nonce = secrets.token_urlsafe(16)
         timestamp = int(time.time())
         user_id_str = user_id or ""
+        callback_b64 = base64.urlsafe_b64encode(callback_url.encode()).decode() if callback_url else ""
 
-        payload = f"{nonce}:{action}:{user_id_str}:{timestamp}"
+        payload = f"{nonce}:{action}:{user_id_str}:{timestamp}:{callback_b64}"
         secret = settings.oauth_state_secret or settings.jwt_secret_key
         signature = hmac.new(
             secret.encode(),
@@ -87,11 +96,18 @@ class OAuthService:
         """Verify and parse OAuth state parameter."""
         try:
             parts = state.split(":")
-            if len(parts) != 5:
+            # Support both old 5-part and new 6-part format
+            if len(parts) == 5:
+                nonce, action, user_id_str, timestamp_str, signature = parts
+                callback_b64 = ""
+            elif len(parts) == 6:
+                nonce, action, user_id_str, timestamp_str, callback_b64, signature = parts
+            else:
                 return None
 
-            nonce, action, user_id_str, timestamp_str, signature = parts
-            payload = f"{nonce}:{action}:{user_id_str}:{timestamp_str}"
+            payload = f"{nonce}:{action}:{user_id_str}:{timestamp_str}:{callback_b64}"
+            # Also check old format for backward compatibility
+            payload_old = f"{nonce}:{action}:{user_id_str}:{timestamp_str}"
 
             secret = settings.oauth_state_secret or settings.jwt_secret_key
             expected_signature = hmac.new(
@@ -99,8 +115,14 @@ class OAuthService:
                 payload.encode(),
                 hashlib.sha256,
             ).hexdigest()[:32]
+            expected_signature_old = hmac.new(
+                secret.encode(),
+                payload_old.encode(),
+                hashlib.sha256,
+            ).hexdigest()[:32]
 
-            if not hmac.compare_digest(signature, expected_signature):
+            if not (hmac.compare_digest(signature, expected_signature) or
+                    (len(parts) == 5 and hmac.compare_digest(signature, expected_signature_old))):
                 return None
 
             timestamp = int(timestamp_str)
@@ -110,9 +132,23 @@ class OAuthService:
             if expected_action and action != expected_action:
                 return None
 
+            # Decode callback URL if present
+            callback_url = None
+            if callback_b64:
+                try:
+                    decoded = base64.urlsafe_b64decode(callback_b64).decode()
+                    # Validate scheme
+                    from urllib.parse import urlparse
+                    parsed = urlparse(decoded)
+                    if parsed.scheme in self.ALLOWED_CALLBACK_SCHEMES:
+                        callback_url = decoded
+                except Exception:
+                    pass
+
             return {
                 "action": action,
                 "user_id": user_id_str if user_id_str else None,
+                "callback_url": callback_url,
             }
 
         except (ValueError, AttributeError):
@@ -124,6 +160,7 @@ class OAuthService:
         provider: OAuthProvider,
         action: Literal["login", "link"] = "login",
         user_id: str | None = None,
+        callback_url: str | None = None,
     ) -> tuple[str, str]:
         """Generate OAuth authorization URL."""
         if action == "link" and user_id is None:
@@ -133,7 +170,7 @@ class OAuthService:
             raise ValueError(f"OAuth provider '{provider.value}' is not configured")
 
         client = get_oauth_client(provider)
-        state = self._generate_state(action, user_id)
+        state = self._generate_state(action, user_id, callback_url=callback_url)
 
         redirect_uri = f"{settings.api_base_url}/api/v1/oauth/{provider.value}/callback"
 
