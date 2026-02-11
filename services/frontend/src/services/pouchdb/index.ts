@@ -281,8 +281,10 @@ async function pullFromServer(
     shares: 'share',
   };
 
-  for (const collection of collections) {
-    try {
+  // Fetch all collections in parallel instead of sequentially.
+  // This reduces pull latency from 6 round-trips to 1 (network-wise).
+  const fetchResults = await Promise.all(
+    collections.map(async (collection) => {
       const response = await fetchWithTokenRefresh(
         `${baseUrl}/api/v2/sync/pull/${collection}`,
         {
@@ -298,12 +300,17 @@ async function pullFromServer(
         if (response.status === 401) {
           throw new Error('Authentication expired');
         }
-        throw new Error(`Pull failed: ${response.status}`);
+        throw new Error(`Pull failed for ${collection}: ${response.status}`);
       }
 
       const data = await response.json();
-      const serverDocs = data.documents || [];
+      return { collection, serverDocs: (data.documents || []) as CouchDBDoc[] };
+    })
+  );
 
+  // Process upserts and reconciliation for each collection
+  for (const { collection, serverDocs } of fetchResults) {
+    try {
       // Build set of IDs from server (non-deleted docs user has access to)
       const serverDocIds = new Set(serverDocs.map((d: CouchDBDoc) => d._id));
 
@@ -429,47 +436,46 @@ async function pushToServer(
     shares: 'share',
   };
 
+  // Read the changes feed ONCE and group documents by type.
+  // Previously this was read 6 times (once per collection) — O(6M) instead of O(M).
+  const changes = await localDb.changes({
+    since: 0,
+    include_docs: true,
+  });
+
+  const docsByType = new Map<string, Map<string, CouchDBDoc>>();
+  for (const collection of collections) {
+    docsByType.set(typeMap[collection], new Map());
+  }
+  for (const change of changes.results) {
+    if (change.doc && change.doc.type) {
+      const typeMap2 = docsByType.get(change.doc.type);
+      if (typeMap2) {
+        // Later entries overwrite earlier ones (they're more recent)
+        typeMap2.set(change.id, change.doc as CouchDBDoc);
+      }
+    }
+  }
+
   for (const collection of collections) {
     try {
-      // Get all local documents of this type INCLUDING deleted ones
-      // IMPORTANT: allDocs() does NOT return deleted documents!
-      // We must use the changes feed to get deleted docs
-      // Use changes feed to get ALL documents including deleted ones
-      const changes = await localDb.changes({
-        since: 0,
-        include_docs: true,
-      });
-
-      // Deduplicate by doc ID (changes may have multiple entries per doc)
-      // Keep only the latest entry for each document
-      const docMap = new Map<string, CouchDBDoc>();
-      for (const change of changes.results) {
-        if (change.doc && change.doc.type === typeMap[collection]) {
-          // Later entries overwrite earlier ones (they're more recent)
-          docMap.set(change.id, change.doc as CouchDBDoc);
-        }
-      }
-      let docs = Array.from(docMap.values());
+      let docs = Array.from(docsByType.get(typeMap[collection])?.values() || []);
 
       // Filter documents to only include those owned by the current user
       // This prevents pushing documents received from other users during pull
       if (currentSyncUserId) {
         if (collection === 'marks') {
-          // Only push marks created by the current user
           docs = docs.filter(doc => (doc as MarkDoc).marked_by === currentSyncUserId);
         } else if (collection === 'bookmarks') {
-          // Only push bookmarks owned by the current user
           docs = docs.filter(doc => (doc as BookmarkDoc).user_id === currentSyncUserId);
         } else if (collection === 'users') {
-          // Only push the current user's own document
           docs = docs.filter(doc => doc._id === currentSyncUserId);
         } else if (collection === 'shares') {
-          // Only push shares owned by the current user
           docs = docs.filter(doc => (doc as ShareDoc).owner_id === currentSyncUserId);
         }
       }
 
-      // Record which doc IDs are in this push batch (before filtering empty)
+      // Record which doc IDs are in this push batch
       pushedDocIds.set(collection, new Set(docs.map(d => d._id)));
 
       if (docs.length === 0) continue;
