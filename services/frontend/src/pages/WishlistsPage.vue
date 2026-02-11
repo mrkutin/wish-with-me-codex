@@ -219,17 +219,26 @@
           <!-- Icon picker -->
           <div class="q-mt-md">
             <div class="text-caption q-mb-sm">{{ $t('wishlists.chooseIcon') }}</div>
-            <div class="row q-gutter-sm">
-              <q-btn
+            <div class="row q-gutter-xs">
+              <div
                 v-for="icon in iconOptions"
                 :key="icon.value"
-                :icon="icon.value"
-                :color="newWishlist.icon === icon.value ? (newWishlist.icon_color || 'primary') : 'grey-5'"
-                round
-                flat
-                size="md"
+                class="icon-picker-item cursor-pointer"
+                :class="{ 'icon-picker-item--selected': newWishlist.icon === icon.value }"
                 @click="newWishlist.icon = icon.value"
-              />
+              >
+                <q-icon
+                  :name="icon.value"
+                  size="24px"
+                  :color="newWishlist.icon === icon.value ? (newWishlist.icon_color || 'primary') : 'grey-5'"
+                />
+                <div
+                  class="icon-picker-label"
+                  :class="newWishlist.icon === icon.value ? `text-${newWishlist.icon_color || 'primary'}` : 'text-grey-5'"
+                >
+                  {{ $t(`wishlists.iconLabels.${icon.value}`) }}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -298,17 +307,26 @@
           <!-- Icon picker -->
           <div class="q-mt-md">
             <div class="text-caption q-mb-sm">{{ $t('wishlists.chooseIcon') }}</div>
-            <div class="row q-gutter-sm">
-              <q-btn
+            <div class="row q-gutter-xs">
+              <div
                 v-for="icon in iconOptions"
                 :key="icon.value"
-                :icon="icon.value"
-                :color="editingWishlist.icon === icon.value ? (editingWishlist.icon_color || 'primary') : 'grey-5'"
-                round
-                flat
-                size="md"
+                class="icon-picker-item cursor-pointer"
+                :class="{ 'icon-picker-item--selected': editingWishlist.icon === icon.value }"
                 @click="editingWishlist.icon = icon.value"
-              />
+              >
+                <q-icon
+                  :name="icon.value"
+                  size="24px"
+                  :color="editingWishlist.icon === icon.value ? (editingWishlist.icon_color || 'primary') : 'grey-5'"
+                />
+                <div
+                  class="icon-picker-label"
+                  :class="editingWishlist.icon === icon.value ? `text-${editingWishlist.icon_color || 'primary'}` : 'text-grey-5'"
+                >
+                  {{ $t(`wishlists.iconLabels.${icon.value}`) }}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -742,4 +760,29 @@ onUnmounted(() => {
   @media (max-width: 599px)
     min-width: 90vw
     max-width: 95vw
+
+.icon-picker-item
+  display: flex
+  flex-direction: column
+  align-items: center
+  width: 56px
+  padding: 6px 2px
+  border-radius: 8px
+  transition: background-color 0.2s
+
+  &:hover
+    background-color: rgba(0, 0, 0, 0.04)
+
+  &--selected
+    background-color: rgba(0, 0, 0, 0.06)
+
+.icon-picker-label
+  font-size: 9px
+  line-height: 1.2
+  margin-top: 2px
+  text-align: center
+  white-space: nowrap
+  overflow: hidden
+  text-overflow: ellipsis
+  max-width: 100%
 </style>
