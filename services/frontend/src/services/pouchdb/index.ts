@@ -125,8 +125,37 @@ async function createIndexes(database: PouchDB.Database<CouchDBDoc>): Promise<vo
   }
 }
 
+// Timeout for sync fetch requests (30 seconds)
+const SYNC_FETCH_TIMEOUT_MS = 30000;
+
 /**
- * Perform a fetch with automatic token refresh and retry on 401.
+ * Create an AbortSignal that combines a manual signal with a timeout.
+ */
+function createTimeoutSignal(manualSignal?: AbortSignal): AbortSignal {
+  const timeoutController = new AbortController();
+  const timer = setTimeout(() => timeoutController.abort(new Error('Sync fetch timeout')), SYNC_FETCH_TIMEOUT_MS);
+
+  // If manual signal aborts, also abort the timeout controller
+  if (manualSignal) {
+    if (manualSignal.aborted) {
+      clearTimeout(timer);
+      timeoutController.abort(manualSignal.reason);
+    } else {
+      manualSignal.addEventListener('abort', () => {
+        clearTimeout(timer);
+        timeoutController.abort(manualSignal.reason);
+      }, { once: true });
+    }
+  }
+
+  // Clear timeout when the signal is used (request completes or aborts)
+  timeoutController.signal.addEventListener('abort', () => clearTimeout(timer), { once: true });
+
+  return timeoutController.signal;
+}
+
+/**
+ * Perform a fetch with automatic token refresh, retry on 401, and timeout.
  * This handles the case where the token expires while the app is idle.
  */
 async function fetchWithTokenRefresh(
@@ -143,6 +172,8 @@ async function fetchWithTokenRefresh(
     throw new Error('No access token available');
   }
 
+  const fetchSignal = createTimeoutSignal(signal);
+
   // First attempt with current token
   const response = await fetch(url, {
     ...options,
@@ -150,7 +181,7 @@ async function fetchWithTokenRefresh(
       ...options.headers,
       Authorization: `Bearer ${token}`,
     },
-    signal,
+    signal: fetchSignal,
   });
 
   // If 401, try to refresh token and retry once
@@ -163,6 +194,8 @@ async function fetchWithTokenRefresh(
         throw new Error('Authentication expired');
       }
 
+      const retrySignal = createTimeoutSignal(signal);
+
       // Retry with new token
       const retryResponse = await fetch(url, {
         ...options,
@@ -170,7 +203,7 @@ async function fetchWithTokenRefresh(
           ...options.headers,
           Authorization: `Bearer ${newToken}`,
         },
-        signal,
+        signal: retrySignal,
       });
 
       return retryResponse;
@@ -539,8 +572,16 @@ export function startSync(
   const interval = options?.interval || 30000;
   const collections: Array<'wishlists' | 'items' | 'marks' | 'bookmarks' | 'users' | 'shares'> = ['wishlists', 'items', 'marks', 'bookmarks', 'users', 'shares'];
 
+  // Lock to prevent overlapping sync operations
+  let isSyncRunning = false;
+
   // Initial sync
   const doSync = async () => {
+    if (isSyncRunning) {
+      console.debug('[PouchDB] Sync already running, skipping');
+      return;
+    }
+
     if (!navigator.onLine) {
       setSyncStatus('offline');
       return;
@@ -552,6 +593,7 @@ export function startSync(
       return;
     }
 
+    isSyncRunning = true;
     try {
       setSyncStatus('syncing');
 
@@ -569,6 +611,8 @@ export function startSync(
       console.error('[PouchDB] Sync error:', error);
       setSyncStatus('error');
       syncCallbacks.onError?.(error as Error);
+    } finally {
+      isSyncRunning = false;
     }
   };
 
