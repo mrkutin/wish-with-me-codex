@@ -227,10 +227,13 @@ let failedPushDocIds: Set<string> = new Set();
  * Pull documents from the server.
  * Fetches all documents the user has access to.
  * Uses reconciliation: server is source of truth, local docs not in server response are deleted.
- * Excludes documents that failed to push (to preserve local changes until successfully synced).
+ * Only reconciles documents that were included in the push batch (pushedDocIds).
+ * Documents not in the push batch are preserved — they may have been created locally
+ * after the push phase read the changes feed, and haven't been synced yet.
  */
 async function pullFromServer(
-  collections: Array<'wishlists' | 'items' | 'marks' | 'bookmarks' | 'users' | 'shares'>
+  collections: Array<'wishlists' | 'items' | 'marks' | 'bookmarks' | 'users' | 'shares'>,
+  pushedDocIds: Map<string, Set<string>>
 ): Promise<void> {
   const localDb = getDatabase();
   const baseUrl = getApiBaseUrl();
@@ -319,8 +322,14 @@ async function pullFromServer(
           },
         });
 
+        const collectionPushedIds = pushedDocIds.get(collection);
         for (const localDoc of localResult.docs) {
           if (!serverDocIds.has(localDoc._id)) {
+            // Skip if this doc wasn't in the push batch — it was created locally
+            // after push read the changes feed and hasn't been synced yet
+            if (!collectionPushedIds?.has(localDoc._id)) {
+              continue;
+            }
             // Skip if this doc failed to push - preserve local changes
             if (failedPushDocIds.has(localDoc._id)) {
               console.log(`[PouchDB] Preserving ${localDoc._id} - failed to push, will retry later`);
@@ -364,11 +373,13 @@ async function pullFromServer(
 /**
  * Push local changes to the server.
  * Gets documents modified since last push and sends them.
+ * Returns a map of collection -> Set<docId> that were included in the push batch.
  * Tracks documents that fail to push for reconciliation skip.
  */
 async function pushToServer(
   collections: Array<'wishlists' | 'items' | 'marks' | 'bookmarks' | 'users' | 'shares'>
-): Promise<void> {
+): Promise<Map<string, Set<string>>> {
+  const pushedDocIds = new Map<string, Set<string>>();
   // Clear failed push tracking at start of new push cycle
   failedPushDocIds = new Set();
 
@@ -425,6 +436,9 @@ async function pushToServer(
         }
       }
 
+      // Record which doc IDs are in this push batch (before filtering empty)
+      pushedDocIds.set(collection, new Set(docs.map(d => d._id)));
+
       if (docs.length === 0) continue;
 
       // Send to server
@@ -479,6 +493,8 @@ async function pushToServer(
       throw error;
     }
   }
+
+  return pushedDocIds;
 }
 
 /**
@@ -541,8 +557,8 @@ export function startSync(
 
       // Push first, then pull - ensures local changes are sent before
       // reconciliation logic in pull can delete local-only documents
-      await pushToServer(collections);
-      await pullFromServer(collections);
+      const pushedDocIds = await pushToServer(collections);
+      await pullFromServer(collections, pushedDocIds);
 
       setSyncStatus('idle');
       notifySyncComplete();
@@ -617,8 +633,8 @@ async function executeSync(): Promise<void> {
   const doSync = async () => {
     try {
       setSyncStatus('syncing');
-      await pushToServer(collections);
-      await pullFromServer(collections);
+      const pushedDocIds = await pushToServer(collections);
+      await pullFromServer(collections, pushedDocIds);
       setSyncStatus('idle');
       notifySyncComplete();
     } catch (error) {
