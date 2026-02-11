@@ -1,7 +1,5 @@
 """Share link management endpoints (CouchDB-based)."""
 
-import base64
-import io
 import logging
 import secrets
 import string
@@ -41,35 +39,6 @@ def generate_token(length: int = 32) -> str:
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
-def generate_qr_code(url: str) -> str | None:
-    """Generate a QR code as base64-encoded PNG."""
-    try:
-        import qrcode
-        from qrcode.image.pure import PyPNGImage
-
-        qr = qrcode.QRCode(
-            version=1,
-            error_correction=qrcode.constants.ERROR_CORRECT_M,
-            box_size=10,
-            border=4,
-        )
-        qr.add_data(url)
-        qr.make(fit=True)
-
-        img = qr.make_image(image_factory=PyPNGImage)
-        buffer = io.BytesIO()
-        img.save(buffer)
-        buffer.seek(0)
-
-        b64 = base64.b64encode(buffer.getvalue()).decode("ascii")
-        return f"data:image/png;base64,{b64}"
-    except ImportError:
-        logger.warning("qrcode library not installed, skipping QR generation")
-        return None
-    except Exception as e:
-        logger.error(f"QR code generation failed: {e}")
-        return None
-
 
 def get_share_url(token: str) -> str:
     """Get the public share URL for a token."""
@@ -96,7 +65,6 @@ def share_doc_to_response(doc: dict) -> ShareLinkResponse:
         access_count=doc.get("access_count", 0),
         created_at=datetime.fromisoformat(doc["created_at"]),
         share_url=share_url,
-        qr_code_base64=generate_qr_code(share_url),
     )
 
 

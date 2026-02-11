@@ -35,7 +35,6 @@ class ShareLinkResponse(BaseModel):
     access_count: int
     created_at: datetime
     share_url: str
-    qr_code_base64: str | None = None
 
 
 class ShareLinkListResponse(BaseModel):

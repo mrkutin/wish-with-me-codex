@@ -2,6 +2,7 @@
 import { ref, watch, computed, onUnmounted } from 'vue';
 import { useQuasar, copyToClipboard } from 'quasar';
 import { useI18n } from 'vue-i18n';
+import QRCode from 'qrcode';
 import { api } from '@/boot/axios';
 import { useAuthStore } from '@/stores/auth';
 import { getShares, subscribeToShares, extractId, triggerSync } from '@/services/pouchdb';
@@ -64,8 +65,6 @@ function shareDocToLink(doc: ShareDoc): ShareLink {
     access_count: doc.access_count,
     created_at: doc.created_at,
     share_url: getShareUrl(doc.token),
-    // QR code is generated server-side, may not be available from PouchDB
-    qr_code_base64: (doc as ShareDoc & { qr_code_base64?: string }).qr_code_base64,
   };
 }
 
@@ -164,9 +163,21 @@ function formatDate(dateStr: string | null): string {
   return date.toLocaleDateString();
 }
 
-function openQrDialog(qrCode: string) {
-  currentQrCode.value = qrCode;
-  showQrDialog.value = true;
+async function openQrDialog(shareUrl: string) {
+  try {
+    currentQrCode.value = await QRCode.toDataURL(shareUrl, {
+      errorCorrectionLevel: 'M',
+      margin: 4,
+      width: 250,
+    });
+    showQrDialog.value = true;
+  } catch (error) {
+    console.error('[ShareDialog] QR code generation failed:', error);
+    $q.notify({
+      type: 'negative',
+      message: t('errors.generic'),
+    });
+  }
 }
 
 function closeQrDialog() {
@@ -305,12 +316,11 @@ onUnmounted(() => {
                     <q-tooltip>{{ $t('sharing.copyLink') }}</q-tooltip>
                   </q-btn>
                   <q-btn
-                    v-if="link.qr_code_base64"
                     flat
                     round
                     dense
                     icon="qr_code"
-                    @click="openQrDialog(link.qr_code_base64)"
+                    @click="openQrDialog(link.share_url)"
                   >
                     <q-tooltip>{{ $t('sharing.showQr') }}</q-tooltip>
                   </q-btn>

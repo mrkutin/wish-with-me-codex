@@ -11,6 +11,13 @@ import { mockApi, createMockResponse, mockNotify, mockDialog, mockDialogResult }
 import type { ShareLink } from '@/types/share';
 import type { ShareDoc } from '@/services/pouchdb';
 
+// Mock qrcode
+vi.mock('qrcode', () => ({
+  default: {
+    toDataURL: vi.fn().mockResolvedValue('data:image/png;base64,MockQRCode'),
+  },
+}));
+
 // Mock vue-i18n
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
@@ -62,7 +69,6 @@ function createMockShareLink(overrides: Partial<ShareLink> = {}): ShareLink {
     access_count: 0,
     created_at: '2024-01-01T00:00:00Z',
     share_url: 'https://wishwith.me/s/abc123token',
-    qr_code_base64: 'data:image/png;base64,QRCodeData',
     ...overrides,
   };
 }
@@ -480,7 +486,7 @@ describe('ShareDialog', () => {
   });
 
   describe('QR code dialog', () => {
-    it('shows QR code image in dialog', async () => {
+    it('generates QR code client-side and shows in dialog', async () => {
       mockGetShares.mockResolvedValueOnce([]);
 
       wrapper = mountDialog();
@@ -489,11 +495,11 @@ describe('ShareDialog', () => {
       const vm = wrapper.vm as unknown as {
         showQrDialog: boolean;
         currentQrCode: string | null;
-        openQrDialog: (qrCode: string) => void;
+        openQrDialog: (shareUrl: string) => Promise<void>;
       };
 
-      vm.openQrDialog('data:image/png;base64,MockQRCode');
-      await nextTick();
+      await vm.openQrDialog('https://wishwith.me/s/abc123token');
+      await flushPromises();
 
       expect(vm.showQrDialog).toBe(true);
       expect(vm.currentQrCode).toBe('data:image/png;base64,MockQRCode');
@@ -508,13 +514,13 @@ describe('ShareDialog', () => {
       const vm = wrapper.vm as unknown as {
         showQrDialog: boolean;
         currentQrCode: string | null;
-        openQrDialog: (qrCode: string) => void;
+        openQrDialog: (shareUrl: string) => Promise<void>;
         closeQrDialog: () => void;
       };
 
       // Open and close
-      vm.openQrDialog('data:image/png;base64,MockQRCode');
-      await nextTick();
+      await vm.openQrDialog('https://wishwith.me/s/abc123token');
+      await flushPromises();
       expect(vm.showQrDialog).toBe(true);
 
       vm.closeQrDialog();
@@ -523,21 +529,28 @@ describe('ShareDialog', () => {
       expect(vm.currentQrCode).toBeNull();
     });
 
-    it('does not show QR button when qr_code_base64 is not provided', async () => {
+    it('shows error notification when QR generation fails', async () => {
+      const QRCode = await import('qrcode');
+      vi.mocked(QRCode.default.toDataURL).mockRejectedValueOnce(new Error('QR generation failed'));
+
       mockGetShares.mockResolvedValueOnce([]);
 
-      wrapper = mountDialog({ modelValue: false });
-      await wrapper.setProps({ modelValue: true });
+      wrapper = mountDialog();
       await flushPromises();
 
-      // Manually set shareLinks to test the condition
-      const link = createMockShareLink({ qr_code_base64: undefined });
-      const vm = wrapper.vm as unknown as { shareLinks: ShareLink[] };
-      vm.shareLinks = [link];
-      await nextTick();
+      const vm = wrapper.vm as unknown as {
+        showQrDialog: boolean;
+        openQrDialog: (shareUrl: string) => Promise<void>;
+      };
 
-      expect(vm.shareLinks).toHaveLength(1);
-      expect(vm.shareLinks[0].qr_code_base64).toBeUndefined();
+      await vm.openQrDialog('https://wishwith.me/s/abc123token');
+      await flushPromises();
+
+      expect(vm.showQrDialog).toBe(false);
+      expect(mockNotify).toHaveBeenCalledWith({
+        type: 'negative',
+        message: 'errors.generic',
+      });
     });
   });
 
@@ -683,13 +696,13 @@ describe('ShareDialog', () => {
 
       const vm = wrapper.vm as unknown as {
         showQrDialog: boolean;
-        openQrDialog: (qrCode: string) => void;
+        openQrDialog: (shareUrl: string) => Promise<void>;
         isOpen: boolean;
       };
 
       // Open QR dialog
-      vm.openQrDialog('data:image/png;base64,MockQRCode');
-      await nextTick();
+      await vm.openQrDialog('https://wishwith.me/s/abc123token');
+      await flushPromises();
       expect(vm.showQrDialog).toBe(true);
 
       // Close main dialog

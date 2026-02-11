@@ -13,7 +13,6 @@ export interface ShareLink {
   access_count: number;
   created_at: string;
   share_url: string;
-  qr_code_base64?: string;
 }
 
 export interface ShareLinkCreate {

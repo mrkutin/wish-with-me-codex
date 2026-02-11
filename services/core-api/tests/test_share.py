@@ -181,7 +181,7 @@ async def test_create_share_success(
     owner_user: dict[str, Any],
     wishlist: dict[str, Any],
 ) -> None:
-    """Test creating a share link successfully generates token and QR code."""
+    """Test creating a share link successfully generates token and share URL."""
     wishlist_uuid = wishlist["_id"].split(":")[1]
 
     async def mock_get(doc_id: str) -> dict[str, Any]:
@@ -227,8 +227,6 @@ async def test_create_share_success(
     assert "share_url" in data
     assert data["link_type"] == "mark"
     assert data["access_count"] == 0
-    # QR code may or may not be present depending on qrcode library
-    assert "qr_code_base64" in data
 
 
 @pytest.mark.asyncio
