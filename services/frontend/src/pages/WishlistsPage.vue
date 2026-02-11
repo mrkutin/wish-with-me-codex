@@ -400,10 +400,22 @@ const iconOptions = [
   { value: 'flight', label: 'Travel' },
   { value: 'child_care', label: 'Kids' },
   { value: 'pets', label: 'Pets' },
+  { value: 'checkroom', label: 'Clothes' },
+  { value: 'devices', label: 'Gadgets' },
+  { value: 'sports_esports', label: 'Gaming' },
+  { value: 'palette', label: 'Art' },
+  { value: 'auto_stories', label: 'Books' },
+  { value: 'music_note', label: 'Music' },
+  { value: 'restaurant', label: 'Dining' },
+  { value: 'fitness_center', label: 'Fitness' },
+  { value: 'photo_camera', label: 'Photo' },
+  { value: 'spa', label: 'Nature' },
+  { value: 'directions_car', label: 'Auto' },
+  { value: 'diamond', label: 'Beauty' },
 ];
 
 const colorOptions = [
-  'primary', 'red', 'pink', 'purple', 'deep-purple', 'indigo',
+  'primary', 'red', 'pink', 'purple', 'deep-purple',
   'blue', 'cyan', 'teal', 'green', 'orange', 'brown',
 ];
 
