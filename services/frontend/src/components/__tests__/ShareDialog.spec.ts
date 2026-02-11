@@ -13,9 +13,7 @@ import type { ShareDoc } from '@/services/pouchdb';
 
 // Mock qrcode
 vi.mock('qrcode', () => ({
-  default: {
-    toDataURL: vi.fn().mockResolvedValue('data:image/png;base64,MockQRCode'),
-  },
+  toDataURL: vi.fn().mockResolvedValue('data:image/png;base64,MockQRCode'),
 }));
 
 // Mock vue-i18n
@@ -530,8 +528,8 @@ describe('ShareDialog', () => {
     });
 
     it('shows error notification when QR generation fails', async () => {
-      const QRCode = await import('qrcode');
-      vi.mocked(QRCode.default.toDataURL).mockRejectedValueOnce(new Error('QR generation failed'));
+      const qrcode = await import('qrcode');
+      vi.mocked(qrcode.toDataURL).mockRejectedValueOnce(new Error('QR generation failed'));
 
       mockGetShares.mockResolvedValueOnce([]);
 

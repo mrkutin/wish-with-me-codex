@@ -2,7 +2,7 @@
 import { ref, watch, computed, onUnmounted } from 'vue';
 import { useQuasar, copyToClipboard } from 'quasar';
 import { useI18n } from 'vue-i18n';
-import QRCode from 'qrcode';
+import { toDataURL as qrToDataURL } from 'qrcode';
 import { api } from '@/boot/axios';
 import { useAuthStore } from '@/stores/auth';
 import { getShares, subscribeToShares, extractId, triggerSync } from '@/services/pouchdb';
@@ -165,7 +165,7 @@ function formatDate(dateStr: string | null): string {
 
 async function openQrDialog(shareUrl: string) {
   try {
-    currentQrCode.value = await QRCode.toDataURL(shareUrl, {
+    currentQrCode.value = await qrToDataURL(shareUrl, {
       errorCorrectionLevel: 'M',
       margin: 4,
       width: 250,
