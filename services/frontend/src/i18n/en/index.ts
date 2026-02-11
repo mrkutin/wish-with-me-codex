@@ -101,6 +101,7 @@ export default {
     removeBookmarkMessage: 'Are you sure you want to remove "{name}" from your shared wishlists?',
     bookmarkRemoved: 'Wishlist removed from your list',
     chooseIcon: 'Choose an icon',
+    chooseColor: 'Choose a color',
     untitled: 'Untitled Wishlist',
   },
   items: {

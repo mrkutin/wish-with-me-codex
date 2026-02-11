@@ -101,6 +101,7 @@ export default {
     removeBookmarkMessage: 'Вы уверены, что хотите удалить "{name}" из ваших общих вишлистов?',
     bookmarkRemoved: 'Вишлист удалён из вашего списка',
     chooseIcon: 'Выберите иконку',
+    chooseColor: 'Выберите цвет',
     untitled: 'Без названия',
   },
   items: {

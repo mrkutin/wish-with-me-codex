@@ -39,7 +39,7 @@
       <div class="row items-center justify-between q-mb-md">
         <div class="col row items-center no-wrap">
           <q-btn flat dense icon="arrow_back" aria-label="Go back" @click="goBack" class="q-mr-md" />
-          <q-icon :name="wishlistDoc.icon || 'card_giftcard'" size="28px" color="primary" class="q-mr-sm" />
+          <q-icon :name="wishlistDoc.icon || 'card_giftcard'" size="28px" :color="wishlistDoc.icon_color || 'primary'" class="q-mr-sm" />
           <span class="text-h5">{{ wishlistDoc.name }}</span>
         </div>
       </div>

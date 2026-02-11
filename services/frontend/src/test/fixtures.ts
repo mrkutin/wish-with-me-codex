@@ -153,6 +153,7 @@ export interface CreateMockWishlistOptions {
   description?: string | null;
   is_public?: boolean;
   icon?: string;
+  icon_color?: string;
   created_at?: string;
   updated_at?: string;
 }
@@ -169,6 +170,7 @@ export function createMockWishlist(options: CreateMockWishlistOptions = {}): Wis
     description: options.description === undefined ? `Description for wishlist ${idCounter}` : options.description,
     is_public: options.is_public ?? false,
     icon: options.icon || 'favorite',
+    icon_color: options.icon_color || 'primary',
     created_at: options.created_at || now(),
     updated_at: options.updated_at || now(),
   };
@@ -198,6 +200,7 @@ export function createMockWishlistDoc(options: CreateMockWishlistDocOptions = {}
     name: wishlist.name,
     description: wishlist.description,
     icon: wishlist.icon,
+    icon_color: wishlist.icon_color,
     is_public: wishlist.is_public,
     access: options.access || [ownerId],
     created_at: wishlist.created_at,
@@ -358,6 +361,7 @@ export interface CreateMockBookmarkOptions {
   owner_avatar_base64?: string | null;
   wishlist_name?: string;
   wishlist_icon?: string;
+  wishlist_icon_color?: string;
   created_at?: string;
   updated_at?: string;
   last_accessed_at?: string;
@@ -390,6 +394,7 @@ export function createMockBookmark(options: CreateMockBookmarkDocOptions = {}): 
     owner_avatar_base64: options.owner_avatar_base64 ?? null,
     wishlist_name: options.wishlist_name || `Shared Wishlist ${idCounter}`,
     wishlist_icon: options.wishlist_icon || 'favorite',
+    wishlist_icon_color: options.wishlist_icon_color || 'primary',
     access: options.access || [userId],
     created_at: options.created_at || now(),
     updated_at: options.updated_at,
@@ -615,6 +620,7 @@ export function createSharedWishlistScenario(): {
     owner_name: owner.name,
     wishlist_name: wishlist.name,
     wishlist_icon: wishlist.icon,
+    wishlist_icon_color: wishlist.icon_color,
     access: [viewer._id],
   });
 

@@ -49,6 +49,7 @@ export interface SharedWishlistInfo {
   title: string;
   description: string | null;
   icon: string;
+  icon_color?: string;
   owner: OwnerPublicProfile;
   item_count: number;
 }

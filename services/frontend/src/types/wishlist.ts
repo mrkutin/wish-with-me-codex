@@ -5,6 +5,7 @@ export interface Wishlist {
   description: string | null;
   is_public: boolean;
   icon: string;
+  icon_color: string;
   created_at: string;
   updated_at: string;
 }
@@ -14,6 +15,7 @@ export interface WishlistCreate {
   description?: string | null;
   is_public?: boolean;
   icon?: string;
+  icon_color?: string;
 }
 
 export interface WishlistUpdate {
@@ -21,6 +23,7 @@ export interface WishlistUpdate {
   description?: string | null;
   is_public?: boolean;
   icon?: string;
+  icon_color?: string;
 }
 
 export interface WishlistListResponse {

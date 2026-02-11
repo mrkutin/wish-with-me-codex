@@ -14,6 +14,7 @@ class WishlistBase(BaseModel):
     description: Annotated[str | None, Field(max_length=500)] = None
     is_public: bool = False
     icon: Annotated[str, Field(max_length=50)] = "card_giftcard"
+    icon_color: Annotated[str, Field(max_length=20)] = "primary"
 
 
 class WishlistCreate(WishlistBase):
@@ -29,6 +30,7 @@ class WishlistUpdate(BaseModel):
     description: Annotated[str | None, Field(max_length=500)] = None
     is_public: bool | None = None
     icon: Annotated[str | None, Field(max_length=50)] = None
+    icon_color: Annotated[str | None, Field(max_length=20)] = None
 
 
 class WishlistResponse(WishlistBase):

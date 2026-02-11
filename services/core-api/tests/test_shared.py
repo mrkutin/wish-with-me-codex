@@ -79,6 +79,7 @@ def wishlist(owner_user: dict[str, Any]) -> dict[str, Any]:
         "name": "Birthday Wishlist",
         "description": "My birthday wishes",
         "icon": "gift",
+        "icon_color": "primary",
         "access": [owner_user["_id"]],
         "created_at": datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat(),

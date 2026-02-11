@@ -34,6 +34,7 @@ export interface WishlistDoc extends BaseDoc {
   name: string;
   description?: string | null;
   icon: string;
+  icon_color?: string;
   is_public: boolean;
 }
 
@@ -93,6 +94,7 @@ export interface BookmarkDoc {
   owner_avatar_base64?: string | null;
   wishlist_name?: string;
   wishlist_icon?: string;
+  wishlist_icon_color?: string;
   access: string[];
   created_at: string;
   updated_at?: string;

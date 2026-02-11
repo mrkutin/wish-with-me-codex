@@ -145,7 +145,7 @@ All docs use **type-prefixed IDs** (`{type}:{uuid}`) and **`access` array** for 
 ### Wishlist (`wishlist:{uuid}`)
 ```json
 {"type": "wishlist", "owner_id": "user:...", "name": "...", "description": "...",
- "icon": "card_giftcard", "is_public": false,
+ "icon": "card_giftcard", "icon_color": "primary", "is_public": false,
  "access": ["user:owner", "user:granted..."], "created_at": "...", "updated_at": "..."}
 ```
 
@@ -181,7 +181,7 @@ All docs use **type-prefixed IDs** (`{type}:{uuid}`) and **`access` array** for 
 ```json
 {"type": "bookmark", "user_id": "...", "share_id": "...", "wishlist_id": "...",
  "owner_name": "...", "owner_avatar_base64": "...",
- "wishlist_name": "...", "wishlist_icon": "...",
+ "wishlist_name": "...", "wishlist_icon": "...", "wishlist_icon_color": "...",
  "access": ["user:{uuid}"], "created_at": "...", "last_accessed_at": "..."}
 ```
 

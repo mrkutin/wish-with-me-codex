@@ -116,6 +116,7 @@ async def grant_access_to_user(db: CouchDBClient, share: dict, user_id: str) -> 
         existing_bookmark["owner_avatar_base64"] = owner_avatar
         existing_bookmark["wishlist_name"] = wishlist.get("name", "")
         existing_bookmark["wishlist_icon"] = wishlist.get("icon", "card_giftcard")
+        existing_bookmark["wishlist_icon_color"] = wishlist.get("icon_color", "primary")
         existing_bookmark["updated_at"] = now
         await db.put(existing_bookmark)
     else:
@@ -131,6 +132,7 @@ async def grant_access_to_user(db: CouchDBClient, share: dict, user_id: str) -> 
             "owner_avatar_base64": owner_avatar,
             "wishlist_name": wishlist.get("name", ""),
             "wishlist_icon": wishlist.get("icon", "card_giftcard"),
+            "wishlist_icon_color": wishlist.get("icon_color", "primary"),
             "created_at": now,
             "last_accessed_at": now,
             "access": [user_id],

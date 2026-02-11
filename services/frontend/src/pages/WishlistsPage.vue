@@ -64,7 +64,7 @@
                 <q-card-section>
                   <div class="row items-start justify-between">
                     <div class="row items-center no-wrap">
-                      <q-icon :name="wishlist.icon || 'card_giftcard'" size="24px" color="primary" class="q-mr-sm" />
+                      <q-icon :name="wishlist.icon || 'card_giftcard'" size="24px" :color="wishlist.icon_color || 'primary'" class="q-mr-sm" />
                       <div class="text-h6">{{ wishlist.name }}</div>
                     </div>
                     <q-btn
@@ -144,7 +144,7 @@
               <q-card-section>
                 <div class="row items-start justify-between">
                   <div class="row items-center no-wrap">
-                    <q-icon :name="bookmark.wishlist.icon || 'card_giftcard'" size="24px" color="primary" class="q-mr-md" />
+                    <q-icon :name="bookmark.wishlist.icon || 'card_giftcard'" size="24px" :color="bookmark.wishlist.icon_color || 'primary'" class="q-mr-md" />
                     <div class="text-h6">{{ bookmark.wishlist.title }}</div>
                   </div>
                   <q-btn
@@ -224,11 +224,28 @@
                 v-for="icon in iconOptions"
                 :key="icon.value"
                 :icon="icon.value"
-                :color="newWishlist.icon === icon.value ? 'primary' : 'grey-5'"
+                :color="newWishlist.icon === icon.value ? (newWishlist.icon_color || 'primary') : 'grey-5'"
                 round
                 flat
                 size="md"
                 @click="newWishlist.icon = icon.value"
+              />
+            </div>
+          </div>
+
+          <!-- Color picker -->
+          <div class="q-mt-md">
+            <div class="text-caption q-mb-sm">{{ $t('wishlists.chooseColor') }}</div>
+            <div class="row q-gutter-sm">
+              <q-btn
+                v-for="color in colorOptions"
+                :key="color"
+                :icon="newWishlist.icon_color === color ? 'circle' : 'lens'"
+                :color="color"
+                round
+                flat
+                size="sm"
+                @click="newWishlist.icon_color = color"
               />
             </div>
           </div>
@@ -286,11 +303,28 @@
                 v-for="icon in iconOptions"
                 :key="icon.value"
                 :icon="icon.value"
-                :color="editingWishlist.icon === icon.value ? 'primary' : 'grey-5'"
+                :color="editingWishlist.icon === icon.value ? (editingWishlist.icon_color || 'primary') : 'grey-5'"
                 round
                 flat
                 size="md"
                 @click="editingWishlist.icon = icon.value"
+              />
+            </div>
+          </div>
+
+          <!-- Color picker -->
+          <div class="q-mt-md">
+            <div class="text-caption q-mb-sm">{{ $t('wishlists.chooseColor') }}</div>
+            <div class="row q-gutter-sm">
+              <q-btn
+                v-for="color in colorOptions"
+                :key="color"
+                :icon="editingWishlist.icon_color === color ? 'circle' : 'lens'"
+                :color="color"
+                round
+                flat
+                size="sm"
+                @click="editingWishlist.icon_color = color"
               />
             </div>
           </div>
@@ -368,11 +402,17 @@ const iconOptions = [
   { value: 'pets', label: 'Pets' },
 ];
 
+const colorOptions = [
+  'primary', 'red', 'pink', 'purple', 'deep-purple', 'indigo',
+  'blue', 'cyan', 'teal', 'green', 'orange', 'brown',
+];
+
 const newWishlist = reactive({
   name: '',
   description: '',
   is_public: false,
   icon: 'card_giftcard',
+  icon_color: 'primary',
 });
 const editingWishlist = reactive({
   id: '',
@@ -380,6 +420,7 @@ const editingWishlist = reactive({
   description: '',
   is_public: false,
   icon: 'card_giftcard',
+  icon_color: 'primary',
 });
 
 async function fetchItemCounts() {
@@ -427,6 +468,7 @@ async function fetchBookmarks(silent = false) {
           title: bm.wishlist_name || wishlistDoc?.name || 'Unknown',
           description: wishlistDoc?.description || null,
           icon: bm.wishlist_icon || wishlistDoc?.icon || 'card_giftcard',
+          icon_color: bm.wishlist_icon_color || wishlistDoc?.icon_color || 'primary',
           owner: {
             id: wishlistDoc?.owner_id ? extractId(wishlistDoc.owner_id) : '',
             name: bm.owner_name || 'Unknown',
@@ -486,12 +528,14 @@ async function createWishlist() {
       description: newWishlist.description || null,
       is_public: newWishlist.is_public,
       icon: newWishlist.icon,
+      icon_color: newWishlist.icon_color,
     });
     showCreateDialog.value = false;
     newWishlist.name = '';
     newWishlist.description = '';
     newWishlist.is_public = false;
     newWishlist.icon = 'card_giftcard';
+    newWishlist.icon_color = 'primary';
     $q.notify({
       type: 'positive',
       message: t('wishlists.created'),
@@ -510,6 +554,7 @@ function editWishlist(wishlist: Wishlist) {
   editingWishlist.description = wishlist.description || '';
   editingWishlist.is_public = wishlist.is_public;
   editingWishlist.icon = wishlist.icon || 'card_giftcard';
+  editingWishlist.icon_color = wishlist.icon_color || 'primary';
   showEditDialog.value = true;
 }
 
@@ -520,6 +565,7 @@ async function updateWishlist() {
       description: editingWishlist.description || null,
       is_public: editingWishlist.is_public,
       icon: editingWishlist.icon,
+      icon_color: editingWishlist.icon_color,
     });
     showEditDialog.value = false;
     $q.notify({
